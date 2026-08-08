@@ -79,6 +79,7 @@ type Trace struct {
 	TargetScopeID             string    `json:"targetScopeId"`
 	TraceID                   string    `json:"traceId"`
 	SessionID                 string    `json:"sessionId"`
+	EntrySkill                string    `json:"entrySkill"`
 	Outcome                   string    `json:"outcome"`
 	FinalizedAt               time.Time `json:"finalizedAt"`
 	SizeBytes                 int64     `json:"sizeBytes"`

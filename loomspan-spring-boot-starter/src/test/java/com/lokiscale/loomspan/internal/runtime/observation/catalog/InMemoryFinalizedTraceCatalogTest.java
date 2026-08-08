@@ -180,7 +180,7 @@ class InMemoryFinalizedTraceCatalogTest
             throws Exception
     {
         return new FinalizedTraceArtifact(
-                id, "session-" + id, TraceOutcome.SUCCEEDED, finalizedAt, path,
+                id, "session-" + id, "test.entry", TraceOutcome.SUCCEEDED, finalizedAt, path,
                 Files.exists(path) ? Files.size(path) : 0,
                 TracePersistencePolicy.ALWAYS, expiresAt);
     }

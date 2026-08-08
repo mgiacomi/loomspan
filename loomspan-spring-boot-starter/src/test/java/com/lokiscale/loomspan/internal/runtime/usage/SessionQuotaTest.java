@@ -19,7 +19,7 @@ class SessionQuotaTest {
     @Test
     void throwsWhenModelCallQuotaExceeded() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 10, 1, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 3);
 
         service.recordMissionStart(session, "root.skill");
         service.recordModelResponse(session, "root.skill", IDENTITY, new ModelUsageRecord(1, 2, 3, UsagePrecision.EXACT, null));
@@ -33,7 +33,7 @@ class SessionQuotaTest {
     @Test
     void throwsWhenToolInvocationQuotaExceeded() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 1, 10, 10, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-2", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-2", "test.entry", 3);
 
         service.recordToolCall(session, "root.skill", "tool.one");
 
@@ -46,7 +46,7 @@ class SessionQuotaTest {
     @Test
     void throwsWhenLinterRetryQuotaExceeded() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 1, 10, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-3", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-3", "test.entry", 3);
 
         service.recordLinterOutcome(session, outcome(LinterOutcomeStatus.RETRYING, 0, 1));
 

@@ -45,7 +45,7 @@ class SuccessfulSkillCompletionBoundaryTest
         PlanningService planning = mock(PlanningService.class);
         ExecutionStateService state = mock(ExecutionStateService.class);
         CapabilityMetadata capability = capability();
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("linked", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("linked", "test.entry", 3);
         when(planning.markToolStarted(eq(session), eq(capability), any())).thenReturn(Optional.of(linkedPlan()));
         when(state.openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any()))
                 .thenReturn(frame(capability.name()));
@@ -75,7 +75,7 @@ class SuccessfulSkillCompletionBoundaryTest
             ExecutionStateService state = mock(ExecutionStateService.class);
             CapabilityMetadata capability = capability();
             LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
-                    "failure-" + failure.getClass().getSimpleName(), 3);
+                    "failure-" + failure.getClass().getSimpleName(), "test.entry", 3);
             when(planning.markToolStarted(eq(session), eq(capability), any())).thenReturn(Optional.empty());
             when(state.openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any()))
                     .thenReturn(frame(capability.name()));

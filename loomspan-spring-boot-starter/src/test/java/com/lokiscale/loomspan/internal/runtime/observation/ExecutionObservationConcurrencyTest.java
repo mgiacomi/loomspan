@@ -35,7 +35,7 @@ class ExecutionObservationConcurrencyTest
         {
             for (int index = 0; index < SESSION_COUNT; index++)
             {
-                futures.add(executor.submit(() -> runner.callWithNewSession(session ->
+                futures.add(executor.submit(() -> runner.callWithNewSession("test.entry", session ->
                 {
                     ready.countDown();
                     try

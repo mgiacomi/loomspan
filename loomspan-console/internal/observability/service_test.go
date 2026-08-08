@@ -202,6 +202,38 @@ func TestObservabilityServiceRejectsSemanticallyInvalidSuccessResponses(t *testi
 				return domain
 			},
 		},
+		{
+			name: "trace list missing entry skill",
+			body: `{"items":[{"traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-25T12:00:00Z","sizeBytes":1,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-25T12:15:00Z"}],"hasMore":false,"nextCursor":null,"observedAt":"2026-07-25T12:00:00Z"}`,
+			call: func(service *Service, scope target.Scope) *consolecore.Error {
+				_, domain := service.ListTraces(context.Background(), scope, ListRequest{})
+				return domain
+			},
+		},
+		{
+			name: "trace detail empty entry skill",
+			body: `{"traceId":"trace-1","sessionId":"session-1","entrySkill":"","outcome":"SUCCEEDED","finalizedAt":"2026-07-25T12:00:00Z","sizeBytes":1,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-25T12:15:00Z"}`,
+			call: func(service *Service, scope target.Scope) *consolecore.Error {
+				_, domain := service.GetTrace(context.Background(), scope, "trace-1")
+				return domain
+			},
+		},
+		{
+			name: "trace list empty entry skill",
+			body: `{"items":[{"traceId":"trace-1","sessionId":"session-1","entrySkill":"","outcome":"SUCCEEDED","finalizedAt":"2026-07-25T12:00:00Z","sizeBytes":1,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-25T12:15:00Z"}],"hasMore":false,"nextCursor":null,"observedAt":"2026-07-25T12:00:00Z"}`,
+			call: func(service *Service, scope target.Scope) *consolecore.Error {
+				_, domain := service.ListTraces(context.Background(), scope, ListRequest{})
+				return domain
+			},
+		},
+		{
+			name: "trace detail missing entry skill",
+			body: `{"traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-25T12:00:00Z","sizeBytes":1,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-25T12:15:00Z"}`,
+			call: func(service *Service, scope target.Scope) *consolecore.Error {
+				_, domain := service.GetTrace(context.Background(), scope, "trace-1")
+				return domain
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

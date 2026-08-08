@@ -58,6 +58,7 @@ const trace: Trace = {
   targetScopeId: "scope-1",
   traceId: "trace-1",
   sessionId: "session-1",
+  entrySkill: "CheckDns",
   outcome: "SUCCEEDED",
   finalizedAt: "2026-07-27T10:10:00Z",
   sizeBytes: 4096,
@@ -87,8 +88,17 @@ test("trace detail renders facts when loaded", async () => {
     expect(screen.getByText("trace-1")).toBeInTheDocument();
   });
   expect(screen.getByText("session-1")).toBeInTheDocument();
+  expect(screen.getByText("CheckDns")).toBeInTheDocument();
   expect(screen.getByText("SUCCEEDED")).toBeInTheDocument();
   expect(screen.getByText("PERSISTENT")).toBeInTheDocument();
+});
+
+test("trace detail renders entry skill as inert text before acquisition", async () => {
+  vi.mocked(getTraceDetail).mockResolvedValue({ ...trace, entrySkill: "<script>bad()</script>" });
+  render(<TraceDetailView />);
+  expect(await screen.findByText("<script>bad()</script>")).toBeInTheDocument();
+  expect(document.querySelector("script")).toBeNull();
+  expect(acquireArtifact).not.toHaveBeenCalled();
 });
 
 test("trace detail renders loading state", () => {

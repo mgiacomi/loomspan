@@ -189,7 +189,7 @@ class OutputSchemaCallAdvisorTest {
         RecordingChain chain = new RecordingChain(List.of("bad-json", "{\"vendorName\":\"Acme\",\"totalAmount\":42.5}"));
         LoomspanSessionRunner runner = new LoomspanSessionRunner(3);
 
-        runner.callWithNewSession(session -> {
+        runner.callWithNewSession("test.entry", session -> {
             ChatClientResponse response = advisor.adviseCall(request("Extract invoice"), chain);
 
             assertThat(text(response)).isEqualTo("{\"vendorName\":\"Acme\",\"totalAmount\":42.5}");
@@ -255,7 +255,7 @@ class OutputSchemaCallAdvisorTest {
         RecordingChain chain = new RecordingChain(List.of("bad-json", "{\"vendorName\":\"Acme\",\"totalAmount\":42.5}"));
         LoomspanSessionRunner runner = new LoomspanSessionRunner(3);
 
-        runner.callWithNewSession(session -> {
+        runner.callWithNewSession("test.entry", session -> {
             var frame = stateService.openFrame(session, TraceFrameType.MODEL_CALL, "outputSchemaSkill#model", Map.of());
 
             advisor.adviseCall(request("Extract invoice"), chain);
@@ -289,7 +289,7 @@ class OutputSchemaCallAdvisorTest {
         RecordingChain chain = new RecordingChain(List.of("{\"vendorName\":\"Acme\",\"totalAmount\":42.5}"));
         LoomspanSessionRunner runner = new LoomspanSessionRunner(3);
 
-        assertThatThrownBy(() -> runner.callWithNewSession(session -> advisor.adviseCall(request("Extract invoice"), chain)))
+        assertThatThrownBy(() -> runner.callWithNewSession("test.entry", session -> advisor.adviseCall(request("Extract invoice"), chain)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("boom");
     }

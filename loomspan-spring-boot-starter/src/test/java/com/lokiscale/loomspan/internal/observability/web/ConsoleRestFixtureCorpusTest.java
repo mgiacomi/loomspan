@@ -73,7 +73,7 @@ class ConsoleRestFixtureCorpusTest
                 Instant.parse("2026-07-25T11:59:59Z"), 5000, "CheckDns", "ACTIVE",
                 "RUNNING", "Checking DNS", List.of(), 0, false, usage, limits);
         var trace = new ObservabilityDtos.Trace(
-                "trace-1", "session-1", TraceOutcome.SUCCEEDED, OBSERVED, 128,
+                "trace-1", "session-1", "CheckDns", TraceOutcome.SUCCEEDED, OBSERVED, 128,
                 TracePersistencePolicy.ONERROR, Instant.parse("2026-07-25T12:15:00Z"));
 
         result.put("instance-status.json", new ObservabilityDtos.InstanceStatus(

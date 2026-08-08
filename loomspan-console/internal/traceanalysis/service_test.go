@@ -70,7 +70,7 @@ func newServiceTestHarness(t *testing.T, traceID, ndjson string) *serviceTestHar
 			// The session ID must match the NDJSON content's sessionId.
 			// All test traces use "session-" + (traceID without "trace-" prefix).
 			sessionID := deriveSessionID(traceID)
-			_, _ = fmt.Fprintf(w, `{"targetScopeId":"scope-test","traceId":"%s","sessionId":"%s","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":%d,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-08-01T12:00:00Z"}`,
+			_, _ = fmt.Fprintf(w, `{"targetScopeId":"scope-test","traceId":"%s","sessionId":"%s","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":%d,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-08-01T12:00:00Z"}`,
 				traceID, sessionID, len(body))
 		case strings.HasSuffix(r.URL.Path, "/traces/"+traceID+"/artifact"):
 			w.Header().Set("Content-Type", applicationclient.ArtifactMediaType)

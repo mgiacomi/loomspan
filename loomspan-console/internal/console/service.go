@@ -168,6 +168,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 			return artifact.TraceMetadata{
 				TraceID:                   trace.TraceID,
 				SessionID:                 trace.SessionID,
+				EntrySkill:                trace.EntrySkill,
 				Outcome:                   trace.Outcome,
 				FinalizedAt:               trace.FinalizedAt,
 				SizeBytes:                 trace.SizeBytes,

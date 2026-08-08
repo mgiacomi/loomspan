@@ -216,7 +216,7 @@ class ObservabilityRestIntegrationTest
                 SessionUsageSnapshot.empty(), null));
         Path artifact = Files.writeString(temporaryDirectory.resolve("trace.ndjson"), "{}\n");
         runtime.traces().publish(new FinalizedTraceArtifact(
-                "trace-final", "session-final", TraceOutcome.SUCCEEDED, now, artifact,
+                "trace-final", "session-final", "test.entry", TraceOutcome.SUCCEEDED, now, artifact,
                 Files.size(artifact), TracePersistencePolicy.ALWAYS, now.plusSeconds(300)));
 
         mvc.perform(get(ObservabilityApiPaths.ACTIVE)
@@ -231,11 +231,13 @@ class ObservabilityRestIntegrationTest
                         .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].traceId").value("trace-final"))
+                .andExpect(jsonPath("$.items[0].entrySkill").value("test.entry"))
                 .andExpect(jsonPath("$.items[0].artifactPath").doesNotExist());
         mvc.perform(get(ObservabilityApiPaths.TRACES + "/trace-final")
                         .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.traceId").value("trace-final"))
+                .andExpect(jsonPath("$.entrySkill").value("test.entry"))
                 .andExpect(jsonPath("$.catalogOrdinal").doesNotExist());
         runtime.activeExecutions().remove("session-live");
     }

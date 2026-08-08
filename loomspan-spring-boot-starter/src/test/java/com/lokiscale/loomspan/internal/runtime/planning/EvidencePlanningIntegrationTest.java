@@ -44,7 +44,7 @@ class EvidencePlanningIntegrationTest
             DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
             DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
             LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
-                    "session-" + investigator, 3);
+                    "session-" + investigator, "test.entry", 3);
             SimpleChatClient client = new SimpleChatClient(incidentPlan(investigator), "unused");
 
             ExecutionPlan result = planningService.initializePlan(
@@ -70,7 +70,7 @@ class EvidencePlanningIntegrationTest
     {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-gap", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-gap", "test.entry", 3);
         SimpleChatClient client = new SimpleChatClient(classificationOnlyPlan(), "unused");
 
         assertThatThrownBy(() -> planningService.initializePlan(

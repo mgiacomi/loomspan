@@ -43,6 +43,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 
     private final String traceId;
     private final String sessionId;
+    private final String entrySkill;
     private final Path tracePath;
     private final TracePersistencePolicy persistencePolicy;
     private final Clock clock;
@@ -61,9 +62,9 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     private volatile boolean completed;
     private Optional<FinalizedTraceArtifact> finalizedArtifact = Optional.empty();
 
-    public DefaultExecutionTraceHandle(String sessionId, TracePersistencePolicy persistencePolicy, Clock clock)
+    public DefaultExecutionTraceHandle(String sessionId, String entrySkill, TracePersistencePolicy persistencePolicy, Clock clock)
     {
-        this(newTraceId(), sessionId, null, persistencePolicy, false, false, clock, 0L, false,
+        this(newTraceId(), sessionId, entrySkill, null, persistencePolicy, false, false, clock, 0L, false,
                 DefaultExecutionTraceHandle::newTraceId, null, null, NoOpExecutionObservationHandle.INSTANCE, null);
         resetTraceFile();
         initialize();
@@ -71,11 +72,12 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 
     public DefaultExecutionTraceHandle(
             String sessionId,
+            String entrySkill,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
             ExecutionObservationHandle observationHandle)
     {
-        this(newTraceId(), sessionId, null, persistencePolicy, false, false, clock, 0L, false,
+        this(newTraceId(), sessionId, entrySkill, null, persistencePolicy, false, false, clock, 0L, false,
                 DefaultExecutionTraceHandle::newTraceId, null, null, observationHandle, null);
         resetTraceFile();
         initialize();
@@ -84,6 +86,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     DefaultExecutionTraceHandle(
             String traceId,
             String sessionId,
+            String entrySkill,
             Path tracePath,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
@@ -91,7 +94,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             String threadName,
             String tracePathMetadata)
     {
-        this(traceId, sessionId, tracePath, persistencePolicy, false, false, clock, 0L, false,
+        this(traceId, sessionId, entrySkill, tracePath, persistencePolicy, false, false, clock, 0L, false,
                 idSupplier, threadName, tracePathMetadata, NoOpExecutionObservationHandle.INSTANCE, null);
         resetTraceFile();
         initialize();
@@ -100,6 +103,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     DefaultExecutionTraceHandle(
             String traceId,
             String sessionId,
+            String entrySkill,
             Path tracePath,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
@@ -108,7 +112,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             String tracePathMetadata,
             ConfiguredLimitsSnapshot configuredLimits)
     {
-        this(traceId, sessionId, tracePath, persistencePolicy, false, false, clock, 0L, false,
+        this(traceId, sessionId, entrySkill, tracePath, persistencePolicy, false, false, clock, 0L, false,
                 idSupplier, threadName, tracePathMetadata, NoOpExecutionObservationHandle.INSTANCE,
                 Objects.requireNonNull(configuredLimits, "configuredLimits must not be null"));
         resetTraceFile();
@@ -118,6 +122,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     DefaultExecutionTraceHandle(
             String traceId,
             String sessionId,
+            String entrySkill,
             Path tracePath,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
@@ -126,7 +131,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             String tracePathMetadata,
             ExecutionObservationHandle observationHandle)
     {
-        this(traceId, sessionId, tracePath, persistencePolicy, false, false, clock, 0L, false,
+        this(traceId, sessionId, entrySkill, tracePath, persistencePolicy, false, false, clock, 0L, false,
                 idSupplier, threadName, tracePathMetadata, observationHandle, null);
         resetTraceFile();
         initialize();
@@ -135,6 +140,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     DefaultExecutionTraceHandle(
             String traceId,
             String sessionId,
+            String entrySkill,
             Path tracePath,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
@@ -144,7 +150,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             ExecutionObservationHandle observationHandle,
             TraceRecordWriter writer)
     {
-        this(traceId, sessionId, tracePath, persistencePolicy, false, false, clock, 0L, false,
+        this(traceId, sessionId, entrySkill, tracePath, persistencePolicy, false, false, clock, 0L, false,
                 idSupplier, threadName, tracePathMetadata, observationHandle, null, writer,
                 ImmediateCompletionRetention.INSTANCE);
         resetTraceFile();
@@ -154,6 +160,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     private DefaultExecutionTraceHandle(
             String traceId,
             String sessionId,
+            String entrySkill,
             Path tracePath,
             TracePersistencePolicy persistencePolicy,
             boolean errored,
@@ -167,7 +174,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             ExecutionObservationHandle observationHandle,
             @Nullable ConfiguredLimitsSnapshot configuredLimits)
     {
-        this(traceId, sessionId, tracePath, persistencePolicy, errored, completed, clock, startingSequence,
+        this(traceId, sessionId, entrySkill, tracePath, persistencePolicy, errored, completed, clock, startingSequence,
                 initialized, idSupplier, threadName, tracePathMetadata, observationHandle, configuredLimits, null,
                 ImmediateCompletionRetention.INSTANCE);
     }
@@ -175,6 +182,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     private DefaultExecutionTraceHandle(
             String traceId,
             String sessionId,
+            String entrySkill,
             Path tracePath,
             TracePersistencePolicy persistencePolicy,
             boolean errored,
@@ -192,6 +200,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     {
         this.traceId = requireNonBlank(traceId, "traceId");
         this.sessionId = requireNonBlank(sessionId, "sessionId");
+        this.entrySkill = requireNonBlank(entrySkill, "entrySkill");
         this.tracePath = tracePath == null ? defaultPath(this.sessionId, this.traceId) : tracePath;
         this.persistencePolicy = persistencePolicy == null ? TracePersistencePolicy.NEVER : persistencePolicy;
         this.errored = errored;
@@ -212,12 +221,13 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 
     public DefaultExecutionTraceHandle(
             String sessionId,
+            String entrySkill,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
             ExecutionObservationHandle observationHandle,
             CompletionGraceRetention completionGraceRetention)
     {
-        this(newTraceId(), sessionId, null, persistencePolicy, false, false, clock, 0L, false,
+        this(newTraceId(), sessionId, entrySkill, null, persistencePolicy, false, false, clock, 0L, false,
                 DefaultExecutionTraceHandle::newTraceId, null, null, observationHandle, null, null,
                 completionGraceRetention);
         resetTraceFile();
@@ -226,13 +236,14 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 
     public DefaultExecutionTraceHandle(
             String sessionId,
+            String entrySkill,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
             ExecutionObservationHandle observationHandle,
             CompletionGraceRetention completionGraceRetention,
             ConfiguredLimitsSnapshot configuredLimits)
     {
-        this(newTraceId(), sessionId, null, persistencePolicy, false, false, clock, 0L, false,
+        this(newTraceId(), sessionId, entrySkill, null, persistencePolicy, false, false, clock, 0L, false,
                 DefaultExecutionTraceHandle::newTraceId, null, null, observationHandle,
                 Objects.requireNonNull(configuredLimits, "configuredLimits must not be null"), null,
                 completionGraceRetention);
@@ -357,6 +368,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
         return new FinalizedTraceArtifact(
                 traceId,
                 sessionId,
+                entrySkill,
                 completion.outcome(),
                 finalizedAt,
                 tracePath,

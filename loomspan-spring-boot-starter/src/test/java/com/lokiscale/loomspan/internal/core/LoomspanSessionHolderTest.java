@@ -16,7 +16,7 @@ class LoomspanSessionHolderTest {
 
     @Test
     void returnsCurrentSessionInsideScopedBoundary() {
-        LoomspanSession session = new LoomspanSession("session-1", 4);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 4);
 
         LoomspanSession resolved = LoomspanSessionHolder.callWithSession(session, LoomspanSession::getCurrentSession);
 

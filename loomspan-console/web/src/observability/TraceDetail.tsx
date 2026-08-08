@@ -142,6 +142,7 @@ export function TraceDetailView() {
           <dl className="status-grid">
             <div><dt>Trace ID</dt><dd>{trace.traceId}</dd></div>
             <div><dt>Session ID</dt><dd>{trace.sessionId}</dd></div>
+            <div><dt>Entry skill</dt><dd>{trace.entrySkill}</dd></div>
             <div><dt>Outcome</dt><dd>{trace.outcome}</dd></div>
             <div><dt>Finalized at</dt><dd>{trace.finalizedAt}</dd></div>
             <div><dt>Size (bytes)</dt><dd>{String(trace.sizeBytes)}</dd></div>

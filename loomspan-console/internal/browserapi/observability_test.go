@@ -84,7 +84,7 @@ func activeExecutionFixture() string {
 }
 
 func traceFixture() string {
-	return `{"traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-27T00:00:02Z","sizeBytes":100,"persistencePolicy":"PERSISTENT","applicationTraceExpiresAt":"2026-07-28T00:00:02Z"}`
+	return `{"traceId":"trace-1","sessionId":"session-1","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-27T00:00:02Z","sizeBytes":100,"persistencePolicy":"PERSISTENT","applicationTraceExpiresAt":"2026-07-28T00:00:02Z"}`
 }
 
 func TestObservabilityRoutesRequireSession(t *testing.T) {
@@ -333,7 +333,7 @@ func TestTraceRoutesFallBackToInstalledAcquisitionFacts(t *testing.T) {
 	}
 	acquiredAt := time.Date(2026, 7, 27, 0, 0, 3, 0, time.UTC)
 	metadata := artifact.TraceMetadata{
-		TraceID: "trace-1", SessionID: "session-1", Outcome: "SUCCEEDED",
+		TraceID: "trace-1", SessionID: "session-1", EntrySkill: "CheckDns", Outcome: "SUCCEEDED",
 		FinalizedAt: acquiredAt.Add(-time.Minute), SizeBytes: 100,
 		PersistencePolicy: "RETAINED", ApplicationTraceExpiresAt: acquiredAt.Add(time.Hour),
 	}
@@ -367,7 +367,7 @@ func TestTraceRoutesFallBackToInstalledAcquisitionFacts(t *testing.T) {
 		}
 		body := response.Body.String()
 		for _, want := range []string{
-			`"traceId":"trace-1"`, `"localAvailable":true`,
+			`"traceId":"trace-1"`, `"entrySkill":"CheckDns"`, `"localAvailable":true`,
 			`"applicationAvailability":"AVAILABLE"`, `"persistencePolicy":"RETAINED"`,
 		} {
 			if !strings.Contains(body, want) {

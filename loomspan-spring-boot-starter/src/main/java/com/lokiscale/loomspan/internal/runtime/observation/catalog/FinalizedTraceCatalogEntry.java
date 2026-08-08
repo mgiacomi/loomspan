@@ -12,6 +12,7 @@ public record FinalizedTraceCatalogEntry(
         long catalogOrdinal,
         String traceId,
         String sessionId,
+        String entrySkill,
         TraceOutcome outcome,
         Instant finalizedAt,
         Instant publishedAt,
@@ -30,6 +31,10 @@ public record FinalizedTraceCatalogEntry(
         }
         Objects.requireNonNull(traceId, "traceId must not be null");
         Objects.requireNonNull(sessionId, "sessionId must not be null");
+        if (entrySkill == null || entrySkill.isBlank())
+        {
+            throw new IllegalArgumentException("entrySkill must not be blank");
+        }
         Objects.requireNonNull(outcome, "outcome must not be null");
         Objects.requireNonNull(finalizedAt, "finalizedAt must not be null");
         Objects.requireNonNull(publishedAt, "publishedAt must not be null");

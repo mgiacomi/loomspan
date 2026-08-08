@@ -54,17 +54,16 @@ class DefaultExecutionObservationHandleTest
             }
         };
         LiveMonitoringAvailability availability = new LiveMonitoringAvailability();
-        DefaultExecutionObservationHandle successful = new DefaultExecutionObservationHandle(
-                "session", new LiveActivityProjector(), new InMemoryActiveExecutionRegistry(),
+        InMemoryActiveExecutionRegistry registry = new InMemoryActiveExecutionRegistry();
+        DefaultExecutionObservationHandle successful = new DefaultExecutionObservationHandle("session", "test.entry", new LiveActivityProjector(), registry,
                 new InMemoryActivityReplayBuffer(), availability,
                 DefaultExecutionObservationHandleFactory.unavailableCatalog(), signal);
 
         successful.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
 
         assertThat(activitySignals).hasValue(1);
-        DefaultExecutionObservationHandle failing = new DefaultExecutionObservationHandle(
-                "other",
-                new LiveActivityProjector()
+        assertThat(registry.find("session").orElseThrow().entrySkill()).isEqualTo("test.entry");
+        DefaultExecutionObservationHandle failing = new DefaultExecutionObservationHandle("other", "test.entry", new LiveActivityProjector()
                 {
                     @Override
                     Projection project(ExecutionProjectionState state, TraceRecord record)
@@ -106,14 +105,14 @@ class DefaultExecutionObservationHandleTest
                     new LiveMonitoringAvailability(),
                     catalog,
                     LiveActivitySignal.NO_OP);
-            ExecutionObservationHandle handle = factory.create("session");
+            ExecutionObservationHandle handle = factory.create("session", "test.entry");
             handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
             handle.recordAppended(record(
                     TraceRecordType.TRACE_COMPLETED,
                     2,
                     Map.of("outcome", "SUCCEEDED", "sessionUsageSnapshot", SessionUsageSnapshot.empty())));
             FinalizedTraceArtifact artifact = new FinalizedTraceArtifact(
-                    "trace", "session", TraceOutcome.SUCCEEDED, now, artifactPath,
+                    "trace", "session", "test.entry", TraceOutcome.SUCCEEDED, now, artifactPath,
                     Files.size(artifactPath), TracePersistencePolicy.ALWAYS, null);
 
             handle.close(new ObservationCompletionDisposition(
@@ -150,7 +149,7 @@ class DefaultExecutionObservationHandleTest
                     new LiveMonitoringAvailability(),
                     catalog,
                     LiveActivitySignal.NO_OP);
-            ExecutionObservationHandle handle = factory.create("session");
+            ExecutionObservationHandle handle = factory.create("session", "test.entry");
             handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
             handle.recordAppended(record(
                     TraceRecordType.TRACE_COMPLETED,
@@ -159,6 +158,7 @@ class DefaultExecutionObservationHandleTest
             FinalizedTraceArtifact expired = new FinalizedTraceArtifact(
                     "trace",
                     "session",
+                    "test.entry",
                     TraceOutcome.SUCCEEDED,
                     now.minusSeconds(30),
                     artifactPath,
@@ -186,7 +186,7 @@ class DefaultExecutionObservationHandleTest
     void holdsCanonicalCompletionUntilCoreSuccessClose()
     {
         DefaultExecutionObservationHandleFactory factory = new DefaultExecutionObservationHandleFactory();
-        ExecutionObservationHandle handle = factory.create("session");
+        ExecutionObservationHandle handle = factory.create("session", "test.entry");
         handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
         handle.recordAppended(record(
                 TraceRecordType.TRACE_COMPLETED,
@@ -214,7 +214,7 @@ class DefaultExecutionObservationHandleTest
     void discardsHeldCompletionAndPublishesObservationEndedOnCoreFailure()
     {
         DefaultExecutionObservationHandleFactory factory = new DefaultExecutionObservationHandleFactory();
-        ExecutionObservationHandle handle = factory.create("session");
+        ExecutionObservationHandle handle = factory.create("session", "test.entry");
         handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
         handle.recordAppended(record(
                 TraceRecordType.TRACE_COMPLETED,
@@ -264,9 +264,7 @@ class DefaultExecutionObservationHandleTest
                 return new ReplayResult(ReplayResult.Status.EMPTY, 0, List.of());
             }
         };
-        DefaultExecutionObservationHandle handle = new DefaultExecutionObservationHandle(
-                "session",
-                new LiveActivityProjector(),
+        DefaultExecutionObservationHandle handle = new DefaultExecutionObservationHandle("session", "test.entry", new LiveActivityProjector(),
                 new InMemoryActiveExecutionRegistry(),
                 throwing,
                 availability,
@@ -284,7 +282,7 @@ class DefaultExecutionObservationHandleTest
     void closesExactlyOnceUnderConcurrentConflictingCalls() throws Exception
     {
         DefaultExecutionObservationHandleFactory factory = new DefaultExecutionObservationHandleFactory();
-        ExecutionObservationHandle handle = factory.create("session");
+        ExecutionObservationHandle handle = factory.create("session", "test.entry");
         handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
         handle.recordAppended(record(
                 TraceRecordType.TRACE_COMPLETED,
@@ -326,9 +324,7 @@ class DefaultExecutionObservationHandleTest
     void containsProjectorAndRegistryFailuresAndFailsClosed()
     {
         LiveMonitoringAvailability projectorAvailability = new LiveMonitoringAvailability();
-        DefaultExecutionObservationHandle projectorFailure = new DefaultExecutionObservationHandle(
-                "session",
-                new LiveActivityProjector()
+        DefaultExecutionObservationHandle projectorFailure = new DefaultExecutionObservationHandle("session", "test.entry", new LiveActivityProjector()
                 {
                     @Override
                     Projection project(ExecutionProjectionState state, TraceRecord record)
@@ -385,9 +381,7 @@ class DefaultExecutionObservationHandleTest
                 return List.of();
             }
         };
-        DefaultExecutionObservationHandle registryFailure = new DefaultExecutionObservationHandle(
-                "session",
-                new LiveActivityProjector(),
+        DefaultExecutionObservationHandle registryFailure = new DefaultExecutionObservationHandle("session", "test.entry", new LiveActivityProjector(),
                 throwingRegistry,
                 new InMemoryActivityReplayBuffer(),
                 registryAvailability,
@@ -431,8 +425,7 @@ class DefaultExecutionObservationHandleTest
                 return delegate.replayAfter(cursor, limit);
             }
         };
-        DefaultExecutionObservationHandle handle = new DefaultExecutionObservationHandle(
-                "session", new LiveActivityProjector(), registry, failSecond, availability,
+        DefaultExecutionObservationHandle handle = new DefaultExecutionObservationHandle("session", "test.entry", new LiveActivityProjector(), registry, failSecond, availability,
                 DefaultExecutionObservationHandleFactory.unavailableCatalog(),
                 LiveActivitySignal.NO_OP);
         handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
@@ -453,7 +446,7 @@ class DefaultExecutionObservationHandleTest
     void missingHeldCompletionOnSuccessFailsClosedAndRemovesEntry()
     {
         DefaultExecutionObservationHandleFactory factory = new DefaultExecutionObservationHandleFactory();
-        ExecutionObservationHandle handle = factory.create("session");
+        ExecutionObservationHandle handle = factory.create("session", "test.entry");
         handle.recordAppended(record(TraceRecordType.TRACE_STARTED, 1, Map.of()));
 
         handle.close(disposition(
@@ -469,9 +462,7 @@ class DefaultExecutionObservationHandleTest
     void logsOneSanitizedDiagnosticOnFirstFailure(CapturedOutput output)
     {
         LiveMonitoringAvailability availability = new LiveMonitoringAvailability();
-        DefaultExecutionObservationHandle handle = new DefaultExecutionObservationHandle(
-                "session-safe-id",
-                new LiveActivityProjector()
+        DefaultExecutionObservationHandle handle = new DefaultExecutionObservationHandle("session-safe-id", "test.entry", new LiveActivityProjector()
                 {
                     @Override
                     Projection project(ExecutionProjectionState state, TraceRecord record)

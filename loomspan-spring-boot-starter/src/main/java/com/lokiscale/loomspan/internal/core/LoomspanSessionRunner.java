@@ -57,9 +57,10 @@ public class LoomspanSessionRunner
             CompletionGraceRetention completionGraceRetention)
     {
         this(maxDepth, tracePersistencePolicy, clock, observationHandleFactory,
-                (sessionId, policy, handleClock, observationHandle) ->
+                (sessionId, entrySkill, policy, handleClock, observationHandle) ->
                         new com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle(
                                 sessionId,
+                                entrySkill,
                                 policy,
                                 handleClock,
                                 observationHandle,
@@ -77,9 +78,10 @@ public class LoomspanSessionRunner
             LoomspanProperties.Session.Quotas quotas)
     {
         this(maxDepth, tracePersistencePolicy, clock, observationHandleFactory,
-                (sessionId, policy, handleClock, observationHandle) ->
+                (sessionId, entrySkill, policy, handleClock, observationHandle) ->
                         new com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle(
                                 sessionId,
+                                entrySkill,
                                 policy,
                                 handleClock,
                                 observationHandle,
@@ -109,16 +111,17 @@ public class LoomspanSessionRunner
         this.traceHandleFactory = Objects.requireNonNull(traceHandleFactory, "traceHandleFactory must not be null");
     }
 
-    public void runWithNewSession(Consumer<LoomspanSession> action)
+    public void runWithNewSession(String entrySkill, Consumer<LoomspanSession> action)
     {
-        runWithNewSession(null, action);
+        runWithNewSession(entrySkill, null, action);
     }
 
-    public void runWithNewSession(@Nullable Authentication authentication, Consumer<LoomspanSession> action)
+    public void runWithNewSession(String entrySkill, @Nullable Authentication authentication, Consumer<LoomspanSession> action)
     {
         Objects.requireNonNull(action, "action must not be null");
         LoomspanSession session = new LoomspanSession(
                 UUID.randomUUID().toString(),
+                entrySkill,
                 maxDepth,
                 authentication,
                 tracePersistencePolicy,
@@ -146,16 +149,17 @@ public class LoomspanSessionRunner
         });
     }
 
-    public <T> T callWithNewSession(Function<LoomspanSession, T> action)
+    public <T> T callWithNewSession(String entrySkill, Function<LoomspanSession, T> action)
     {
-        return callWithNewSession(null, action);
+        return callWithNewSession(entrySkill, null, action);
     }
 
-    public <T> T callWithNewSession(@Nullable Authentication authentication, Function<LoomspanSession, T> action)
+    public <T> T callWithNewSession(String entrySkill, @Nullable Authentication authentication, Function<LoomspanSession, T> action)
     {
         Objects.requireNonNull(action, "action must not be null");
         LoomspanSession session = new LoomspanSession(
                 UUID.randomUUID().toString(),
+                entrySkill,
                 maxDepth,
                 authentication,
                 tracePersistencePolicy,

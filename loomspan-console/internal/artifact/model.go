@@ -30,6 +30,7 @@ const (
 type TraceMetadata struct {
 	TraceID                   string
 	SessionID                 string
+	EntrySkill                string
 	Outcome                   string
 	FinalizedAt               time.Time
 	SizeBytes                 int64

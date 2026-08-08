@@ -21,7 +21,7 @@ const test = consoleTest.extend<{
     const sessionId = "session-with-a-long-identifier-1234567890";
     const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../loomspan-console-fixtures/traces");
     const artifactBody = fs.readFileSync(path.join(fixtureRoot, "single-attempt-success.ndjson"), "utf8").replaceAll("trace-single-attempt-success", traceId).replaceAll("session-single-attempt-success", sessionId);
-    const traceMetadata = JSON.stringify({ traceId, sessionId, outcome: "SUCCEEDED", finalizedAt: "2026-07-24T12:00:00Z", sizeBytes: new TextEncoder().encode(artifactBody).byteLength, persistencePolicy: "ALWAYS", applicationTraceExpiresAt: "2026-08-03T00:00:00Z" });
+    const traceMetadata = JSON.stringify({ traceId, sessionId, entrySkill: "CheckDns", outcome: "SUCCEEDED", finalizedAt: "2026-07-24T12:00:00Z", sizeBytes: new TextEncoder().encode(artifactBody).byteLength, persistencePolicy: "ALWAYS", applicationTraceExpiresAt: "2026-08-03T00:00:00Z" });
     let state: TargetState = {
       instanceId: "11111111-1111-4111-8111-111111111111",
       artifactBody,

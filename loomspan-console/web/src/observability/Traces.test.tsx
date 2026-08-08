@@ -29,6 +29,7 @@ const trace: Trace = {
   targetScopeId: "scope-1",
   traceId: "trace-1",
   sessionId: "session-1",
+  entrySkill: "CheckDns",
   outcome: "SUCCEEDED",
   finalizedAt: "2026-07-27T10:10:00Z",
   sizeBytes: 4096,
@@ -48,6 +49,8 @@ test("traces renders items in a table", () => {
   view.current.traces.items = [trace];
   render(<Traces />);
   expect(screen.getByText("trace-1")).toBeInTheDocument();
+  expect(screen.getAllByRole("columnheader")[0]).toHaveTextContent("Entry skill");
+  expect(screen.getAllByRole("cell")[0]).toHaveTextContent("CheckDns");
   expect(screen.getByText("session-1")).toBeInTheDocument();
   expect(screen.getByText("SUCCEEDED")).toBeInTheDocument();
   expect(screen.getByText("4096")).toBeInTheDocument();
@@ -56,6 +59,14 @@ test("traces renders items in a table", () => {
     "href",
     "/traces/trace-1?targetScopeId=scope-1",
   );
+});
+
+test("entry skill is inert text and trace ID remains the detail link", () => {
+  view.current.traces.items = [{ ...trace, entrySkill: '<img src=x onerror="alert(1)">' }];
+  render(<Traces />);
+  expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+  expect(document.querySelector("img")).toBeNull();
+  expect(screen.getAllByRole("link")).toHaveLength(1);
 });
 
 test("traces states finalized and expiry times as calendar dates rather than raw ISO", () => {

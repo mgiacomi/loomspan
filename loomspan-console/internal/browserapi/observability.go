@@ -241,6 +241,7 @@ func (router *Router) cachedTrace(scope target.ScopeID, traceID string) (observa
 		TargetScopeID:             string(scope),
 		TraceID:                   lookup.Metadata.TraceID,
 		SessionID:                 lookup.Metadata.SessionID,
+		EntrySkill:                lookup.Metadata.EntrySkill,
 		Outcome:                   lookup.Metadata.Outcome,
 		FinalizedAt:               lookup.Metadata.FinalizedAt,
 		SizeBytes:                 lookup.Metadata.SizeBytes,

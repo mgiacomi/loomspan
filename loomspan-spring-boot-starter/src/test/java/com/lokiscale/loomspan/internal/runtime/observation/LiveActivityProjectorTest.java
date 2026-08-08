@@ -43,7 +43,7 @@ class LiveActivityProjectorTest
 
         for (TraceRecordType type : TraceRecordType.values())
         {
-            ExecutionProjectionState state = new ExecutionProjectionState("session");
+            ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
             TraceFrameType frameType = type == TraceRecordType.FRAME_OPENED
                     || type == TraceRecordType.FRAME_CLOSED
                     ? TraceFrameType.SKILL_EXECUTION
@@ -80,7 +80,7 @@ class LiveActivityProjectorTest
     void frameVisibilityIsLimitedToSkillExecutionButAllFramesUpdatePath()
     {
         LiveActivityProjector projector = new LiveActivityProjector();
-        ExecutionProjectionState state = new ExecutionProjectionState("session");
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
 
         LiveActivityProjector.Projection root = projector.project(
                 state, record(TraceRecordType.FRAME_OPENED, 1, TraceFrameType.ROOT_MISSION, Map.of(), null));
@@ -97,7 +97,8 @@ class LiveActivityProjectorTest
     void boundsPathTextAndDoesNotRetainLogicalPayload()
     {
         LiveActivityProjector projector = new LiveActivityProjector();
-        ExecutionProjectionState state = new ExecutionProjectionState("session");
+        String route = "\uD83D\uDE00".repeat(300);
+        ExecutionProjectionState state = new ExecutionProjectionState("session", route);
         LiveActivityProjector.Projection projection = null;
 
         for (int index = 0; index < 70; index++)
@@ -106,7 +107,7 @@ class LiveActivityProjectorTest
                     "trace", "session", index + 1L, Instant.parse("2026-07-24T12:00:00Z"),
                     TraceRecordType.FRAME_OPENED, "frame-" + index, index == 0 ? null : "frame-" + (index - 1),
                     index == 0 ? TraceFrameType.ROOT_MISSION : TraceFrameType.SKILL_EXECUTION,
-                    "😀".repeat(300), "thread", Map.of(), TextNode.valueOf("SECRET-PAYLOAD")));
+                    route, "thread", Map.of(), TextNode.valueOf("SECRET-PAYLOAD")));
         }
 
         assertThat(projection).isNotNull();
@@ -126,7 +127,7 @@ class LiveActivityProjectorTest
     void terminalUsageReplacesDerivedCountsAndCompletionIsHeld()
     {
         LiveActivityProjector projector = new LiveActivityProjector();
-        ExecutionProjectionState state = new ExecutionProjectionState("session");
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
         projector.project(state, record(
                 TraceRecordType.TOOL_CALL_STARTED, 1, null, Map.of("capabilityName", "tool"), null));
         SessionUsageSnapshot terminal = new SessionUsageSnapshot(4, 5, 6, 7, 8, 9, 17, 1, 2, 4);
@@ -170,7 +171,7 @@ class LiveActivityProjectorTest
     void projectsParentIdentityAndTruthfulExecutionStatus()
     {
         LiveActivityProjector projector = new LiveActivityProjector();
-        ExecutionProjectionState state = new ExecutionProjectionState("session");
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
         TraceRecord nested = new TraceRecord(
                 "trace", "session", 1, Instant.parse("2026-07-24T12:00:00Z"),
                 TraceRecordType.TOOL_CALL_STARTED, "child-frame", "parent-frame",
@@ -186,7 +187,7 @@ class LiveActivityProjectorTest
     void derivesCountsAndNormalizedModelUsageFromCanonicalFacts()
     {
         LiveActivityProjector projector = new LiveActivityProjector();
-        ExecutionProjectionState state = new ExecutionProjectionState("session");
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
         projector.project(state, record(
                 TraceRecordType.FRAME_OPENED, 1, TraceFrameType.ROOT_MISSION, Map.of(), null));
         projector.project(state, record(
@@ -241,7 +242,7 @@ class LiveActivityProjectorTest
     void enforcesExactPathAndDetailByteBoundaries()
     {
         LiveActivityProjector projector = new LiveActivityProjector();
-        ExecutionProjectionState state = new ExecutionProjectionState("session");
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
         LiveActivityProjector.Projection atPathLimit = null;
         for (int index = 0; index < ExecutionObservationLimits.ACTIVE_FRAME_PATH_ENTRIES; index++)
         {

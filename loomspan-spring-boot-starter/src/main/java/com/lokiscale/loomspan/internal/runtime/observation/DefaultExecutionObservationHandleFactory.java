@@ -45,10 +45,10 @@ public final class DefaultExecutionObservationHandleFactory implements Execution
     }
 
     @Override
-    public ExecutionObservationHandle create(String sessionId)
+    public ExecutionObservationHandle create(String sessionId, String entrySkill)
     {
         return new DefaultExecutionObservationHandle(
-                sessionId, projector, registry, replayBuffer, availability, traceCatalog, signal);
+                sessionId, entrySkill, projector, registry, replayBuffer, availability, traceCatalog, signal);
     }
 
     public ActiveExecutionRegistry registry()

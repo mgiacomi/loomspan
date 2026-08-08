@@ -30,6 +30,7 @@ final class DefaultExecutionObservationHandle implements ExecutionObservationHan
 
     DefaultExecutionObservationHandle(
             String sessionId,
+            String entrySkill,
             LiveActivityProjector projector,
             ActiveExecutionRegistry registry,
             ActivityReplayBuffer replayBuffer,
@@ -44,7 +45,7 @@ final class DefaultExecutionObservationHandle implements ExecutionObservationHan
         this.availability = Objects.requireNonNull(availability, "availability must not be null");
         this.traceCatalog = Objects.requireNonNull(traceCatalog, "traceCatalog must not be null");
         this.signal = Objects.requireNonNull(signal, "signal must not be null");
-        this.state = new ExecutionProjectionState(sessionId);
+        this.state = new ExecutionProjectionState(sessionId, requireNonBlank(entrySkill, "entrySkill"));
     }
 
     @Override

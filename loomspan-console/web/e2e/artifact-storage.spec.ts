@@ -29,6 +29,7 @@ function makeTraceMetadata(traceId: string, sessionId: string, outcome: string, 
     targetScopeId: "scope-1",
     traceId,
     sessionId,
+    entrySkill: "CheckDns",
     outcome,
     // Both Java-produced fixture artifacts complete at this instant. The
     // console's processor deliberately checks this metadata against the
@@ -45,7 +46,7 @@ function metadataFromArtifact(body: Buffer): string {
   const first = records[0];
   const completion = records.findLast((record) => record.recordType === "TRACE_COMPLETED");
   return JSON.stringify({
-    targetScopeId: "scope-1", traceId: first.traceId, sessionId: first.sessionId,
+    targetScopeId: "scope-1", traceId: first.traceId, sessionId: first.sessionId, entrySkill: "CheckDns",
     outcome: completion?.metadata?.outcome ?? "SUCCEEDED",
     finalizedAt: new Date((completion?.timestamp ?? first.timestamp) * 1000).toISOString(),
     sizeBytes: body.length, persistencePolicy: "ALWAYS", applicationTraceExpiresAt: "2026-08-01T12:00:00Z",
@@ -270,8 +271,13 @@ async function connectToTarget(page: import("@playwright/test").Page, consolePro
 async function navigateToTraceDetail(page: import("@playwright/test").Page, consoleProcess: { origin: string }, traceId: string) {
   await page.goto(`${consoleProcess.origin}/traces`);
   await expect(page.getByRole("heading", { name: "Trace Catalog" })).toBeVisible();
+  await expect(page.getByRole("columnheader").first()).toHaveText("Entry skill");
+  const traceRow = page.locator("tbody tr", { hasText: traceId });
+  await expect(traceRow.getByRole("cell").first()).toHaveText("CheckDns");
   await page.getByRole("link", { name: traceId }).click();
   await expect(page.getByRole("heading", { name: "Trace Detail" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("dt", { hasText: "Entry skill" }).locator("xpath=following-sibling::dd[1]"))
+    .toHaveText("CheckDns");
 }
 
 async function acquireAndOpenExplorer(page: import("@playwright/test").Page, consoleProcess: { origin: string }, traceId: string) {
@@ -561,6 +567,8 @@ test("WF-AS-04 installed evidence remains after auth rejection while raw downloa
   // deliberately separate from current application authorization.
   await page.goto(`${consoleProcess.origin}/traces/trace-single-attempt-success?targetScopeId=${encodeURIComponent(scopeId)}`);
   await expect(page.getByRole("heading", { name: "Trace Detail" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("dt", { hasText: "Entry skill" }).locator("xpath=following-sibling::dd[1]"))
+    .toHaveText("CheckDns");
   await expect(page.getByText("Available", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 

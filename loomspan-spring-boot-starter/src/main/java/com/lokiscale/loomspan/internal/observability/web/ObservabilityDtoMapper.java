@@ -55,7 +55,7 @@ public final class ObservabilityDtoMapper
     public ObservabilityDtos.Trace trace(FinalizedTraceCatalogEntry source)
     {
         return new ObservabilityDtos.Trace(
-                source.traceId(), source.sessionId(), source.outcome(), source.finalizedAt(), source.sizeBytes(),
+                source.traceId(), source.sessionId(), source.entrySkill(), source.outcome(), source.finalizedAt(), source.sizeBytes(),
                 source.persistencePolicy(), source.applicationTraceExpiresAt());
     }
 

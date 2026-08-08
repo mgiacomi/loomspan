@@ -2,22 +2,70 @@ package com.lokiscale.loomspan.internal.core;
 
 import com.lokiscale.loomspan.internal.linter.LinterOutcome;
 import com.lokiscale.loomspan.internal.linter.LinterOutcomeStatus;
+import com.lokiscale.loomspan.internal.runtime.observation.ExecutionObservationHandle;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class LoomspanSessionTest {
 
     @Test
+    void normalizesEntrySkillOnceBeforeSupplyingTheSameValueToBothFactories() {
+        String overBound = "😀".repeat(EntrySkillIdentity.MAX_CODE_POINTS + 1);
+        AtomicReference<String> observationEntry = new AtomicReference<>();
+        AtomicReference<String> traceEntry = new AtomicReference<>();
+        ExecutionObservationHandle observation = mock(ExecutionObservationHandle.class);
+
+        LoomspanSession session = new LoomspanSession(
+                "session-normalized", overBound, 3, null, TracePersistencePolicy.ALWAYS, Clock.systemUTC(),
+                (sessionId, entrySkill) -> {
+                    observationEntry.set(entrySkill);
+                    return observation;
+                },
+                (sessionId, entrySkill, policy, clock, handle) -> {
+                    traceEntry.set(entrySkill);
+                    return mock(ExecutionTraceHandle.class);
+                });
+
+        assertThat(session.entrySkill().codePointCount(0, session.entrySkill().length()))
+                .isEqualTo(EntrySkillIdentity.MAX_CODE_POINTS);
+        assertThat(observationEntry.get()).isSameAs(session.entrySkill());
+        assertThat(traceEntry.get()).isSameAs(session.entrySkill());
+    }
+
+    @Test
+    void rejectsBlankEntrySkillBeforeInvokingEitherFactory() {
+        AtomicInteger factoryCalls = new AtomicInteger();
+
+        assertThatThrownBy(() -> new LoomspanSession(
+                "session-invalid", " \t", 3, null, TracePersistencePolicy.ALWAYS, Clock.systemUTC(),
+                (sessionId, entrySkill) -> {
+                    factoryCalls.incrementAndGet();
+                    return mock(ExecutionObservationHandle.class);
+                },
+                (sessionId, entrySkill, policy, clock, handle) -> {
+                    factoryCalls.incrementAndGet();
+                    return mock(ExecutionTraceHandle.class);
+                }))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(factoryCalls).hasValue(0);
+    }
+
+    @Test
     void createsSessionWithGeneratedIdAndConfiguredMaxDepth() {
-        LoomspanSession session = new LoomspanSession(3);
+        LoomspanSession session = new LoomspanSession(3, "test.entry");
 
         assertThat(session.getSessionId()).isNotBlank();
         assertThat(session.getMaxDepth()).isEqualTo(3);
@@ -26,7 +74,7 @@ class LoomspanSessionTest {
 
     @Test
     void pushAndPopFrameUsesLifoOrder() {
-        LoomspanSession session = new LoomspanSession(3);
+        LoomspanSession session = new LoomspanSession(3, "test.entry");
         ExecutionFrame first = frame("frame-1", "route.one");
         ExecutionFrame second = frame("frame-2", "route.two");
 
@@ -42,7 +90,7 @@ class LoomspanSessionTest {
 
     @Test
     void throwsWhenPushingBeyondMaxDepthWithoutMutatingStack() {
-        LoomspanSession session = new LoomspanSession("session-1", 1);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 1);
         ExecutionFrame first = frame("frame-1", "route.one");
         ExecutionFrame second = frame("frame-2", "route.two");
         session.pushFrame(first);
@@ -59,7 +107,7 @@ class LoomspanSessionTest {
 
     @Test
     void throwsWhenPoppingEmptyStack() {
-        LoomspanSession session = new LoomspanSession(2);
+        LoomspanSession session = new LoomspanSession(2, "test.entry");
 
         assertThatThrownBy(session::popFrame)
                 .isInstanceOf(IllegalStateException.class)
@@ -68,7 +116,7 @@ class LoomspanSessionTest {
 
     @Test
     void exposesImmutableFrameSnapshots() {
-        LoomspanSession session = new LoomspanSession(2);
+        LoomspanSession session = new LoomspanSession(2, "test.entry");
         session.pushFrame(frame("frame-1", "route.one"));
 
         List<ExecutionFrame> snapshot = session.getFramesSnapshot();
@@ -79,7 +127,7 @@ class LoomspanSessionTest {
 
     @Test
     void appendsJournalEntriesInSequentialOrder() {
-        LoomspanSession session = new LoomspanSession("session-1", 4);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 4);
 
         ExecutionPlan plan = plan("plan-1");
         appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:00Z"), Map.of("planId", plan.planId()), plan);
@@ -105,7 +153,7 @@ class LoomspanSessionTest {
 
     @Test
     void sessionBindsFramesToJournalEntries() {
-        LoomspanSession session = new LoomspanSession("session-1", 4);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 4);
         ExecutionFrame frame = frame("frame-1", "route.one");
 
         session.pushFrame(frame);
@@ -127,7 +175,7 @@ class LoomspanSessionTest {
 
     @Test
     void exposesImmutableJournalSnapshots() {
-        LoomspanSession session = new LoomspanSession(2);
+        LoomspanSession session = new LoomspanSession(2, "test.entry");
         ExecutionPlan plan = plan("plan-1");
         appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:00Z"), Map.of("planId", plan.planId()), plan);
 
@@ -145,7 +193,7 @@ class LoomspanSessionTest {
 
     @Test
     void journalsPlanCreationAndUpdateSeparatelyFromActivePlanState() {
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         ExecutionPlan created = new ExecutionPlan(
                 "plan-1",
                 "rootVisibleSkill",
@@ -168,7 +216,7 @@ class LoomspanSessionTest {
 
     @Test
     void storesAuthenticationAsRuntimeOnlySessionState() {
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         var authentication = UsernamePasswordAuthenticationToken.authenticated(
                 "user",
                 "pw",
@@ -181,7 +229,7 @@ class LoomspanSessionTest {
 
     @Test
     void storesLastLinterOutcomeAndJournalsItSeparately() {
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         LinterOutcome outcome = new LinterOutcome(
                 "lintedSkill",
                 "regex",
@@ -209,6 +257,7 @@ class LoomspanSessionTest {
     void preservesFinalizedJournalAcrossRepeatedFinalizationAfterTraceDeletion() {
         LoomspanSession session = TestLoomspanSessions.withId(
                 "session-repeat-finalize",
+                "test.entry",
                 2,
                 null,
                 TracePersistencePolicy.ONERROR,

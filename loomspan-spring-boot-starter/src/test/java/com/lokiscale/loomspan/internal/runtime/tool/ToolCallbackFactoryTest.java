@@ -47,7 +47,7 @@ class ToolCallbackFactoryTest {
         DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
 
         ToolCallback callback = factory.createToolCallbacks(
-                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2),
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2),
                 definitionWithEvidenceContract(),
                 List.of(capability()),
                 null).getFirst();
@@ -63,7 +63,7 @@ class ToolCallbackFactoryTest {
         PlanningService planningService = mock(PlanningService.class);
         ExecutionStateService stateService = mock(ExecutionStateService.class);
         DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         CapabilityMetadata capability = capability();
         assertThat(capability.skillExecution().configured()).isFalse();
         assertThat(capability.name()).isEqualTo("allowedVisibleSkill");
@@ -142,7 +142,7 @@ class ToolCallbackFactoryTest {
                 stateService,
                 new DefaultAccessGuard());
         DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
 
         ToolCallback callback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability()), null).getFirst();
         Object result = callback.call("{\"value\":\"ref://artifacts/input.txt\"}");
@@ -156,7 +156,7 @@ class ToolCallbackFactoryTest {
         PlanningService planningService = mock(PlanningService.class);
         ExecutionStateService stateService = mock(ExecutionStateService.class);
         DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         CapabilityMetadata capability = capability();
         ExecutionFrame toolFrame = new ExecutionFrame(
                 "tool-frame-1",

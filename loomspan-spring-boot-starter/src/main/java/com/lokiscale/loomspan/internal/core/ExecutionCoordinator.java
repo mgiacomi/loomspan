@@ -73,6 +73,10 @@ public class ExecutionCoordinator
         YamlSkillDefinition definition = requireYamlSkill(skillName);
         CapabilityMetadata rootCapability = requireCapability(skillName);
         boolean topLevelInvocation = session.getFramesSnapshot().isEmpty();
+        if (topLevelInvocation && !rootCapability.name().equals(session.entrySkill()))
+        {
+            throw new IllegalArgumentException("Top-level capability name does not match session entry skill");
+        }
 
         if (authentication != null || session.getFramesSnapshot().isEmpty())
         {

@@ -158,6 +158,7 @@ export type Trace = {
   targetScopeId: string;
   traceId: string;
   sessionId: string;
+  entrySkill: string;
   outcome: string;
   finalizedAt: string;
   sizeBytes: number;

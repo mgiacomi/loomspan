@@ -5,8 +5,12 @@ public enum NoOpExecutionObservationHandleFactory implements ExecutionObservatio
     INSTANCE;
 
     @Override
-    public ExecutionObservationHandle create(String sessionId)
+    public ExecutionObservationHandle create(String sessionId, String entrySkill)
     {
+        if (entrySkill == null || entrySkill.isBlank())
+        {
+            throw new IllegalArgumentException("entrySkill must not be blank");
+        }
         return NoOpExecutionObservationHandle.INSTANCE;
     }
 }

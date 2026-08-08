@@ -39,7 +39,7 @@ class SkillVisibilityResolverTest {
 
         List<CapabilityMetadata> visible = resolver.visibleSkillsFor(
                 "rootVisibleSkill",
-                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2),
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2),
                 UsernamePasswordAuthenticationToken.authenticated(
                         "user",
                         "pw",
@@ -61,7 +61,7 @@ class SkillVisibilityResolverTest {
 
         List<CapabilityMetadata> visible = resolver.visibleSkillsFor(
                 "rootVisibleSkill",
-                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2),
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2),
                 UsernamePasswordAuthenticationToken.authenticated(
                         "user",
                         "pw",
@@ -82,7 +82,7 @@ class SkillVisibilityResolverTest {
 
         List<CapabilityMetadata> visible = resolver.visibleSkillsFor(
                 "rootVisibleSkill",
-                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2),
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2),
                 null);
 
         assertThat(visible).isEmpty();
@@ -97,7 +97,7 @@ class SkillVisibilityResolverTest {
         new YamlSkillCapabilityRegistrar(registry, targets, catalog, new SkillInputContractResolver()).afterSingletonsInstantiated();
 
         DefaultSkillVisibilityResolver resolver = new DefaultSkillVisibilityResolver(catalog, registry, new DefaultAccessGuard());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         session.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
                 "user",
                 "pw",

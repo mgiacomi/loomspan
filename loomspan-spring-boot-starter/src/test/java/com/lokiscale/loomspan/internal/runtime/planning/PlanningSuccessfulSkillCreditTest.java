@@ -23,7 +23,7 @@ class PlanningSuccessfulSkillCreditTest
         DefaultExecutionStateService state = new DefaultExecutionStateService(Clock.fixed(
                 Instant.parse("2026-03-15T12:00:00Z"), ZoneOffset.UTC));
         DefaultPlanningService planning = new DefaultPlanningService(new DefaultPlanTaskLinker(), state);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-credit", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-credit", "test.entry", 3);
         state.storePlan(session, plan("task-success", "investigateNetwork"));
 
         planning.markTaskStarted(session, "task-success", "investigateNetwork", java.util.Map.of()).orElseThrow();

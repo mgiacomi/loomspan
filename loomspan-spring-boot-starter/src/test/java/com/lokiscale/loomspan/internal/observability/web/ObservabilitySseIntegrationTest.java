@@ -165,7 +165,7 @@ class ObservabilitySseIntegrationTest
                 new InputStreamReader(stream.body(), StandardCharsets.UTF_8));
         assertThat(readEvent(streamReader)).startsWith("event: handshake\n");
 
-        runtime.observationFactory().create("failed-session").recordAppended(new TraceRecord(
+        runtime.observationFactory().create("failed-session", "test.entry").recordAppended(new TraceRecord(
                 "failed-trace",
                 "failed-session",
                 1,

@@ -24,7 +24,7 @@ class DefaultAccessGuardTest {
     @Test
     void allowsUnprotectedCapabilityWithoutAuthentication() {
         CapabilityMetadata capability = capability("public.skill", Set.of());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
 
         assertThat(accessGuard.canAccess(capability, session, null)).isTrue();
         accessGuard.checkAccess(capability, session, null);
@@ -33,7 +33,7 @@ class DefaultAccessGuardTest {
     @Test
     void deniesProtectedCapabilityWithoutInvocationOrSessionAuthentication() {
         CapabilityMetadata capability = capability("protected.skill", Set.of("ROLE_ALLOWED"));
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
 
         assertThat(accessGuard.canAccess(capability, session, null)).isFalse();
         assertThatThrownBy(() -> accessGuard.checkAccess(capability, session, null))
@@ -44,7 +44,7 @@ class DefaultAccessGuardTest {
     @Test
     void usesSessionAuthenticationWhenInvocationAuthenticationIsNull() {
         CapabilityMetadata capability = capability("protected.skill", Set.of("ROLE_ALLOWED"));
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         session.setAuthentication(authentication("ROLE_ALLOWED"));
 
         assertThat(accessGuard.resolveAuthentication(null, session)).isEqualTo(session.getAuthentication().orElseThrow());
@@ -54,7 +54,7 @@ class DefaultAccessGuardTest {
     @Test
     void prefersInvocationAuthenticationOverSessionAuthentication() {
         CapabilityMetadata capability = capability("protected.skill", Set.of("ROLE_ALLOWED"));
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         session.setAuthentication(authentication("ROLE_ALLOWED"));
         Authentication invocationAuthentication = authentication("ROLE_OTHER");
 

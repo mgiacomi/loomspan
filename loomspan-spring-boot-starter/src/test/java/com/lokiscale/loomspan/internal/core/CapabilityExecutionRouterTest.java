@@ -36,7 +36,7 @@ class CapabilityExecutionRouterTest {
                 beanFactory.getBeanProvider(ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         CapabilityMetadata capability = new CapabilityMetadata(
                 "yaml:child",
                 "child.llm.skill",
@@ -75,7 +75,7 @@ class CapabilityExecutionRouterTest {
                 new StaticListableBeanFactory().getBeanProvider(ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         CapabilityMetadata capability = new CapabilityMetadata(
                 "yaml:child",
                 "child.llm.skill",
@@ -114,7 +114,7 @@ class CapabilityExecutionRouterTest {
                 beanFactory.getBeanProvider(ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         session.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
                 "user",
                 "pw",
@@ -211,7 +211,7 @@ class CapabilityExecutionRouterTest {
                 beanFactory.getBeanProvider(ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         session.addSuccessfulDirectSkill("parsed_invoice");
         ExecutionFrame parentFrame = stateService.openMissionFrame(session, "parent.visible.skill", Map.of("objective", "parent"));
 
@@ -233,7 +233,7 @@ class CapabilityExecutionRouterTest {
                 beanFactory.getBeanProvider(ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         CapabilityMetadata capability = new CapabilityMetadata(
                 "yaml:child",
                 "child.llm.skill",
@@ -282,7 +282,7 @@ class CapabilityExecutionRouterTest {
                 new StaticListableBeanFactory().getBeanProvider(ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        LoomspanSession session = new LoomspanSession("session-1", 2);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
         ByteArrayResource payload = new ByteArrayResource(new byte[]{1, 2, 3});
         CapabilityMetadata capability = new CapabilityMetadata(
                 "yaml:binaryTool",

@@ -6,7 +6,7 @@ import { test as consoleTest, expect } from "./fixtures/consoleProcess";
 
 const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../loomspan-console-fixtures/traces");
 const completedTraceArtifact = fs.readFileSync(path.join(fixtureRoot, "single-attempt-success.ndjson"), "utf8").replaceAll("trace-single-attempt-success", "trace-1").replaceAll("session-single-attempt-success", "session-1");
-const completedTraceMetadata = JSON.stringify({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "SUCCEEDED", finalizedAt: "2026-07-24T12:00:00Z", sizeBytes: new TextEncoder().encode(completedTraceArtifact).byteLength, persistencePolicy: "ALWAYS", applicationTraceExpiresAt: "2026-08-03T00:00:00Z" });
+const completedTraceMetadata = JSON.stringify({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", entrySkill: "CheckDns", outcome: "SUCCEEDED", finalizedAt: "2026-07-24T12:00:00Z", sizeBytes: new TextEncoder().encode(completedTraceArtifact).byteLength, persistencePolicy: "ALWAYS", applicationTraceExpiresAt: "2026-08-03T00:00:00Z" });
 
 type TargetState = {
   instanceId: string;

@@ -103,6 +103,7 @@ public class DefaultSkillTemplate implements SkillTemplate
 
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             execution = sessionRunner.callWithNewSession(
+                    capability.name(),
                     authentication,
                     session -> executeValidated(capability, validation, session));
         }

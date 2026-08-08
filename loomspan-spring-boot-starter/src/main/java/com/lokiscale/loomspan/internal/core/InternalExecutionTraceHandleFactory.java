@@ -9,6 +9,7 @@ interface InternalExecutionTraceHandleFactory
 {
     ExecutionTraceHandle create(
             String sessionId,
+            String entrySkill,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
             ExecutionObservationHandle observationHandle);

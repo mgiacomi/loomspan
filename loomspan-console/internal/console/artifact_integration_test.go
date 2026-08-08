@@ -66,7 +66,7 @@ func newArtifactTestServer(t *testing.T, artifactBody []byte) *artifactTestServe
 		artifactBody = fixture
 	}
 	traceMetadata := fmt.Sprintf(
-		`{"targetScopeId":"scope-1","traceId":"trace-single-attempt-success","sessionId":"session-single-attempt-success","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":%d,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-08-01T12:00:00Z"}`,
+		`{"targetScopeId":"scope-1","traceId":"trace-single-attempt-success","sessionId":"session-single-attempt-success","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":%d,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-08-01T12:00:00Z"}`,
 		len(artifactBody),
 	)
 	srv := &artifactTestServer{
@@ -168,6 +168,7 @@ func buildArtifactService(t *testing.T, server *artifactTestServer) (*artifact.S
 			return artifact.TraceMetadata{
 				TraceID:                   trace.TraceID,
 				SessionID:                 trace.SessionID,
+				EntrySkill:                trace.EntrySkill,
 				Outcome:                   trace.Outcome,
 				FinalizedAt:               trace.FinalizedAt,
 				SizeBytes:                 trace.SizeBytes,
@@ -240,6 +241,13 @@ func TestArtifactAcquisitionInstallsOneCopyAndChargesOnce(t *testing.T) {
 	}
 	if first.LocalBytes <= 0 {
 		t.Fatalf("expected positive local bytes, got %d", first.LocalBytes)
+	}
+	lookup, lookupDomain := svc.Lookup(scope.ID, "single-attempt-success")
+	if lookupDomain != nil {
+		t.Fatalf("Lookup failed: %v", lookupDomain)
+	}
+	if lookup.Metadata.EntrySkill != "CheckDns" {
+		t.Fatalf("expected acquired entry skill CheckDns, got %q", lookup.Metadata.EntrySkill)
 	}
 	if server.artifactRequestCount() != 1 {
 		t.Fatalf("expected 1 upstream artifact request, got %d", server.artifactRequestCount())
@@ -557,10 +565,11 @@ func TestArtifactShutdownWaitsForStreamCleanup(t *testing.T) {
 		Workspace: ws,
 		TraceLoader: func(ctx context.Context, scope target.Scope, traceID string) (artifact.TraceMetadata, *consolecore.Error) {
 			return artifact.TraceMetadata{
-				TraceID:   "trace-single-attempt-success",
-				SessionID: "session-single-attempt-success",
-				Outcome:   "SUCCEEDED",
-				SizeBytes: int64(len(server.artifactBody)),
+				TraceID:    "trace-single-attempt-success",
+				SessionID:  "session-single-attempt-success",
+				EntrySkill: "CheckDns",
+				Outcome:    "SUCCEEDED",
+				SizeBytes:  int64(len(server.artifactBody)),
 			}, nil
 		},
 		StreamOpener: func(ctx context.Context, scope target.Scope, traceID string) (*applicationclient.ArtifactStream, *consolecore.Error) {
@@ -674,6 +683,7 @@ func TestArtifactAcquisitionDoesNotLeakPathsOrCredentials(t *testing.T) {
 			return artifact.TraceMetadata{
 				TraceID:                   trace.TraceID,
 				SessionID:                 trace.SessionID,
+				EntrySkill:                trace.EntrySkill,
 				Outcome:                   trace.Outcome,
 				FinalizedAt:               trace.FinalizedAt,
 				SizeBytes:                 trace.SizeBytes,
@@ -862,6 +872,7 @@ func buildArtifactServiceWithQueryService(t *testing.T, server *artifactTestServ
 			return artifact.TraceMetadata{
 				TraceID:                   trace.TraceID,
 				SessionID:                 trace.SessionID,
+				EntrySkill:                trace.EntrySkill,
 				Outcome:                   trace.Outcome,
 				FinalizedAt:               trace.FinalizedAt,
 				SizeBytes:                 trace.SizeBytes,

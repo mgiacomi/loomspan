@@ -54,7 +54,7 @@ class ModelAttemptCallAdvisorIntegrationTest
                 new LoomspanProperties().getSession().getQuotas(),
                 new MicrometerUsageMetricsRecorder(meterRegistry));
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
-        LoomspanSession session = TestLoomspanSessions.withId("attempt-retry", 4);
+        LoomspanSession session = TestLoomspanSessions.withId("attempt-retry", "test.entry", 4);
         ExecutionFrame root = stateService.openMissionFrame(session, "test.skill", Map.of());
         ExecutionFrame modelFrame = stateService.openFrame(
                 session,
@@ -130,7 +130,7 @@ class ModelAttemptCallAdvisorIntegrationTest
     {
         DefaultSessionUsageService usageService = usageService();
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
-        LoomspanSession session = TestLoomspanSessions.withId("attempt-throw", 4);
+        LoomspanSession session = TestLoomspanSessions.withId("attempt-throw", "test.entry", 4);
         ExecutionFrame root = stateService.openMissionFrame(session, "test.skill", Map.of());
         ExecutionFrame modelFrame = stateService.openFrame(session, TraceFrameType.MODEL_CALL, "test.skill#model", Map.of());
         ModelTraceContext traceContext = traceContext();
@@ -171,7 +171,7 @@ class ModelAttemptCallAdvisorIntegrationTest
                 properties.getSession().getQuotas(),
                 new NoOpUsageMetricsRecorder());
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
-        LoomspanSession session = TestLoomspanSessions.withId("attempt-quota", 4);
+        LoomspanSession session = TestLoomspanSessions.withId("attempt-quota", "test.entry", 4);
         stateService.openMissionFrame(session, "test.skill", Map.of());
         stateService.openFrame(session, TraceFrameType.MODEL_CALL, "test.skill#model", Map.of());
         ModelTraceContext traceContext = traceContext();

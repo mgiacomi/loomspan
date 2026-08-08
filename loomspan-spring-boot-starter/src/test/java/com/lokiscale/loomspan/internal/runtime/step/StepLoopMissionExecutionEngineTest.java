@@ -85,7 +85,7 @@ class StepLoopMissionExecutionEngineTest {
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Mission complete"}
                 """);
 
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-1", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-1", "test.entry", 3);
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
 
@@ -122,7 +122,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-retry", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-retry", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             YamlSkillDefinition definition = definitionWithPrompt();
@@ -158,7 +158,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-prompt", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-prompt", "test.entry", 3);
         YamlSkillDefinition definition = definitionWithPrompt();
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -198,7 +198,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-missing-action", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-missing-action", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -228,7 +228,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"CALL_TOOL","taskId":"t-1","toolName":"invoiceParser","toolArguments":{"rawText":"INV-1"}}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-failure", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-failure", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -263,7 +263,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"{\\\"result\\\":\\\"Finished\\\"}"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-schema", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-schema", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(
@@ -300,7 +300,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":{"result":"Finished"}}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-evidence", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-evidence", "test.entry", 3);
         session.addSuccessfulDirectSkill("invoiceParser");
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -352,7 +352,7 @@ class StepLoopMissionExecutionEngineTest {
                   "result": "Finished"
                 }
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-bare-final-payload", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-bare-final-payload", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(
@@ -387,7 +387,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-complete-plan-repair", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-complete-plan-repair", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -426,7 +426,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-schema-aware-tool-args", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-schema-aware-tool-args", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -472,7 +472,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-placeholder-tool-args", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-placeholder-tool-args", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -518,7 +518,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-verbose-retry", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-verbose-retry", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -568,7 +568,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-mission-input", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-mission-input", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -603,7 +603,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-attachment", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-attachment", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor, attachmentDefinition());
@@ -645,7 +645,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-parent-skill-tool-confusion", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-parent-skill-tool-confusion", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -688,7 +688,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"APPROVED: Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-linter", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-linter", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(
@@ -728,7 +728,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"APPROVED: Finished"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-linter-retries", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-linter-retries", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(
@@ -766,7 +766,7 @@ class StepLoopMissionExecutionEngineTest {
                         null, "Summarize mission findings", List.of(), List.of("summary"), true, null)));
         PlanningService planningService = new InitializingPlanningService(stateService, plan);
         SequenceChatClient chatClient = new SequenceChatClient();
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-auto", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-auto", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -799,7 +799,7 @@ class StepLoopMissionExecutionEngineTest {
                         List.of("expenses"), false, null)));
         PlanningService planningService = new InitializingPlanningService(stateService, plan);
         SequenceChatClient chatClient = new SequenceChatClient();
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-missing-dependency", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-missing-dependency", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -835,7 +835,7 @@ class StepLoopMissionExecutionEngineTest {
                                 "invoiceParser", "Parse invoice B", List.of(), List.of("parsedB"), false, null)));
         PlanningService planningService = new InitializingPlanningService(stateService, plan);
         SequenceChatClient chatClient = new SequenceChatClient();
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-duplicate-task-id", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-duplicate-task-id", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -867,7 +867,7 @@ class StepLoopMissionExecutionEngineTest {
                 """
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Still too early"}
                 """);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-invalid-exhausted", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-invalid-exhausted", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -912,7 +912,7 @@ class StepLoopMissionExecutionEngineTest {
                 {"stepAction":"FINAL_RESPONSE","finalResponse":"Mission complete"}
                 """);
         AtomicInteger routerCalls = new AtomicInteger();
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-real-tool", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-real-tool", "test.entry", 3);
         ToolCallback realWrappedTool = realToolCallback(stateService, planningService, routerCalls, session);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -953,7 +953,7 @@ class StepLoopMissionExecutionEngineTest {
                         null, "Extract invoice data", List.of(), List.of("parsedInvoice"), false, null)));
         PlanningService planningService = new InitializingPlanningService(stateService, plan);
         SequenceChatClient chatClient = new SequenceChatClient();
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-unbound-capability", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-unbound-capability", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -984,7 +984,7 @@ class StepLoopMissionExecutionEngineTest {
         manifest.setMaxSteps(0);
         YamlSkillDefinition invalidDefinition = new YamlSkillDefinition(
                 new ByteArrayResource(new byte[0]), manifest, EXECUTION_CONFIGURATION);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-max-steps-zero", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-max-steps-zero", "test.entry", 3);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(

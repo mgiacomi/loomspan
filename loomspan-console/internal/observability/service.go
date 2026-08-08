@@ -311,7 +311,7 @@ func validateActiveExecution(execution ActiveExecution) error {
 }
 
 func validateTrace(trace Trace) error {
-	if trace.TraceID == "" || trace.SessionID == "" || trace.Outcome == "" ||
+	if trace.TraceID == "" || trace.SessionID == "" || trace.EntrySkill == "" || trace.Outcome == "" ||
 		trace.PersistencePolicy == "" {
 		return errors.New("trace identity or state is missing")
 	}

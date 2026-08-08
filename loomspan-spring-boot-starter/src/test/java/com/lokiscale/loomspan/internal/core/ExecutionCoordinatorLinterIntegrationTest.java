@@ -96,7 +96,7 @@ class ExecutionCoordinatorLinterIntegrationTest {
                 new DefaultSkillAdvisorResolver(stateService).resolve(definition),
                 List.of("not ok", "OK: corrected"));
         ExecutionCoordinator coordinator = coordinator(catalog, registry, ignored -> chatClient, stateService);
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "lintedSkill", 3);
 
         String response = coordinator.execute("lintedSkill", "Produce YAML", session, null);
 

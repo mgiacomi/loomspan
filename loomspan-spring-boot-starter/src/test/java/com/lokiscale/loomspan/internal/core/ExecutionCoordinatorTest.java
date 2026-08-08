@@ -109,7 +109,13 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession mismatched = new LoomspanSession("session-mismatch", "another.entry", 3);
+        assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", mismatched, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Top-level capability name does not match session entry skill");
+        assertThat(mismatched.getFramesSnapshot()).isEmpty();
+
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", session, null))
                 .isInstanceOf(AccessDeniedException.class)
@@ -176,7 +182,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
         session.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
                 "user",
                 "pw",
@@ -252,7 +258,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
         String response = coordinator.execute(
                 "rootVisibleSkill",
                 "Say hello",
@@ -351,7 +357,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
         String response = coordinator.execute("rootVisibleSkill", "Say hello", session, null);
 
         assertThat(response).isEqualTo("mission complete");
@@ -411,7 +417,7 @@ class ExecutionCoordinatorTest {
                 stateService,
                 new DefaultAccessGuard());
 
-        String response = coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", 3), null);
+        String response = coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", "rootVisibleSkill", 3), null);
 
         assertThat(response).isEqualTo("step loop complete");
         assertThat(factory.stepExecutionRequested).isTrue();
@@ -465,7 +471,7 @@ class ExecutionCoordinatorTest {
                 stateService,
                 new DefaultAccessGuard());
 
-        String response = coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", 3), null);
+        String response = coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", "rootVisibleSkill", 3), null);
 
         assertThat(response).isEqualTo("one shot complete");
         assertThat(factory.stepExecutionRequested).isFalse();
@@ -513,13 +519,14 @@ class ExecutionCoordinatorTest {
                 assertingEngine,
                 null);
 
-        LoomspanSession session = new LoomspanSession("session-nested", 3);
+        LoomspanSession session = new LoomspanSession("session-nested", "top.entry", 3);
         ExecutionFrame parentFrame = stateService.openMissionFrame(session, "parent.visible.skill", Map.of("objective", "parent"));
         stateService.recordSuccessfulSkill(session, "invoiceParser", "task-1", false);
 
         String response = coordinator.execute("rootVisibleSkill", "child objective", session, null);
 
         assertThat(response).isEqualTo("nested complete");
+        assertThat(session.entrySkill()).isEqualTo("top.entry");
         assertThat(session.getSuccessfulDirectSkills()).isEmpty();
         stateService.closeMissionFrame(session, parentFrame);
     }
@@ -568,7 +575,7 @@ class ExecutionCoordinatorTest {
                 fixedStateService(),
                 new DefaultAccessGuard());
 
-        assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", 3), null))
+        assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", "rootVisibleSkill", 3), null))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("createForStepExecution");
     }
@@ -608,7 +615,7 @@ class ExecutionCoordinatorTest {
                 (value, session) -> value,
                 null,
                 failingMissionExecutionEngine);
-        LoomspanSession session = new LoomspanSession("session-top-level-failure", 3);
+        LoomspanSession session = new LoomspanSession("session-top-level-failure", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", session, null))
                 .isInstanceOf(IllegalStateException.class)
@@ -660,7 +667,7 @@ class ExecutionCoordinatorTest {
                 (value, session) -> value,
                 null);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3, null, TracePersistencePolicy.ALWAYS);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3, null, TracePersistencePolicy.ALWAYS);
         String response = coordinator.execute("rootVisibleSkill", "Say hello", session, null);
 
         assertThat(response).isEqualTo("mission complete");
@@ -704,7 +711,7 @@ class ExecutionCoordinatorTest {
                 new RecordingSkillChatClientFactory(new FakeCoordinatorChatClient(null, "unused", null, false)),
                 (value, session) -> value,
                 null);
-        LoomspanSession session = new LoomspanSession("session-attachment-redaction", 3);
+        LoomspanSession session = new LoomspanSession("session-attachment-redaction", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute(
                 "rootVisibleSkill",
@@ -776,7 +783,7 @@ class ExecutionCoordinatorTest {
                 fixedPlanningService(stateService),
                 failingMissionExecutionEngine,
                 null);
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
 
         Throwable thrown = catchThrowable(() ->
                 coordinator.execute("rootVisibleSkill", "Say hello", session, null));
@@ -856,7 +863,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
         session.replaceExecutionPlan(new ExecutionPlan(
                 "stale-plan",
                 "old.skill",
@@ -933,7 +940,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", session, null))
                 .isInstanceOf(ToolExecutionException.class)
@@ -1051,7 +1058,7 @@ class ExecutionCoordinatorTest {
                 rootCoordinator,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 4);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 4);
         String response = coordinator.execute("rootVisibleSkill", "Say hello", session, null);
 
         assertThat(response).isEqualTo("root mission complete");
@@ -1142,7 +1149,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", session, null))
                 .isInstanceOf(ToolExecutionException.class)
@@ -1261,7 +1268,7 @@ class ExecutionCoordinatorTest {
                 new DefaultAccessGuard());
         ExecutionCoordinator coordinator = coordinatorHolder[0];
 
-        LoomspanSession session = new LoomspanSession("session-1", 4);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 4);
         String response = coordinator.execute(
                 "rootVisibleSkill",
                 "Say hello",
@@ -1327,7 +1334,7 @@ class ExecutionCoordinatorTest {
                     missionExecutionEngine,
                     null);
 
-            LoomspanSession session = new LoomspanSession("session-timeout", 3);
+            LoomspanSession session = new LoomspanSession("session-timeout", "rootVisibleSkill", 3);
 
             assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Wait forever", session, null))
                     .isInstanceOf(LoomspanMissionTimeoutException.class)
@@ -1373,7 +1380,7 @@ class ExecutionCoordinatorTest {
         PlanningService planningService = fixedPlanningService(stateService);
         ToolCallback callback = toolCallbackFactory((value, session) -> value, null, stateService, planningService)
                 .createToolCallbacks(
-                        new LoomspanSession("session-1", 2),
+                        new LoomspanSession("session-1", "rootVisibleSkill", 2),
                         new YamlSkillDefinition(new ByteArrayResource(new byte[0]), manifest("rootVisibleSkill", List.of()), executionConfiguration),
                         List.of(childMetadata),
                         null)
@@ -1440,7 +1447,7 @@ class ExecutionCoordinatorTest {
                 null,
                 true);
 
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
         String response = coordinator.execute("rootVisibleSkill", "Say hello", session, null);
 
         assertThat(response).isEqualTo("mission complete");

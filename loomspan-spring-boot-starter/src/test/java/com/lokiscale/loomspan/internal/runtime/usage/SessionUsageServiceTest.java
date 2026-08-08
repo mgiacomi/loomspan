@@ -26,7 +26,7 @@ class SessionUsageServiceTest {
     @Test
     void throwsWhenModelCallQuotaExceeded() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 10, 1, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 3);
 
         service.recordMissionStart(session, "root.skill");
         service.recordModelResponse(session, "root.skill", IDENTITY, new ModelUsageRecord(1, 2, 3, UsagePrecision.EXACT, null));
@@ -40,7 +40,7 @@ class SessionUsageServiceTest {
     @Test
     void throwsWhenToolInvocationQuotaExceeded() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 1, 10, 10, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-2", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-2", "test.entry", 3);
 
         service.recordToolCall(session, "root.skill", "tool.one");
 
@@ -53,7 +53,7 @@ class SessionUsageServiceTest {
     @Test
     void throwsWhenLinterRetryQuotaExceeded() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 1, 10, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-3", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-3", "test.entry", 3);
 
         service.recordLinterOutcome(session, outcome(LinterOutcomeStatus.RETRYING, 0, 1));
 
@@ -66,7 +66,7 @@ class SessionUsageServiceTest {
     @Test
     void snapshotsAccumulatedUsage() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 10, 10, 100), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-4", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-4", "test.entry", 3);
 
         service.recordMissionStart(session, "root.skill");
         service.recordToolCall(session, "root.skill", "tool.one");
@@ -79,7 +79,7 @@ class SessionUsageServiceTest {
     @Test
     void doesNotEnforceDisabledQuotas() {
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(0, 0, 0, 0, 0), new NoOpUsageMetricsRecorder());
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-5", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-5", "test.entry", 3);
 
         service.recordMissionStart(session, "root.skill");
         service.recordMissionStart(session, "root.skill");
@@ -97,7 +97,7 @@ class SessionUsageServiceTest {
     void recordsToolAccuracyFromTerminalLinterOutcomeForCurrentFrame() {
         RecordingUsageMetricsRecorder recorder = new RecordingUsageMetricsRecorder();
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 10, 10, 100), recorder);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-6", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-6", "test.entry", 3);
         session.pushFrame(new ExecutionFrame("frame-1", null, OperationType.SKILL, TraceFrameType.SKILL_EXECUTION, "root.skill", Map.of(), Instant.now()));
 
         service.recordToolCall(session, "root.skill", "tool.one");
@@ -111,7 +111,7 @@ class SessionUsageServiceTest {
     void recordsToolAccuracyForEachToolInvocationInCurrentFrame() {
         RecordingUsageMetricsRecorder recorder = new RecordingUsageMetricsRecorder();
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 10, 10, 100), recorder);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-6b", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-6b", "test.entry", 3);
         session.pushFrame(new ExecutionFrame("frame-1", null, OperationType.SKILL, TraceFrameType.SKILL_EXECUTION, "root.skill", Map.of(), Instant.now()));
 
         service.recordToolCall(session, "root.skill", "tool.one");
@@ -126,7 +126,7 @@ class SessionUsageServiceTest {
     void doesNotRecordToolAccuracyWithoutToolActivityForCurrentFrame() {
         RecordingUsageMetricsRecorder recorder = new RecordingUsageMetricsRecorder();
         DefaultSessionUsageService service = new DefaultSessionUsageService(quotas(10, 10, 10, 10, 100), recorder);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-7", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-7", "test.entry", 3);
         session.pushFrame(new ExecutionFrame("frame-1", null, OperationType.SKILL, TraceFrameType.SKILL_EXECUTION, "root.skill", Map.of(), Instant.now()));
 
         service.recordLinterOutcome(session, outcome(LinterOutcomeStatus.PASSED, 0, 1));

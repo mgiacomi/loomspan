@@ -19,7 +19,7 @@ class RefResolverTest {
 
     @Test
     void resolvesOnlyExactRefStrings() {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) ->
                 new ByteArrayResource(("resolved:" + ref.raw()).getBytes(StandardCharsets.UTF_8)));
 
@@ -37,7 +37,7 @@ class RefResolverTest {
 
     @Test
     void resolvesExactRefStringsInsideNestedMapsAndLists() {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) ->
                 new ByteArrayResource(("resolved:" + ref.raw()).getBytes(StandardCharsets.UTF_8)));
 
@@ -63,7 +63,7 @@ class RefResolverTest {
 
     @Test
     void preservesBinaryResourcePayloadsForLaterConsumers() throws Exception {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-binary", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-binary", "test.entry", 2);
         byte[] expected = new byte[]{0x00, 0x01, (byte) 0xFE, (byte) 0xFF, 0x41};
         DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) -> new ByteArrayResource(expected));
 
@@ -77,7 +77,7 @@ class RefResolverTest {
 
     @Test
     void leavesNonLeafContainersUntouchedWhenNoExactRefLeafExists() {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-nonleaf", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-nonleaf", "test.entry", 2);
         DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) ->
                 new ByteArrayResource(("resolved:" + ref.raw()).getBytes(StandardCharsets.UTF_8)));
 
@@ -98,7 +98,7 @@ class RefResolverTest {
 
     @Test
     void propagatesUnderlyingResolutionFailures() {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-errors", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-errors", "test.entry", 2);
         DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) -> {
             throw new IllegalArgumentException("Unknown ref '" + ref.raw() + "'");
         });
@@ -110,7 +110,7 @@ class RefResolverTest {
 
     @Test
     void exactRefLeavesDelegateWithoutDuplicateExistenceChecks() {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         Resource resource = new ByteArrayResource("resolved".getBytes(StandardCharsets.UTF_8)) {
             @Override
             public boolean exists() {
@@ -126,7 +126,7 @@ class RefResolverTest {
 
     @Test
     void nestedContainersStillResolveToResourceLeaves() {
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-nested", 2);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-nested", "test.entry", 2);
         DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) ->
                 new ByteArrayResource(("resolved:" + ref.relativePath()).getBytes(StandardCharsets.UTF_8)));
 

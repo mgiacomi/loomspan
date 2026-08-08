@@ -72,7 +72,7 @@ class PlanningServiceTest {
     void initializesPlanOnlyWhenInvoked() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 3);
         ExecutionPlan plan = plan("plan-1", PlanTaskStatus.PENDING);
 
         assertThat(session.getExecutionPlan()).isEmpty();
@@ -85,7 +85,7 @@ class PlanningServiceTest {
     void planningReceivesAttachmentDescriptorsButNoMedia() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-planning-attachment", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-planning-attachment", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(planJson("plan-attachment", PlanTaskStatus.PENDING));
 
         planningService.initializePlan(
@@ -112,7 +112,7 @@ class PlanningServiceTest {
         DefaultPlanningService planningService = new DefaultPlanningService(
                 new DefaultPlanTaskLinker(),
                 stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-usage", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-usage", "test.entry", 3);
         ExecutionPlan plan = plan("plan-usage", PlanTaskStatus.PENDING);
 
         assertThat(planningService.initializePlan(session, "hello", null, rootDefinition(), new SimpleChatClient(plan, "done"), List.of()))
@@ -125,7 +125,7 @@ class PlanningServiceTest {
     void initializesPlanFromYamlWithNormalizedStatuses() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-yaml", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-yaml", "test.entry", 3);
 
         ExecutionPlan plan = planningService.initializePlan(
                         session,
@@ -146,7 +146,7 @@ class PlanningServiceTest {
     void allowsLegacyPlanningResponsesWithoutStepLoopContract() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-legacy-plan", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-legacy-plan", "test.entry", 3);
 
         ExecutionPlan legacyPlan = new ExecutionPlan(
                 "plan-legacy",
@@ -170,7 +170,7 @@ class PlanningServiceTest {
     void recordsPlanningTraceWithRealProviderMetadata() throws Exception {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-trace", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-trace", "test.entry", 3);
 
         planningService.initializePlan(
                 session,
@@ -203,7 +203,7 @@ class PlanningServiceTest {
     void marksLinkedTaskStartedCompletedAndBlocked() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 3);
         CapabilityMetadata capability = capability("allowedVisibleSkill");
 
         stateService.storePlan(session, new ExecutionPlan(
@@ -248,7 +248,7 @@ class PlanningServiceTest {
     void marksExplicitTaskStartedWithoutRelinking() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-explicit-task", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-explicit-task", "test.entry", 3);
 
         stateService.storePlan(session, new ExecutionPlan(
                 "plan-explicit",
@@ -270,7 +270,7 @@ class PlanningServiceTest {
     void rejectsStartingTaskWithMismatchedCapabilityBinding() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-mismatched-start", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-mismatched-start", "test.entry", 3);
 
         stateService.storePlan(session, new ExecutionPlan(
                 "plan-explicit",
@@ -290,7 +290,7 @@ class PlanningServiceTest {
     void rejectsCompletingTaskWithMismatchedCapabilityBinding() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-mismatched-complete", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-mismatched-complete", "test.entry", 3);
 
         stateService.storePlan(session, new ExecutionPlan(
                 "plan-explicit",
@@ -310,7 +310,7 @@ class PlanningServiceTest {
     void rejectsFailingTaskWithMismatchedCapabilityBinding() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-mismatched-fail", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-mismatched-fail", "test.entry", 3);
 
         stateService.storePlan(session, new ExecutionPlan(
                 "plan-explicit",
@@ -334,7 +334,7 @@ class PlanningServiceTest {
     void doesNotLogPlanUpdateWhenCompletedTaskIsMissing() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-missing-task", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-missing-task", "test.entry", 3);
 
         stateService.storePlan(session, new ExecutionPlan(
                 "plan-1",
@@ -350,7 +350,7 @@ class PlanningServiceTest {
     void planningPromptIncludesToolDescriptionsAndAlignmentRules() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-tool-names", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-tool-names", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-tools", PlanTaskStatus.PENDING), "done");
 
         ToolCallback tool1 = toolCallback("invoiceParser", "Extract invoice fields from source documents");
@@ -371,7 +371,7 @@ class PlanningServiceTest {
     void planningPromptIncludesSkillPromptBeforePlanningContract() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-planning-prompt", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-planning-prompt", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(planJson("plan-prompt", PlanTaskStatus.PENDING));
 
         ToolCallback tool = toolCallback("invoiceParser", "Short child tool description");
@@ -398,7 +398,7 @@ class PlanningServiceTest {
     void planningPromptIncludesEvidenceConstraints() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-constraints", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-constraints", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-tools", PlanTaskStatus.PENDING), "done");
 
         ToolCallback tool1 = toolCallback("invoiceParser", "Extract invoice fields from source documents");
@@ -418,7 +418,7 @@ class PlanningServiceTest {
     void planningPromptPreservesAuthoredDescriptionsVerbatim() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-authored-descriptions", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-authored-descriptions", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-tools-verbatim", PlanTaskStatus.PENDING), "done");
 
         String authoredDescription = "Reads invoice PDFs exactly as-authored. Keep JSON keys `invoice_id`, `vendor_name`, and \"line_items\".";
@@ -440,7 +440,7 @@ class PlanningServiceTest {
     void retriesSingleToolOverusePlanWhenMultipleVisibleToolsExist() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-weak-plan-retry", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-weak-plan-retry", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(
                 weakSingleToolPlanJson(),
                 correctedMultiToolPlanJson());
@@ -473,7 +473,7 @@ class PlanningServiceTest {
         DefaultPlanningService planningService = new DefaultPlanningService(
                 new DefaultPlanTaskLinker(),
                 stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-weak-plan-retry-usage", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-weak-plan-retry-usage", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(
                 weakSingleToolPlanJson(),
                 correctedMultiToolPlanJson());
@@ -501,7 +501,7 @@ class PlanningServiceTest {
         DefaultPlanningService planningService = new DefaultPlanningService(
                 new DefaultPlanTaskLinker(),
                 stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-weak-plan-retry-cap", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-weak-plan-retry-cap", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(
                 weakSingleToolPlanJson(),
                 weakSingleToolPlanJson());
@@ -546,7 +546,7 @@ class PlanningServiceTest {
     void warnsButAcceptsLegitimateRepeatedToolPlan() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-repeated-tool-warning", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-repeated-tool-warning", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(repeatedExtractionPlanJson());
 
         ToolCallback invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
@@ -602,7 +602,7 @@ class PlanningServiceTest {
     void planningPromptShowsNoneWhenNoToolsProvided() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-no-tools", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-no-tools", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-no-tools", PlanTaskStatus.PENDING), "done");
 
         planningService.initializePlan(session, "check invoice", null, rootDefinition("duplicateInvoiceChecker"), chatClient, List.of());
@@ -615,7 +615,7 @@ class PlanningServiceTest {
     void planningPromptHardcodesTopLevelCapabilityName() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-cap-name", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-cap-name", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-cap", PlanTaskStatus.PENDING), "done");
 
         planningService.initializePlan(session, "check invoice", null, rootDefinition("duplicateInvoiceChecker"), chatClient, List.of());
@@ -628,7 +628,7 @@ class PlanningServiceTest {
     void rejectsContractBackedPlanWhenRequiredEvidenceRemainsUncoveredAfterRetries() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-fail", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-fail", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(weakSingleToolPlanJson(), weakSingleToolPlanJson());
 
         assertThatThrownBy(() -> planningService.initializePlan(
@@ -647,7 +647,7 @@ class PlanningServiceTest {
     void acceptsContractBackedPlanWhenTaskBindingsCoverAllRequiredEvidence() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-pass", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-pass", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(correctedMultiToolPlanJson());
 
         ExecutionPlan plan = planningService.initializePlan(

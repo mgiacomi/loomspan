@@ -12,7 +12,7 @@ class LoomspanSessionPlanStateTest {
 
     @Test
     void storesReplacesAndClearsExecutionPlanIndependentlyOfFrames() {
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 3);
         session.pushFrame(new ExecutionFrame(
                 "frame-1",
                 null,

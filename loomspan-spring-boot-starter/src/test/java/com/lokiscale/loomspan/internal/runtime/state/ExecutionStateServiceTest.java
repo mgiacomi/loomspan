@@ -50,7 +50,7 @@ class ExecutionStateServiceTest {
     @Test
     void managesFramePlanAndJournalWritesThroughSingleBoundary() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 3);
         ExecutionPlan plan = plan("plan-1");
         LinterOutcome outcome = new LinterOutcome(
                 "lintedSkill",
@@ -100,14 +100,14 @@ class ExecutionStateServiceTest {
     void restoresParentPlanAfterNestedMissionAndClearsWhenNoParentExists() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
 
-        LoomspanSession sessionWithParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-parent", 3);
+        LoomspanSession sessionWithParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-parent", "test.entry", 3);
         ExecutionPlan parentPlan = plan("parent-plan");
         stateService.storePlan(sessionWithParent, parentPlan);
         PlanSnapshot snapshot = stateService.snapshotPlan(sessionWithParent);
         stateService.storePlan(sessionWithParent, plan("child-plan"));
         stateService.restorePlan(sessionWithParent, snapshot);
 
-        LoomspanSession sessionWithoutParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-empty", 3);
+        LoomspanSession sessionWithoutParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-empty", "test.entry", 3);
         PlanSnapshot emptySnapshot = stateService.snapshotPlan(sessionWithoutParent);
         stateService.storePlan(sessionWithoutParent, plan("child-plan"));
         stateService.restorePlan(sessionWithoutParent, emptySnapshot);
@@ -120,7 +120,7 @@ class ExecutionStateServiceTest {
     void restoresParentSuccessfulSkillsAfterNestedMissionAndClearsWhenNoParentExists() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
 
-        LoomspanSession sessionWithParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-parent-evidence", 3);
+        LoomspanSession sessionWithParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-parent-evidence", "test.entry", 3);
         stateService.recordSuccessfulSkill(sessionWithParent, "invoiceParser", "task-1", false);
         stateService.recordSuccessfulSkill(sessionWithParent, "expenseLookup", "task-2", false);
         SuccessfulSkillSnapshot snapshot = stateService.snapshotSuccessfulSkills(sessionWithParent);
@@ -128,7 +128,7 @@ class ExecutionStateServiceTest {
         stateService.recordSuccessfulSkill(sessionWithParent, "taxLookup", "task-3", false);
         stateService.restoreSuccessfulSkills(sessionWithParent, snapshot);
 
-        LoomspanSession sessionWithoutParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-empty-evidence", 3);
+        LoomspanSession sessionWithoutParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-empty-evidence", "test.entry", 3);
         SuccessfulSkillSnapshot emptySnapshot = stateService.snapshotSuccessfulSkills(sessionWithoutParent);
         stateService.recordSuccessfulSkill(sessionWithoutParent, "expenseLookup", "task-2", false);
         stateService.restoreSuccessfulSkills(sessionWithoutParent, emptySnapshot);
@@ -140,7 +140,7 @@ class ExecutionStateServiceTest {
     @Test
     void rejectsClosingFrameOutOfOrder() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-frames", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-frames", "test.entry", 3);
 
         ExecutionFrame parentFrame = stateService.openMissionFrame(session, "rootVisibleSkill", Map.of());
         ExecutionFrame childFrame = stateService.openMissionFrame(session, "child.visible.skill", Map.of());
@@ -155,7 +155,7 @@ class ExecutionStateServiceTest {
     @Test
     void recordsRuntimeTraceEventsAgainstTheActiveFrameAndIncludesRequestedAndRootMissionTyping() throws Exception {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-trace", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-trace", "test.entry", 3);
 
         ExecutionFrame rootFrame = stateService.openMissionFrame(session, "rootVisibleSkill", Map.of("objective", "hello"));
         ExecutionFrame frame = stateService.openFrame(session, TraceFrameType.MODEL_CALL, "rootVisibleSkill#model", Map.of("driver", "openai"));
@@ -209,7 +209,7 @@ class ExecutionStateServiceTest {
     @Test
     void recordsSuccessfulSkillInLedgerAndTraceWithoutJournalEntries() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence", "test.entry", 3);
 
         ExecutionFrame rootFrame = stateService.openMissionFrame(session, "rootVisibleSkill", Map.of());
         stateService.recordSuccessfulSkill(session, "invoiceParser", "task-1", false);
@@ -307,7 +307,7 @@ class ExecutionStateServiceTest {
             }
         };
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK, new com.lokiscale.loomspan.internal.runtime.usage.NoOpSessionUsageService(), failingRecorder);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-open-failure", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-open-failure", "test.entry", 3);
 
         assertThatThrownBy(() -> stateService.openMissionFrame(session, "rootVisibleSkill", Map.of("objective", "hello")))
                 .isInstanceOf(IllegalStateException.class)

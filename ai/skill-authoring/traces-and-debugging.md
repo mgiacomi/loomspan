@@ -11,6 +11,10 @@ coverage: source-verified
 
 Use execution traces to explain what Loomspan and the model provider did during one run: prompt mutation, physical provider attempts, validation retries, tools, evidence, failures, and final usage. Traces are diagnostics for the current checkout and current run. They are not a durable cross-version API, and authors MUST NOT build application behavior on their serialized shape.
 
+## Trace identity
+
+`entrySkill` is the exact registered name of the top-level YAML skill whose invocation owns the session. Loomspan records it before execution begins, keeps it unchanged across nested skill invocations, and exposes it in Trace Catalog and Trace Detail without requiring artifact acquisition. It is a recorded fact: it does not prove that the skill is still registered or that it is more important than nested work.
+
 ## Model attempts and retries
 
 One physical attempt is one downstream provider call. Each attempt has an `attemptId`, a positive `attemptNumber`, and a `retrySequenceId`. Attempts created while correcting one logical call share the retry sequence and increase the attempt number; a nested or separate logical call uses a different sequence.
@@ -74,6 +78,8 @@ If finalization itself cannot append a completion record, do not infer one. A mi
 - [`TraceCompletion.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceCompletion.java) and [`TraceOutcome.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceOutcome.java) define terminal semantics.
 - [`ModelAttemptCallAdvisorIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/chat/ModelAttemptCallAdvisorIntegrationTest.java) protects retry cardinality, failure behavior, usage, and quota enforcement.
 - [`LoomspanSessionRunnerTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/LoomspanSessionRunnerTest.java) and [`ExecutionCoordinatorTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/runtime/ExecutionCoordinatorTest.java) protect terminal failure linkage.
+- `EntrySkillIdentityTest`, `DefaultExecutionObservationHandleTest`, and `LiveActivityProjectorTest` protect bounded session identity, first-snapshot availability, and nested immutability.
+- `ObservabilityRestIntegrationTest`, Go browser fallback tests, and the `Traces`/`TraceDetail` component tests protect list/detail propagation, installed-copy restoration, and plain-text presentation.
 - [`loomspan-console-fixtures`](../../loomspan-console-fixtures/README.md) is the executable cross-language semantic corpus.
 - `ConsoleTraceFixtureCorpusTest` and Go `fixture_corpus_test.go` protect the
   optional complete run-start snapshot and malformed-object rejection.

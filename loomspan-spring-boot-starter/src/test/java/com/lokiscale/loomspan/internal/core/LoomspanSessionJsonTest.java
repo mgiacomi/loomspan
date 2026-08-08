@@ -23,6 +23,7 @@ class LoomspanSessionJsonTest {
     void serializesExecutionTraceAndDerivedJournalForLiveSession() throws Exception {
         LoomspanSession session = TestLoomspanSessions.withId(
                 "session-json-live",
+                "test.entry",
                 4,
                 null,
                 TracePersistencePolicy.ALWAYS,
@@ -53,6 +54,7 @@ class LoomspanSessionJsonTest {
     void preservesDerivedJournalAfterFinalizationDeletesNeverRetainedTraceFile() throws Exception {
         LoomspanSession session = TestLoomspanSessions.withId(
                 "session-json-finalized",
+                "test.entry",
                 4,
                 null,
                 TracePersistencePolicy.NEVER,

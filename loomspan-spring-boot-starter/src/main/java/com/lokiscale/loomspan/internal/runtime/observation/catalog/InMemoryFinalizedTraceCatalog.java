@@ -103,6 +103,7 @@ public final class InMemoryFinalizedTraceCatalog implements FinalizedTraceCatalo
                 assigned,
                 artifact.traceId(),
                 artifact.sessionId(),
+                artifact.entrySkill(),
                 artifact.outcome(),
                 artifact.finalizedAt(),
                 publishedAt,

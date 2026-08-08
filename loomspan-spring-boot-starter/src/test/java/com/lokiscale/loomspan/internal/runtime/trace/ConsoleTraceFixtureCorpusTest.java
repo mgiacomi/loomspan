@@ -447,11 +447,11 @@ class ConsoleTraceFixtureCorpusTest
         AtomicInteger ids = new AtomicInteger();
         DefaultExecutionTraceHandle handle = name.equals("single-attempt-success")
                 ? new DefaultExecutionTraceHandle(
-                        "trace-" + name, "session-" + name, trace, TracePersistencePolicy.ALWAYS,
+                        "trace-" + name, "session-" + name, "test.entry", trace, TracePersistencePolicy.ALWAYS,
                         CLOCK, () -> "payload-" + ids.incrementAndGet(), "fixture-thread",
                         "traces/" + name + ".ndjson", new ConfiguredLimitsSnapshot(7, 11, 3, 5, 1234))
                 : new DefaultExecutionTraceHandle(
-                        "trace-" + name, "session-" + name, trace, TracePersistencePolicy.ALWAYS,
+                        "trace-" + name, "session-" + name, "test.entry", trace, TracePersistencePolicy.ALWAYS,
                         CLOCK, () -> "payload-" + ids.incrementAndGet(), "fixture-thread",
                         "traces/" + name + ".ndjson");
 

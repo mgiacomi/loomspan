@@ -1,1 +1,1 @@
-{"traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-25T12:00:00Z","sizeBytes":128,"persistencePolicy":"ONERROR","applicationTraceExpiresAt":"2026-07-25T12:15:00Z"}
+{"traceId":"trace-1","sessionId":"session-1","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-25T12:00:00Z","sizeBytes":128,"persistencePolicy":"ONERROR","applicationTraceExpiresAt":"2026-07-25T12:15:00Z"}

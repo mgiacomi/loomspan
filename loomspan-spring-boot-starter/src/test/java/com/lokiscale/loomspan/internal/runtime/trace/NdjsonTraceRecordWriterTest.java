@@ -21,6 +21,7 @@ class NdjsonTraceRecordWriterTest {
         String sessionId = "trace-writer-session";
         DefaultExecutionTraceHandle handle = new DefaultExecutionTraceHandle(
                 sessionId,
+                "test.entry",
                 TracePersistencePolicy.ALWAYS,
                 Clock.fixed(Instant.parse("2026-03-24T12:00:00Z"), ZoneOffset.UTC));
 

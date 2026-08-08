@@ -59,7 +59,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
             ExecutionPlan plan = new ExecutionPlan(
                     "plan-1",
                     "rootVisibleSkill",
@@ -93,7 +93,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
             MissionChatClient chatClient = new MissionChatClient("mission complete");
 
             String response = engine.executeMission(session, definition(), "hello", null, chatClient, List.of(), false, null);
@@ -114,7 +114,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-prompt", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-prompt", "test.entry", 2);
             MissionChatClient chatClient = new MissionChatClient("mission complete");
 
             String response = engine.executeMission(session, definitionWithPrompt(), "hello", null, chatClient, List.of(), false, null);
@@ -140,7 +140,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-request-trace", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-request-trace", "test.entry", 2);
             ToolCallback callback = mock(ToolCallback.class);
 
             String response = engine.executeMission(
@@ -169,7 +169,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-attachment", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-attachment", "test.entry", 2);
             MissionChatClient chatClient = new MissionChatClient("mission complete");
 
             String response = engine.executeMission(
@@ -204,7 +204,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-attachment-trace", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-attachment-trace", "test.entry", 2);
             MissionChatClient chatClient = new MissionChatClient("mission complete");
             ExecutionPlan plan = new ExecutionPlan(
                     "plan-attachment",
@@ -257,7 +257,7 @@ class MissionExecutionEngineTest {
                     missionExecutor);
 
             assertThatThrownBy(() -> engine.executeMission(
-                    com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-provider-failure", 2),
+                    com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-provider-failure", "test.entry", 2),
                     attachmentDefinition(),
                     "Extract ticket",
                     Map.of("image", imageResource("ticket.jpg", "image bytes")),
@@ -285,7 +285,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofMillis(25),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-timeout", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-timeout", "test.entry", 2);
             BlockingMissionChatClient chatClient = new BlockingMissionChatClient(interrupted);
 
             assertThatThrownBy(() -> engine.executeMission(
@@ -328,7 +328,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofMillis(25),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-timeout", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-timeout", "test.entry", 2);
             MissionChatClient chatClient = new MissionChatClient("mission complete");
 
             assertThatThrownBy(() -> engine.executeMission(
@@ -359,7 +359,7 @@ class MissionExecutionEngineTest {
                     stateService,
                     Duration.ofSeconds(5),
                     missionExecutor);
-            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-failure", 2);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-failure", "test.entry", 2);
 
             assertThatThrownBy(() -> engine.executeMission(
                     session,

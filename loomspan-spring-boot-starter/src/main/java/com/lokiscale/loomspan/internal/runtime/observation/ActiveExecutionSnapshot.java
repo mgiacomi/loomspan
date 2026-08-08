@@ -16,7 +16,7 @@ public record ActiveExecutionSnapshot(
         long lastCanonicalSequence,
         Instant startedAt,
         Instant updatedAt,
-        @Nullable String entrySkill,
+        String entrySkill,
         String phase,
         String summary,
         List<FramePathEntry> activePath,
@@ -39,7 +39,7 @@ public record ActiveExecutionSnapshot(
         }
         Objects.requireNonNull(startedAt, "startedAt must not be null");
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
-        entrySkill = normalize(entrySkill);
+        entrySkill = requireNonBlank(entrySkill, "entrySkill");
         phase = ExecutionObservationLimits.truncate(requireNonBlank(phase, "phase"),
                 ExecutionObservationLimits.TEXT_CODE_POINTS);
         summary = ExecutionObservationLimits.truncate(summary, ExecutionObservationLimits.SUMMARY_CODE_POINTS);
@@ -83,11 +83,4 @@ public record ActiveExecutionSnapshot(
         return value;
     }
 
-    @Nullable
-    private static String normalize(@Nullable String value)
-    {
-        return value == null || value.isBlank()
-                ? null
-                : ExecutionObservationLimits.truncate(value, ExecutionObservationLimits.TEXT_CODE_POINTS);
-    }
 }

@@ -164,7 +164,7 @@ func TestArtifactServiceAcquiresAndUsesThroughTargetScope(t *testing.T) {
 		}
 		if strings.HasSuffix(request.URL.Path, "/traces/trace-1") {
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = response.Write([]byte(`{"targetScopeId":"scope-1","traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":` + fmt.Sprintf("%d", len(data)) + `,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-26T12:00:00Z"}`))
+			_, _ = response.Write([]byte(`{"targetScopeId":"scope-1","traceId":"trace-1","sessionId":"session-1","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":` + fmt.Sprintf("%d", len(data)) + `,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-26T12:00:00Z"}`))
 			return
 		}
 		if strings.HasSuffix(request.URL.Path, "/traces/trace-1/artifact") {
@@ -280,6 +280,7 @@ func TestArtifactServiceAcquiresAndUsesThroughTargetScope(t *testing.T) {
 type traceJSON struct {
 	TraceID                   string    `json:"traceId"`
 	SessionID                 string    `json:"sessionId"`
+	EntrySkill                string    `json:"entrySkill"`
 	Outcome                   string    `json:"outcome"`
 	FinalizedAt               time.Time `json:"finalizedAt"`
 	SizeBytes                 int64     `json:"sizeBytes"`
@@ -323,7 +324,7 @@ func TestArtifactScopeRotationDuringMetadataFetchReturnsTargetChanged(t *testing
 			close(traceLoaded)
 			<-metadataReleased
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = response.Write([]byte(`{"targetScopeId":"scope-1","traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":` + fmt.Sprintf("%d", len(data)) + `,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-26T12:00:00Z"}`))
+			_, _ = response.Write([]byte(`{"targetScopeId":"scope-1","traceId":"trace-1","sessionId":"session-1","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":` + fmt.Sprintf("%d", len(data)) + `,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-26T12:00:00Z"}`))
 			return
 		}
 		response.WriteHeader(http.StatusNotFound)
@@ -451,7 +452,7 @@ func TestArtifactScopeRotationDuringLeaseUseReturnsTargetChanged(t *testing.T) {
 		}
 		if strings.HasSuffix(request.URL.Path, "/traces/trace-1") && !strings.HasSuffix(request.URL.Path, "/artifact") {
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = response.Write([]byte(`{"targetScopeId":"scope-1","traceId":"trace-1","sessionId":"session-1","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":` + fmt.Sprintf("%d", len(data)) + `,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-26T12:00:00Z"}`))
+			_, _ = response.Write([]byte(`{"targetScopeId":"scope-1","traceId":"trace-1","sessionId":"session-1","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":` + fmt.Sprintf("%d", len(data)) + `,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-07-26T12:00:00Z"}`))
 			return
 		}
 		if strings.HasSuffix(request.URL.Path, "/traces/trace-1/artifact") {

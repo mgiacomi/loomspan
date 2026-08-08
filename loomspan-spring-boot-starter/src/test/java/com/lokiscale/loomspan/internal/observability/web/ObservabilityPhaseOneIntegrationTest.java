@@ -87,7 +87,7 @@ class ObservabilityPhaseOneIntegrationTest
         byte[] bytes = "{\"type\":\"TRACE_COMPLETED\"}\n".getBytes(StandardCharsets.UTF_8);
         Path file = Files.write(temporary.resolve("phase-one.ndjson"), bytes);
         activation.runtime().orElseThrow().traces().publish(new FinalizedTraceArtifact(
-                "phase-one-trace", "phase-one-session", TraceOutcome.FAILED,
+                "phase-one-trace", "phase-one-session", "test.entry", TraceOutcome.FAILED,
                 Instant.now(), file, bytes.length, TracePersistencePolicy.ALWAYS, null));
 
         HttpResponse<byte[]> catalog = get(ObservabilityApiPaths.TRACES, "application/json");

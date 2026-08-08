@@ -27,6 +27,7 @@ class NdjsonExecutionTraceReaderTest {
     void reconstructsChunkedPayloadsByPayloadId() throws Exception {
         DefaultExecutionTraceHandle handle = new DefaultExecutionTraceHandle(
                 "chunked-session",
+                "test.entry",
                 TracePersistencePolicy.ALWAYS,
                 Clock.fixed(Instant.parse("2026-03-24T12:00:00Z"), ZoneOffset.UTC));
 

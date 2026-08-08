@@ -40,6 +40,8 @@ public final class LoomspanSession
     private static final Clock DEFAULT_CLOCK = Clock.systemUTC();
 
     private final String sessionId;
+    @JsonIgnore
+    private final String entrySkill;
     private final int maxDepth;
     @JsonIgnore
     private final Clock clock;
@@ -65,56 +67,60 @@ public final class LoomspanSession
     @JsonIgnore
     private Authentication authentication;
 
-    public LoomspanSession(int maxDepth)
+    public LoomspanSession(int maxDepth, String entrySkill)
     {
-        this(UUID.randomUUID().toString(), maxDepth);
+        this(UUID.randomUUID().toString(), entrySkill, maxDepth);
     }
 
-    LoomspanSession(String sessionId, int maxDepth)
+    LoomspanSession(String sessionId, String entrySkill, int maxDepth)
     {
-        this(sessionId, maxDepth, List.of(), null, null, null, null, null, TracePersistencePolicy.ONERROR, DEFAULT_CLOCK);
+        this(sessionId, entrySkill, maxDepth, List.of(), null, null, null, null, null, TracePersistencePolicy.ONERROR, DEFAULT_CLOCK);
     }
 
-    public LoomspanSession(int maxDepth, @Nullable Authentication authentication)
+    public LoomspanSession(int maxDepth, String entrySkill, @Nullable Authentication authentication)
     {
-        this(UUID.randomUUID().toString(), maxDepth, List.of(), null, null, null, null, authentication, TracePersistencePolicy.ONERROR, DEFAULT_CLOCK);
+        this(UUID.randomUUID().toString(), entrySkill, maxDepth, List.of(), null, null, null, null, authentication, TracePersistencePolicy.ONERROR, DEFAULT_CLOCK);
     }
 
-    LoomspanSession(String sessionId, int maxDepth, @Nullable Authentication authentication)
+    LoomspanSession(String sessionId, String entrySkill, int maxDepth, @Nullable Authentication authentication)
     {
-        this(sessionId, maxDepth, List.of(), null, null, null, null, authentication, TracePersistencePolicy.ONERROR, DEFAULT_CLOCK);
+        this(sessionId, entrySkill, maxDepth, List.of(), null, null, null, null, authentication, TracePersistencePolicy.ONERROR, DEFAULT_CLOCK);
     }
 
     LoomspanSession(String sessionId,
+            String entrySkill,
             int maxDepth,
             @Nullable Authentication authentication,
             TracePersistencePolicy persistencePolicy)
     {
-        this(sessionId, maxDepth, authentication, persistencePolicy, DEFAULT_CLOCK);
+        this(sessionId, entrySkill, maxDepth, authentication, persistencePolicy, DEFAULT_CLOCK);
     }
 
     LoomspanSession(String sessionId,
+            String entrySkill,
             int maxDepth,
             @Nullable Authentication authentication,
             TracePersistencePolicy persistencePolicy,
             Clock clock)
     {
-        this(sessionId, maxDepth, List.of(), null, null, null, null, authentication, persistencePolicy, clock);
+        this(sessionId, entrySkill, maxDepth, List.of(), null, null, null, null, authentication, persistencePolicy, clock);
     }
 
     LoomspanSession(String sessionId,
+            String entrySkill,
             int maxDepth,
             @Nullable Authentication authentication,
             TracePersistencePolicy persistencePolicy,
             Clock clock,
             ExecutionObservationHandleFactory observationHandleFactory)
     {
-        this(sessionId, maxDepth, List.of(), null, null, null, null, authentication, persistencePolicy, clock,
+        this(sessionId, entrySkill, maxDepth, List.of(), null, null, null, null, authentication, persistencePolicy, clock,
                 observationHandleFactory,
                 DefaultExecutionTraceHandle::new);
     }
 
     LoomspanSession(String sessionId,
+            String entrySkill,
             int maxDepth,
             @Nullable Authentication authentication,
             TracePersistencePolicy persistencePolicy,
@@ -122,12 +128,13 @@ public final class LoomspanSession
             ExecutionObservationHandleFactory observationHandleFactory,
             InternalExecutionTraceHandleFactory traceHandleFactory)
     {
-        this(sessionId, maxDepth, List.of(), null, null, null, null, authentication, persistencePolicy, clock,
+        this(sessionId, entrySkill, maxDepth, List.of(), null, null, null, null, authentication, persistencePolicy, clock,
                 observationHandleFactory, traceHandleFactory);
     }
 
     LoomspanSession(
             String sessionId,
+            String entrySkill,
             int maxDepth,
             List<ExecutionFrame> frames,
             ExecutionPlan executionPlan,
@@ -138,7 +145,7 @@ public final class LoomspanSession
             TracePersistencePolicy persistencePolicy,
             Clock clock)
     {
-        this(sessionId, maxDepth, frames, executionPlan, lastLinterOutcome, lastOutputSchemaOutcome,
+        this(sessionId, entrySkill, maxDepth, frames, executionPlan, lastLinterOutcome, lastOutputSchemaOutcome,
                 sessionUsage, authentication, persistencePolicy, clock,
                 NoOpExecutionObservationHandleFactory.INSTANCE,
                 DefaultExecutionTraceHandle::new);
@@ -146,6 +153,7 @@ public final class LoomspanSession
 
     LoomspanSession(
             String sessionId,
+            String entrySkill,
             int maxDepth,
             List<ExecutionFrame> frames,
             ExecutionPlan executionPlan,
@@ -157,13 +165,14 @@ public final class LoomspanSession
             Clock clock,
             ExecutionObservationHandleFactory observationHandleFactory)
     {
-        this(sessionId, maxDepth, frames, executionPlan, lastLinterOutcome, lastOutputSchemaOutcome,
+        this(sessionId, entrySkill, maxDepth, frames, executionPlan, lastLinterOutcome, lastOutputSchemaOutcome,
                 sessionUsage, authentication, persistencePolicy, clock, observationHandleFactory,
                 DefaultExecutionTraceHandle::new);
     }
 
     LoomspanSession(
             String sessionId,
+            String entrySkill,
             int maxDepth,
             List<ExecutionFrame> frames,
             ExecutionPlan executionPlan,
@@ -177,6 +186,7 @@ public final class LoomspanSession
             InternalExecutionTraceHandleFactory traceHandleFactory)
     {
         this.sessionId = requireNonBlank(sessionId, "sessionId");
+        this.entrySkill = EntrySkillIdentity.normalize(entrySkill);
         if (maxDepth <= 0)
         {
             throw new IllegalArgumentException("maxDepth must be greater than zero");
@@ -190,12 +200,12 @@ public final class LoomspanSession
         // The runtime supports one session lifecycle: a live in-process session with a canonical trace handle.
         this.journalProjector = new ExecutionJournalProjector();
         this.executionObservationHandle = Objects.requireNonNull(observationHandleFactory,
-                "observationHandleFactory must not be null").create(this.sessionId);
+                "observationHandleFactory must not be null").create(this.sessionId, this.entrySkill);
         ExecutionTraceHandle traceHandle;
         try
         {
             traceHandle = Objects.requireNonNull(traceHandleFactory, "traceHandleFactory must not be null").create(
-                    this.sessionId, persistencePolicy, this.clock, this.executionObservationHandle);
+                    this.sessionId, this.entrySkill, persistencePolicy, this.clock, this.executionObservationHandle);
         }
         catch (RuntimeException | Error ex)
         {
@@ -215,6 +225,11 @@ public final class LoomspanSession
     public String getSessionId()
     {
         return sessionId;
+    }
+
+    String entrySkill()
+    {
+        return entrySkill;
     }
 
     public int getMaxDepth()

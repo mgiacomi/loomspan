@@ -65,7 +65,7 @@ class ExecutionCoordinatorOutputSchemaIntegrationTest {
                 new DefaultSkillAdvisorResolver(stateService).resolve(definition),
                 List.of("not-json", "{\"vendorName\":\"Acme\",\"totalAmount\":42.5}"));
         ExecutionCoordinator coordinator = coordinator(definition, chatClient, stateService);
-        LoomspanSession session = new LoomspanSession("session-1", 3);
+        LoomspanSession session = new LoomspanSession("session-1", "outputSchemaSkill", 3);
 
         String response = coordinator.execute("outputSchemaSkill", "Extract invoice", session, null);
 
@@ -95,7 +95,7 @@ class ExecutionCoordinatorOutputSchemaIntegrationTest {
                         "{\"vendorName\":\"Acme\",\"totalAmount\":42.5}",
                         "{\"vendorName\":\"Acme\",\"totalAmount\":42.5,\"status\":\"OK\"}"));
         ExecutionCoordinator coordinator = coordinator(definition, chatClient, stateService);
-        LoomspanSession session = new LoomspanSession("session-2", 3);
+        LoomspanSession session = new LoomspanSession("session-2", "outputSchemaSkill", 3);
 
         String response = coordinator.execute("outputSchemaSkill", "Extract invoice", session, null);
 
@@ -121,7 +121,7 @@ class ExecutionCoordinatorOutputSchemaIntegrationTest {
                 List.of(rawJson));
         ExecutionCoordinator coordinator = coordinator(definition, chatClient, stateService);
 
-        String response = coordinator.execute("outputSchemaSkill", "Extract invoice", new LoomspanSession("session-3", 3), null);
+        String response = coordinator.execute("outputSchemaSkill", "Extract invoice", new LoomspanSession("session-3", "outputSchemaSkill", 3), null);
 
         assertThat(response).isEqualTo(rawJson);
     }

@@ -74,7 +74,7 @@ class NestedSuccessfulSkillBoundaryTest
     {
         DefaultExecutionStateService state = new DefaultExecutionStateService(Clock.fixed(
                 Instant.parse("2026-03-15T12:00:00Z"), ZoneOffset.UTC));
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("nested", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("nested", "test.entry", 3);
         ExecutionFrame parent = state.openMissionFrame(session, "handleIncident", Map.of());
         state.recordSuccessfulSkill(session, "classifyIncident", "task-classify", false);
 

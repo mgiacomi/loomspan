@@ -182,7 +182,7 @@ class YamlSkillCapabilityRegistrarTests {
 
                     RefResolver refResolver = mock(RefResolver.class);
                     ExecutionStateService stateService = mock(ExecutionStateService.class);
-                    LoomspanSession session = TestLoomspanSessions.withId("shared-target-session", 2);
+                    LoomspanSession session = TestLoomspanSessions.withId("shared-target-session", "test.entry", 2);
                     CapabilityExecutionRouter router = new CapabilityExecutionRouter(
                             refResolver,
                             new StaticListableBeanFactory().getBeanProvider(ExecutionCoordinator.class),

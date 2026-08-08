@@ -46,7 +46,7 @@ class EvidenceContractAdvisorAdditionalTest
                 "{\"result\":\"network issue\"}",
                 "{\"result\":\"network issue\"}"));
 
-        new LoomspanSessionRunner(3).callWithNewSession(session ->
+        new LoomspanSessionRunner(3).callWithNewSession("test.entry", session ->
         {
             session.addSuccessfulDirectSkill("classifyIncident");
             assertThatThrownBy(() -> advisor.adviseCall(request(), chain))

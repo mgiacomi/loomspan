@@ -50,12 +50,12 @@ public final class ObservabilityActivationCoordinator implements AutoCloseable
         }
     }
 
-    private ExecutionObservationHandle createObservation(String sessionId)
+    private ExecutionObservationHandle createObservation(String sessionId, String entrySkill)
     {
         ObservabilityRuntime current = runtime;
         return state.get() == State.ENABLED && current != null
-                ? current.observationFactory().create(sessionId)
-                : NoOpExecutionObservationHandleFactory.INSTANCE.create(sessionId);
+                ? current.observationFactory().create(sessionId, entrySkill)
+                : NoOpExecutionObservationHandleFactory.INSTANCE.create(sessionId, entrySkill);
     }
 
     @Override

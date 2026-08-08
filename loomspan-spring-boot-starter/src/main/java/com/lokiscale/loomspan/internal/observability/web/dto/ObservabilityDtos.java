@@ -66,6 +66,7 @@ public final class ObservabilityDtos
     public record Trace(
             String traceId,
             String sessionId,
+            String entrySkill,
             TraceOutcome outcome,
             Instant finalizedAt,
             long sizeBytes,

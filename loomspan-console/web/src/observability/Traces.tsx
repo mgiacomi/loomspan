@@ -49,6 +49,7 @@ export function Traces() {
           <table className="observability-table">
           <thead>
             <tr>
+              <th scope="col">Entry skill</th>
               <th scope="col">Trace ID</th>
               <th scope="col">Session</th>
               <th scope="col">Outcome</th>
@@ -63,6 +64,7 @@ export function Traces() {
               const t = item as Trace;
               return (
                 <tr key={t.traceId}>
+                  <td>{t.entrySkill}</td>
                   <td>
                     <Link to={scopeBoundPath(`/traces/${encodeURIComponent(t.traceId)}`, traces.targetScopeId)}>{t.traceId}</Link>
                   </td>

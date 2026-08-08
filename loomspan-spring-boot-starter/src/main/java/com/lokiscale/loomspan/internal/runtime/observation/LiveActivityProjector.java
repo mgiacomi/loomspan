@@ -74,11 +74,12 @@ public class LiveActivityProjector
         TraceRecordType type = record.recordType();
         if (type == TraceRecordType.FRAME_OPENED)
         {
-            state.openFrame(record.frameId(), record.frameType(), record.route());
-            if (record.frameType() == TraceFrameType.ROOT_MISSION && state.entrySkill == null)
+            if (record.frameType() == TraceFrameType.ROOT_MISSION && state.frames.isEmpty()
+                    && !state.entrySkill.equals(record.route()))
             {
-                state.entrySkill = bounded(record.route());
+                throw new IllegalArgumentException("top-level root route does not match entry skill");
             }
+            state.openFrame(record.frameId(), record.frameType(), record.route());
             if (record.frameType() == TraceFrameType.ROOT_MISSION
                     || record.frameType() == TraceFrameType.SKILL_EXECUTION)
             {

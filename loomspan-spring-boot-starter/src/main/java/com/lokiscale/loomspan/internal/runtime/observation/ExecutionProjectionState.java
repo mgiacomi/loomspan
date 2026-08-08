@@ -15,15 +15,20 @@ final class ExecutionProjectionState
     final LinkedHashMap<String, ActiveExecutionSnapshot.FramePathEntry> frames = new LinkedHashMap<>();
     String traceId;
     Instant startedAt;
-    String entrySkill;
+    final String entrySkill;
     String phase = "STARTING";
     String summary = "Execution started";
     SessionUsageSnapshot usage = SessionUsageSnapshot.empty();
     TraceOutcome outcome;
 
-    ExecutionProjectionState(String sessionId)
+    ExecutionProjectionState(String sessionId, String entrySkill)
     {
         this.sessionId = sessionId;
+        if (entrySkill == null || entrySkill.isBlank())
+        {
+            throw new IllegalArgumentException("entrySkill must not be blank");
+        }
+        this.entrySkill = entrySkill;
     }
 
     void openFrame(String frameId, TraceFrameType frameType, String route)

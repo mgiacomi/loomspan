@@ -48,7 +48,7 @@ class SkillAdvisorResolverEvidenceTraceTest
                 "{\"vendorName\":\"Acme\"}",
                 "{\"vendorName\":\"Acme\"}"));
 
-        assertThatThrownBy(() -> new LoomspanSessionRunner(3).callWithNewSession(session ->
+        assertThatThrownBy(() -> new LoomspanSessionRunner(3).callWithNewSession("test.entry", session ->
         {
             try
             {
@@ -90,7 +90,7 @@ class SkillAdvisorResolverEvidenceTraceTest
         CallAdvisor advisor = evidenceAdvisor(new DefaultSkillAdvisorResolver(stateService));
         List<TraceRecord> records = new ArrayList<>();
 
-        new LoomspanSessionRunner(3).callWithNewSession(session ->
+        new LoomspanSessionRunner(3).callWithNewSession("test.entry", session ->
         {
             session.addSuccessfulDirectSkill("invoiceParser");
             ChatClientResponse response = advisor.adviseCall(

@@ -40,7 +40,7 @@ class LoomspanSessionRunnerTest {
     void defaultsNewSessionsToRetainTraceOnError() {
         LoomspanSessionRunner sessionRunner = new LoomspanSessionRunner(4);
 
-        TracePersistencePolicy persistencePolicy = sessionRunner.callWithNewSession(
+        TracePersistencePolicy persistencePolicy = sessionRunner.callWithNewSession("test.entry",
                 session -> session.getExecutionTrace().persistencePolicy());
 
         assertThat(persistencePolicy).isEqualTo(TracePersistencePolicy.ONERROR);
@@ -50,7 +50,7 @@ class LoomspanSessionRunnerTest {
     void finalizesStandaloneRunnerSessionsAndWritesTerminalTraceRecord() throws Exception {
         LoomspanSessionRunner sessionRunner = new LoomspanSessionRunner(4, TracePersistencePolicy.ALWAYS);
 
-        String tracePathText = sessionRunner.callWithNewSession(session -> {
+        String tracePathText = sessionRunner.callWithNewSession("test.entry", session -> {
             appendRecord(session, TraceRecordType.MODEL_REQUEST_SENT, Instant.parse("2026-03-15T12:00:00Z"), Map.of("segment", "test"), Map.of("objective", "runner"));
             return session.getExecutionTrace().filePath();
         });
@@ -75,7 +75,7 @@ class LoomspanSessionRunnerTest {
         java.util.concurrent.atomic.AtomicReference<String> tracePathText = new java.util.concurrent.atomic.AtomicReference<>();
         String sessionId = null;
         try {
-            sessionRunner.callWithNewSession(session -> {
+            sessionRunner.callWithNewSession("test.entry", session -> {
                 appendRecord(session, TraceRecordType.MODEL_REQUEST_SENT, Instant.parse("2026-03-15T12:00:00Z"), Map.of("segment", "test"), Map.of("objective", "runner"));
                 tracePathText.set(session.getExecutionTrace().filePath());
                 throw new IllegalStateException(session.getSessionId());
@@ -105,7 +105,7 @@ class LoomspanSessionRunnerTest {
         LoomspanSessionRunner sessionRunner = new LoomspanSessionRunner(4, TracePersistencePolicy.ONERROR);
 
         java.util.concurrent.atomic.AtomicReference<String> tracePathText = new java.util.concurrent.atomic.AtomicReference<>();
-        assertThatThrownBy(() -> sessionRunner.callWithNewSession(session -> {
+        assertThatThrownBy(() -> sessionRunner.callWithNewSession("test.entry", session -> {
             tracePathText.set(session.getExecutionTrace().filePath());
             throw new IllegalArgumentException("boom");
         }))
@@ -143,9 +143,9 @@ class LoomspanSessionRunnerTest {
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             Future<String> first = executor.submit(() ->
-                    sessionRunner.callWithNewSession(session -> LoomspanSession.getCurrentSession().getSessionId()));
+                    sessionRunner.callWithNewSession("test.entry", session -> LoomspanSession.getCurrentSession().getSessionId()));
             Future<String> second = executor.submit(() ->
-                    sessionRunner.callWithNewSession(session -> LoomspanSession.getCurrentSession().getSessionId()));
+                    sessionRunner.callWithNewSession("test.entry", session -> LoomspanSession.getCurrentSession().getSessionId()));
 
             assertThat(Set.of(first.get(), second.get())).hasSize(2);
         }
@@ -156,13 +156,13 @@ class LoomspanSessionRunnerTest {
         LoomspanSessionRunner sessionRunner = new LoomspanSessionRunner(4);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<String> first = executor.submit(() -> sessionRunner.callWithNewSession(session -> {
+            Future<String> first = executor.submit(() -> sessionRunner.callWithNewSession("test.entry", session -> {
                 session.pushFrame(frame("frame-1", "route.one"));
                 String result = session.getSessionId() + ":" + session.getFramesSnapshot().size() + ":" + session.peekFrame().route();
                 session.popFrame();
                 return result;
             }));
-            Future<String> second = executor.submit(() -> sessionRunner.callWithNewSession(session -> {
+            Future<String> second = executor.submit(() -> sessionRunner.callWithNewSession("test.entry", session -> {
                 session.pushFrame(frame("frame-2", "route.two"));
                 String result = session.getSessionId() + ":" + session.getFramesSnapshot().size() + ":" + session.peekFrame().route();
                 session.popFrame();
@@ -181,7 +181,7 @@ class LoomspanSessionRunnerTest {
         java.util.concurrent.atomic.AtomicReference<LoomspanSession> sessionRef = new java.util.concurrent.atomic.AtomicReference<>();
         java.util.concurrent.atomic.AtomicReference<String> tracePathText = new java.util.concurrent.atomic.AtomicReference<>();
 
-        assertThatThrownBy(() -> sessionRunner.callWithNewSession(session -> {
+        assertThatThrownBy(() -> sessionRunner.callWithNewSession("test.entry", session -> {
             sessionRef.set(session);
             tracePathText.set(session.getExecutionTrace().filePath());
             session.pushFrame(frame("frame-1", "route.one"));
@@ -216,7 +216,7 @@ class LoomspanSessionRunnerTest {
         LoomspanSessionRunner sessionRunner = new LoomspanSessionRunner(4);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<String> first = executor.submit(() -> sessionRunner.callWithNewSession(session -> {
+            Future<String> first = executor.submit(() -> sessionRunner.callWithNewSession("test.entry", session -> {
                 ExecutionPlan plan = plan("plan-first");
                 appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:00Z"), Map.of("planId", plan.planId()), plan);
                 appendRecord(session, TraceRecordType.TOOL_CALL_REQUESTED, Instant.parse("2026-03-15T12:00:01Z"), Map.of(), Map.of("route", "tool.one"));
@@ -226,7 +226,7 @@ class LoomspanSessionRunnerTest {
                         + ":"
                         + session.getJournalSnapshot().get(0).type().name();
             }));
-            Future<String> second = executor.submit(() -> sessionRunner.callWithNewSession(session -> {
+            Future<String> second = executor.submit(() -> sessionRunner.callWithNewSession("test.entry", session -> {
                 ExecutionPlan plan = plan("plan-second");
                 appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:02Z"), Map.of("planId", plan.planId()), plan);
                 session.markTraceErrored();
@@ -252,7 +252,7 @@ class LoomspanSessionRunnerTest {
                 "pw",
                 AuthorityUtils.createAuthorityList("ROLE_ALLOWED"));
 
-        String authority = sessionRunner.callWithNewSession(authentication, session ->
+        String authority = sessionRunner.callWithNewSession("test.entry", authentication, session ->
                 session.getAuthentication()
                         .orElseThrow()
                         .getAuthorities()
@@ -268,7 +268,7 @@ class LoomspanSessionRunnerTest {
         Clock fixedClock = Clock.fixed(Instant.parse("2026-03-15T12:34:56Z"), ZoneOffset.UTC);
         LoomspanSessionRunner sessionRunner = new LoomspanSessionRunner(4, TracePersistencePolicy.ALWAYS, fixedClock);
 
-        Instant timestamp = sessionRunner.callWithNewSession(session -> {
+        Instant timestamp = sessionRunner.callWithNewSession("test.entry", session -> {
             session.appendTraceRecord(TraceRecordType.MODEL_REQUEST_SENT, Map.of("segment", "test"), Map.of("objective", "runner"));
             List<TraceRecord> records = new ArrayList<>();
             session.readTraceRecords(records::add);
@@ -288,11 +288,11 @@ class LoomspanSessionRunnerTest {
         quotas.setMaxUsageUnits(1234);
         LoomspanSessionRunner runner = new LoomspanSessionRunner(
                 4, TracePersistencePolicy.ALWAYS, Clock.systemUTC(),
-                sessionId -> com.lokiscale.loomspan.internal.runtime.observation.NoOpExecutionObservationHandle.INSTANCE,
+                (sessionId, entrySkill) -> com.lokiscale.loomspan.internal.runtime.observation.NoOpExecutionObservationHandle.INSTANCE,
                 ImmediateCompletionRetention.INSTANCE, quotas);
 
         @SuppressWarnings("unchecked")
-        Map<String, Integer> snapshot = runner.callWithNewSession(session -> {
+        Map<String, Integer> snapshot = runner.callWithNewSession("test.entry", session -> {
             quotas.setMaxModelCalls(99);
             List<TraceRecord> records = new ArrayList<>();
             session.readTraceRecords(records::add);
@@ -314,7 +314,7 @@ class LoomspanSessionRunnerTest {
         LoomspanSessionRunner runner = new LoomspanSessionRunner(
                 4, TracePersistencePolicy.NEVER, clock, observation);
 
-        runner.callWithNewSession(session -> {
+        runner.callWithNewSession("test.entry", session -> {
             assertThat(observation.handles).hasSize(1);
             assertThat(observation.handles.getFirst().records)
                     .extracting(TraceRecord::recordType)
@@ -333,7 +333,7 @@ class LoomspanSessionRunnerTest {
 
     @Test
     void optionalObservationFailureDoesNotChangeSuccessfulResult() {
-        ExecutionObservationHandleFactory throwingFactory = sessionId -> new ExecutionObservationHandle() {
+        ExecutionObservationHandleFactory throwingFactory = (sessionId, entrySkill) -> new ExecutionObservationHandle() {
             @Override
             public void recordAppended(TraceRecord record) {
                 throw new IllegalStateException("optional");
@@ -347,7 +347,7 @@ class LoomspanSessionRunnerTest {
         LoomspanSessionRunner runner = new LoomspanSessionRunner(
                 4, TracePersistencePolicy.NEVER, Clock.systemUTC(), throwingFactory);
 
-        String result = runner.callWithNewSession(session -> "unchanged");
+        String result = runner.callWithNewSession("test.entry", session -> "unchanged");
         assertThat(result).isEqualTo("unchanged");
     }
 
@@ -359,7 +359,7 @@ class LoomspanSessionRunnerTest {
                 4, TracePersistencePolicy.ALWAYS, Clock.systemUTC(), observation);
         AtomicReference<java.nio.file.Path> tracePath = new AtomicReference<>();
 
-        assertThatThrownBy(() -> runner.callWithNewSession(session -> {
+        assertThatThrownBy(() -> runner.callWithNewSession("test.entry", session -> {
             java.nio.file.Path path = java.nio.file.Path.of(session.getExecutionTrace().filePath());
             tracePath.set(path);
             try {
@@ -390,7 +390,7 @@ class LoomspanSessionRunnerTest {
         DefaultExecutionObservationHandleFactory observation =
                 new DefaultExecutionObservationHandleFactory();
         Clock clock = Clock.fixed(Instant.parse("2026-07-24T12:00:00Z"), ZoneOffset.UTC);
-        InternalExecutionTraceHandleFactory failingFactory = (sessionId, policy, ignoredClock, handle) -> {
+        InternalExecutionTraceHandleFactory failingFactory = (sessionId, entrySkill, policy, ignoredClock, handle) -> {
             handle.recordAppended(new TraceRecord(
                     "trace-construction", sessionId, 1L, clock.instant(),
                     TraceRecordType.TRACE_STARTED, null, null, null, null,
@@ -400,7 +400,7 @@ class LoomspanSessionRunnerTest {
         LoomspanSessionRunner runner = new LoomspanSessionRunner(
                 4, TracePersistencePolicy.ALWAYS, clock, observation, failingFactory);
 
-        assertThatThrownBy(() -> runner.callWithNewSession(session -> "unreachable"))
+        assertThatThrownBy(() -> runner.callWithNewSession("test.entry", session -> "unreachable"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("trace construction failed");
 
@@ -428,17 +428,17 @@ class LoomspanSessionRunnerTest {
                 new DefaultExecutionObservationHandleFactory();
         AtomicReference<Path> tracePath = new AtomicReference<>();
         SecurityException failure = new SecurityException("retention access denied");
-        InternalExecutionTraceHandleFactory traceFactory = (sessionId, policy, clock, handle) -> {
+        InternalExecutionTraceHandleFactory traceFactory = (sessionId, entrySkill, policy, clock, handle) -> {
             com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle delegate =
                     new com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle(
-                            sessionId, TracePersistencePolicy.ALWAYS, clock, handle);
+                            sessionId, entrySkill, TracePersistencePolicy.ALWAYS, clock, handle);
             tracePath.set(delegate.tracePath());
             return new FailingFinalizationTraceHandle(delegate, failure);
         };
         LoomspanSessionRunner runner = new LoomspanSessionRunner(
                 4, TracePersistencePolicy.ALWAYS, Clock.systemUTC(), observation, traceFactory);
 
-        assertThatThrownBy(() -> runner.callWithNewSession(session -> "result"))
+        assertThatThrownBy(() -> runner.callWithNewSession("test.entry", session -> "result"))
                 .isSameAs(failure);
 
         try {
@@ -457,17 +457,17 @@ class LoomspanSessionRunnerTest {
         DefaultExecutionObservationHandleFactory observation =
                 new DefaultExecutionObservationHandleFactory();
         AtomicReference<Path> tracePath = new AtomicReference<>();
-        InternalExecutionTraceHandleFactory traceFactory = (sessionId, policy, clock, handle) -> {
+        InternalExecutionTraceHandleFactory traceFactory = (sessionId, entrySkill, policy, clock, handle) -> {
             com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle delegate =
                     new com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle(
-                            sessionId, TracePersistencePolicy.ALWAYS, clock, handle);
+                            sessionId, entrySkill, TracePersistencePolicy.ALWAYS, clock, handle);
             tracePath.set(delegate.tracePath());
             return new FailingFinalizationTraceHandle(delegate, failAfterCompletion);
         };
         LoomspanSessionRunner runner = new LoomspanSessionRunner(
                 4, TracePersistencePolicy.ALWAYS, Clock.systemUTC(), observation, traceFactory);
 
-        assertThatThrownBy(() -> runner.callWithNewSession(session -> "result"))
+        assertThatThrownBy(() -> runner.callWithNewSession("test.entry", session -> "result"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Failed to finalize execution trace");
 
@@ -487,7 +487,7 @@ class LoomspanSessionRunnerTest {
         private final List<RecordingObservationHandle> handles = new CopyOnWriteArrayList<>();
 
         @Override
-        public ExecutionObservationHandle create(String sessionId) {
+        public ExecutionObservationHandle create(String sessionId, String entrySkill) {
             RecordingObservationHandle handle = new RecordingObservationHandle();
             handles.add(handle);
             return handle;

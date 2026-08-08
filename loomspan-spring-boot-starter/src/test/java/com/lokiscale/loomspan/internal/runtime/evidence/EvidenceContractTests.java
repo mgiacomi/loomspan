@@ -82,7 +82,7 @@ class EvidenceContractTests {
                 "{\"vendorName\":\"Acme\"}",
                 "{}"));
 
-        new LoomspanSessionRunner(3).callWithNewSession(session -> {
+        new LoomspanSessionRunner(3).callWithNewSession("test.entry", session -> {
             ChatClientResponse response = advisor.adviseCall(
                     request("Return JSON", "SKILL_PROMPT_SENTINEL\n\nBase instructions."),
                     chain);

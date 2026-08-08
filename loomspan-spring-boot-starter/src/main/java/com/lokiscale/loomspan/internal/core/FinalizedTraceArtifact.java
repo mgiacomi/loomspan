@@ -9,6 +9,7 @@ import java.util.Objects;
 public record FinalizedTraceArtifact(
         String traceId,
         String sessionId,
+        String entrySkill,
         TraceOutcome outcome,
         Instant finalizedAt,
         Path artifactPath,
@@ -20,6 +21,7 @@ public record FinalizedTraceArtifact(
     {
         traceId = requireNonBlank(traceId, "traceId");
         sessionId = requireNonBlank(sessionId, "sessionId");
+        entrySkill = requireNonBlank(entrySkill, "entrySkill");
         Objects.requireNonNull(outcome, "outcome must not be null");
         Objects.requireNonNull(finalizedAt, "finalizedAt must not be null");
         artifactPath = Objects.requireNonNull(artifactPath, "artifactPath must not be null").toAbsolutePath().normalize();

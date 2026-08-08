@@ -88,7 +88,7 @@ class SkillAdvisorResolverTests {
         CallAdvisor advisor = (CallAdvisor) failingResolver.resolve(definition(true)).getFirst();
         LoomspanSessionRunner runner = new LoomspanSessionRunner(3);
 
-        assertThatThrownBy(() -> runner.callWithNewSession(session ->
+        assertThatThrownBy(() -> runner.callWithNewSession("test.entry", session ->
                 advisor.adviseCall(request("Write YAML"), new RecordingChain(List.of("bad", "OK")))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("boom");

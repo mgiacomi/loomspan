@@ -44,7 +44,7 @@ class ExecutionTraceContractTest {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
 
-        LoomspanSession planningSession = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-trace", 3);
+        LoomspanSession planningSession = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-trace", "test.entry", 3);
         planningService.initializePlan(
                 planningSession,
                 "hello",
@@ -55,7 +55,7 @@ class ExecutionTraceContractTest {
 
         List<TraceRecord> planningModelRecords = modelRecords(planningSession);
 
-        LoomspanSession missionSession = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("mission-trace", 3);
+        LoomspanSession missionSession = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("mission-trace", "test.entry", 3);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             DefaultMissionExecutionEngine engine = new DefaultMissionExecutionEngine(
                     new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService),
@@ -90,7 +90,7 @@ class ExecutionTraceContractTest {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
 
         LoomspanSession planningSession = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
-                "planning-provider-failure", 3);
+                "planning-provider-failure", "test.entry", 3);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
 
         assertThatThrownBy(() -> planningService.initializePlan(
@@ -105,7 +105,7 @@ class ExecutionTraceContractTest {
         assertSafeFailureRecords(readRecords(planningSession), endpointSentinel, "Planning model invocation failed");
 
         LoomspanSession missionSession = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
-                "mission-provider-failure", 3);
+                "mission-provider-failure", "test.entry", 3);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             DefaultMissionExecutionEngine engine = new DefaultMissionExecutionEngine(
                     new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService),
@@ -144,7 +144,7 @@ class ExecutionTraceContractTest {
     void planCreationIsOwnedByPlanningFrameNotNestedModelFrame() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-owner-trace", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-owner-trace", "test.entry", 3);
 
         planningService.initializePlan(
                 session,
@@ -167,7 +167,7 @@ class ExecutionTraceContractTest {
     void planningQualityEventsStayUnderThePlanningFrame() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-quality-trace", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-quality-trace", "test.entry", 3);
 
         planningService.initializePlan(
                 session,
@@ -192,7 +192,7 @@ class ExecutionTraceContractTest {
     void exhaustedPlanQualityRetriesDegradeToPlanningWarningUnderPlanningFrame() {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
-        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-quality-retry-cap-trace", 3);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("planning-quality-retry-cap-trace", "test.entry", 3);
 
         planningService.initializePlan(
                 session,
