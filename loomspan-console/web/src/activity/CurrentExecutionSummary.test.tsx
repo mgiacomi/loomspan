@@ -61,21 +61,22 @@ describe("CurrentExecutionSummary", () => {
     expect(screen.queryByText("No active execution selected.")).toBeNull();
   });
 
-  it("uses authoritative snapshot status, elapsed time, and counts", () => {
+  it("uses authoritative snapshot status and elapsed time", () => {
     render(<CurrentExecutionSummary execution={execution} activities={[activity()]} />);
     expect(screen.getByLabelText("Status: ACTIVE")).toBeInTheDocument();
     expect(screen.getByText("5m 5s")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument();
-    expect(screen.getByText("7")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("Authoritative snapshot summary")).toBeInTheDocument();
   });
 
-  it("does not derive invocation counts from a bounded activity suffix", () => {
+  it("leaves invocation counters to the usage section, even with an activity suffix", () => {
     const suffix = [activity("STEP_STARTED"), { ...activity("TOOL_CALL_STARTED"), cursor: "43" }];
     render(<CurrentExecutionSummary execution={execution} activities={suffix} />);
-    expect(screen.getByText("4")).toBeInTheDocument();
-    expect(screen.getByText("7")).toBeInTheDocument();
+    for (const label of ["Skill invocations", "Tool invocations", "Model calls"]) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
+    for (const count of ["4", "7", "3"]) {
+      expect(screen.queryByText(count)).toBeNull();
+    }
   });
 
   it("preserves terminal facts when the active snapshot is unavailable", () => {

@@ -15,6 +15,8 @@ import {
 } from "./scope";
 import { useScopeBoundRoute } from "./useScopeBoundRoute";
 import { TraceExplorer } from "./TraceExplorer";
+import { TraceSummary } from "./TraceSummary";
+import { formatDateTime } from "../activity/activityPresentation";
 
 export function TraceDetailView() {
   const { traceId } = useParams();
@@ -139,21 +141,15 @@ export function TraceDetailView() {
 
       {trace && (
         <>
-          <dl className="status-grid">
-            <div><dt>Trace ID</dt><dd>{trace.traceId}</dd></div>
-            <div><dt>Session ID</dt><dd>{trace.sessionId}</dd></div>
-            <div><dt>Entry skill</dt><dd>{trace.entrySkill}</dd></div>
-            <div><dt>Outcome</dt><dd>{trace.outcome}</dd></div>
-            <div><dt>Finalized at</dt><dd>{trace.finalizedAt}</dd></div>
-            <div><dt>Size (bytes)</dt><dd>{String(trace.sizeBytes)}</dd></div>
-            <div><dt>Persistence policy</dt><dd>{trace.persistencePolicy}</dd></div>
-            <div><dt>Application trace expires at</dt><dd>{trace.applicationTraceExpiresAt}</dd></div>
-            <div><dt>Application availability at acquisition</dt><dd>{trace.applicationAvailability ?? "Not observed locally"}</dd></div>
-            <div><dt>Local artifact</dt><dd>{trace.localAvailable ? "Available" : "Not installed"}</dd></div>
-          </dl>
+          <TraceSummary trace={trace} />
 
           <div className="trace-actions">
             <h3>Artifact actions</h3>
+            <dl className="status-grid" aria-label="Artifact state">
+              <div><dt>Local artifact</dt><dd>{trace.localAvailable ? "Available" : "Not installed"}</dd></div>
+              <div><dt>Size (bytes)</dt><dd>{String(trace.sizeBytes)}</dd></div>
+              <div><dt>Application availability at acquisition</dt><dd>{trace.applicationAvailability ?? "Not observed locally"}</dd></div>
+            </dl>
             {!trace.localAvailable && <p>
               <button
                 type="button"
@@ -183,8 +179,8 @@ export function TraceDetailView() {
                 <p>Artifact acquired successfully.</p>
                 <dl className="status-grid">
                   <div><dt>Local bytes</dt><dd>{String(acquired.localBytes)}</dd></div>
-                  <div><dt>Acquired at</dt><dd>{acquired.acquiredAt}</dd></div>
-                  <div><dt>Expires at</dt><dd>{acquired.hasIdleExpiry ? acquired.expiresAt : "Never"}</dd></div>
+                  <div><dt>Acquired at</dt><dd>{formatDateTime(acquired.acquiredAt)}</dd></div>
+                  <div><dt>Expires at</dt><dd>{acquired.hasIdleExpiry ? formatDateTime(acquired.expiresAt) : "Never"}</dd></div>
                 </dl>
               </div>
             )}

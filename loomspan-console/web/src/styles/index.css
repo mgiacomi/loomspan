@@ -1180,6 +1180,21 @@ input,
   text-align: center;
 }
 
+.trace-summary {
+  margin-top: 1rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius-lg);
+  background: var(--bf-surface);
+  box-shadow: var(--bf-shadow-1);
+}
+
+.summary-finalized {
+  color: var(--bf-muted);
+  font-family: var(--bf-mono);
+  font-size: 0.75rem;
+}
+
 .summary-header {
   display: flex;
   align-items: center;
@@ -1199,6 +1214,13 @@ input,
 .summary-status.running {
   background: var(--bf-accent);
   color: var(--bf-on-accent);
+}
+
+/* Terminal outcome of a finalized trace: deliberately not the live accent. */
+.summary-status.outcome {
+  border: 1px solid var(--bf-border);
+  background: var(--bf-sunken);
+  color: var(--bf-text);
 }
 
 .summary-terminal-badge {

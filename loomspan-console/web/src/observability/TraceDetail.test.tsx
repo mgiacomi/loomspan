@@ -93,6 +93,33 @@ test("trace detail renders facts when loaded", async () => {
   expect(screen.getByText("PERSISTENT")).toBeInTheDocument();
 });
 
+test("trace detail leads with a terminal outcome rather than a live status", async () => {
+  vi.mocked(getTraceDetail).mockResolvedValue(trace);
+  render(<TraceDetailView />);
+  const outcome = await screen.findByLabelText("Outcome: SUCCEEDED");
+  expect(outcome).toHaveClass("outcome");
+  expect(outcome).not.toHaveClass("running");
+  expect(screen.getByText(/^Finalized \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/)).toBeVisible();
+  expect(screen.queryByText(trace.finalizedAt)).toBeNull();
+  expect(screen.queryByText(trace.applicationTraceExpiresAt)).toBeNull();
+});
+
+test("trace detail states artifact state beside the actions that change it", async () => {
+  vi.mocked(getTraceDetail).mockResolvedValue(trace);
+  render(<TraceDetailView />);
+  await screen.findByText("trace-1");
+  const artifactState = screen.getByLabelText("Artifact state");
+  const actions = artifactState.closest(".trace-actions");
+  expect(actions).not.toBeNull();
+  expect(actions?.querySelector("h3")?.textContent).toBe("Artifact actions");
+  for (const label of ["Local artifact", "Size (bytes)", "Application availability at acquisition"]) {
+    expect(artifactState).toHaveTextContent(label);
+  }
+  const summary = screen.getByLabelText("Finalized trace summary");
+  expect(summary).not.toHaveTextContent("Local artifact");
+  expect(summary).not.toHaveTextContent("Application availability at acquisition");
+});
+
 test("trace detail renders entry skill as inert text before acquisition", async () => {
   vi.mocked(getTraceDetail).mockResolvedValue({ ...trace, entrySkill: "<script>bad()</script>" });
   render(<TraceDetailView />);

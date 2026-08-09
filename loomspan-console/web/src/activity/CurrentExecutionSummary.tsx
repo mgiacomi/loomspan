@@ -107,18 +107,6 @@ export function CurrentExecutionSummary({
               <dt>Elapsed</dt>
               <dd>{formatElapsedMilliseconds(elapsedMillis)}</dd>
             </div>
-            <div className="summary-fact">
-              <dt>Skill invocations</dt>
-              <dd>{execution.usage.skillInvocations}</dd>
-            </div>
-            <div className="summary-fact">
-              <dt>Tool invocations</dt>
-              <dd>{execution.usage.toolInvocations}</dd>
-            </div>
-            <div className="summary-fact">
-              <dt>Model calls</dt>
-              <dd>{execution.usage.modelCalls}</dd>
-            </div>
           </>
         )}
       </dl>
