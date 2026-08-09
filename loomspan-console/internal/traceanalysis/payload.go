@@ -1,6 +1,7 @@
 package traceanalysis
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,12 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 )
+
+// A canonical error may contain four MiB of decoded diagnostic text. JSON can
+// require six ASCII bytes for one decoded control byte (for example \u0000), so
+// retain a bounded serialized representation large enough for the canonical
+// decoded contract plus descriptor and contextual-field overhead.
+const maxFailureLogicalPayloadBytes = 25 << 20
 
 // payloadDescriptor records one reconstructed logical payload. StoreOffset and
 // StoreLength locate the reconstructed bytes inside the payload store component.
@@ -37,12 +44,14 @@ type payloadIndexRow struct {
 
 // payloadBuild tracks one in-flight chunked payload during streaming assembly.
 type payloadBuild struct {
-	descriptor  payloadDescriptor
-	nextIndex   int
-	received    int
-	storeOffset int64
-	storeLength int64
-	validator   reconstructedValidator
+	descriptor     payloadDescriptor
+	nextIndex      int
+	received       int
+	storeOffset    int64
+	storeLength    int64
+	validator      reconstructedValidator
+	logical        bytes.Buffer
+	captureLogical bool
 }
 
 // payloadAssembler validates chunk contracts, streams reconstructed content to a
@@ -85,9 +94,10 @@ func (a *payloadAssembler) onEnvelope(rec *Record) *consolecore.Error {
 			ContentType: contentType,
 			ChunkCount:  count,
 		},
-		nextIndex:   0,
-		storeOffset: a.storeWritten,
-		validator:   newReconstructedValidator(contentType),
+		nextIndex:      0,
+		storeOffset:    a.storeWritten,
+		validator:      newReconstructedValidator(contentType),
+		captureLogical: rec.Type == RecordErrorRecorded,
 	}
 	a.builds[rec.PayloadID] = build
 	a.activeID = rec.PayloadID
@@ -129,6 +139,12 @@ func (a *payloadAssembler) onChunk(rec *Record) *consolecore.Error {
 			return invalidityError(CategoryInvalidChunks, rec.TraceID)
 		}
 	}
+	if build.captureLogical {
+		if build.logical.Len()+len(content) > maxFailureLogicalPayloadBytes {
+			return invalidityError(CategoryInvalidChunks, rec.TraceID)
+		}
+		_, _ = build.logical.Write(content)
+	}
 	n, err := a.store.Write(content)
 	if err != nil {
 		return consolecore.NewError(consolecore.CodeLocalStorageUnavailable,
@@ -144,6 +160,13 @@ func (a *payloadAssembler) onChunk(rec *Record) *consolecore.Error {
 	a.storeWritten += int64(n)
 	if build.received == build.descriptor.ChunkCount {
 		a.activeID = ""
+	}
+	return nil
+}
+
+func (a *payloadAssembler) logicalPayload(payloadID string) []byte {
+	if build := a.builds[payloadID]; build != nil {
+		return build.logical.Bytes()
 	}
 	return nil
 }

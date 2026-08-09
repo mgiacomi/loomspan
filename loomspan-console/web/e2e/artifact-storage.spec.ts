@@ -225,7 +225,7 @@ const test = consoleTest.extend<{
 }>({
   targetApp: async ({}, use) => {
     const artifactBody = readFixture("single-attempt-success.ndjson");
-    const failureBody = readFixture("terminal-failure.ndjson");
+    const failureBody = readFixture("runtime-terminal-failure.ndjson");
     const server = makeTargetServer({
       instanceId: "11111111-1111-4111-8111-111111111111",
       authRejected: false,
@@ -235,7 +235,7 @@ const test = consoleTest.extend<{
       traceMetadata: makeTraceMetadata("trace-single-attempt-success", "session-single-attempt-success", "SUCCEEDED", artifactBody.length),
       artifactBodies: {
         "trace-single-attempt-success": artifactBody,
-        "trace-terminal-failure": failureBody,
+        "trace-runtime-terminal-failure": failureBody,
         "trace-nested-frame-usage": readFixture("nested-frame-usage.ndjson"),
         "trace-repeated-skill-invocations": readFixture("repeated-skill-invocations.ndjson"),
         "trace-chunked-json-payload": readFixture("chunked-json-payload.ndjson"),
@@ -432,7 +432,7 @@ test("WF-UNFAMILIAR-SKILL-PATH retains repeated invocation selection across view
 
 test("WF-FAILED-EXECUTION explores failure and inert supporting records", async ({ page, consoleProcess, targetApp }) => {
   await connectToTarget(page, consoleProcess, targetApp.origin);
-  await acquireAndOpenExplorer(page, consoleProcess, "trace-terminal-failure");
+  await acquireAndOpenExplorer(page, consoleProcess, "trace-runtime-terminal-failure");
   await expect(page.getByRole("heading", { name: "Terminal failure evidence" })).toBeVisible();
   await expect(page.getByText("failure-terminal", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Evidence content" })).toHaveCount(0);
@@ -493,17 +493,17 @@ test("WF-AS-02 failed-completion trace is acquired for analysis and preserves FA
   // The trace catalog must list both the succeeded and failed traces.
   await page.goto(`${consoleProcess.origin}/traces`);
   await expect(page.getByRole("heading", { name: "Trace Catalog" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "trace-terminal-failure" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "trace-runtime-terminal-failure" })).toBeVisible();
 
   // Acquire the failed trace.
-  await navigateToTraceDetail(page, consoleProcess, "trace-terminal-failure");
+  await navigateToTraceDetail(page, consoleProcess, "trace-runtime-terminal-failure");
   await expect(page.getByText("FAILED", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
   await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
 
   // Trace Storage must show the failed trace with its FAILED outcome.
   await navigateToTraceStorage(page, consoleProcess);
-  await expect(page.locator("table.storage-table")).toContainText("trace-terminal-failure");
+  await expect(page.locator("table.storage-table")).toContainText("trace-runtime-terminal-failure");
   await expect(page.locator("table.storage-table")).toContainText("FAILED");
 });
 

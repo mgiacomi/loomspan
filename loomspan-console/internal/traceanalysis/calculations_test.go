@@ -85,11 +85,11 @@ func completionRecord(seq int, outcome string, prompt, completion, total int, te
 }
 
 // errorRecord builds an ERROR_RECORDED record.
-func errorRecord(seq int, failureID string, terminal bool) string {
+func errorRecord(seq int, failureID string, _ bool) string {
 	return `{"traceId":"t","sessionId":"s","sequence":` + itoa(seq) +
 		`,"timestamp":` + timestampForSeq(seq) +
 		`,"recordType":"ERROR_RECORDED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th",` +
-		`"metadata":{"failureId":"` + failureID + `","terminal":` + boolStr(terminal) + `},"data":{"error":"e"}}`
+		`"metadata":{"failureId":"` + failureID + `"},"data":{"exceptionType":"java.lang.IllegalStateException","message":"failed","diagnostics":[{"kind":"JAVA_STACK_TRACE","contentType":"text/plain; charset=utf-8","text":"stack","truncated":false,"captureLimitBytes":1048576}]}}`
 }
 
 func boolStr(b bool) string {

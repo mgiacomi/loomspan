@@ -404,6 +404,7 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeI
 			Sequence: f.Sequence, TimestampMillis: f.TimestampMillis, RecordType: f.RecordType,
 			FrameID: f.FrameID, Route: f.Route, AttemptID: f.AttemptID,
 			RetrySequenceID: f.RetrySequenceID, ValidationStatus: f.ValidationStatus,
+			ExceptionType: f.ExceptionType, ContextSummary: f.ContextSummary, Diagnostics: f.Diagnostics,
 		}
 	})
 	if domain != nil {
@@ -422,16 +423,20 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeI
 
 // failureSummary is the internal parsed failure fact.
 type failureSummary struct {
-	FailureID        string `json:"failureId"`
-	Terminal         bool   `json:"terminal"`
-	Sequence         int64  `json:"sequence"`
-	TimestampMillis  int64  `json:"timestampMillis"`
-	RecordType       string `json:"recordType"`
-	FrameID          string `json:"frameId,omitempty"`
-	Route            string `json:"route,omitempty"`
-	AttemptID        string `json:"attemptId,omitempty"`
-	RetrySequenceID  string `json:"retrySequenceId,omitempty"`
-	ValidationStatus string `json:"validationStatus,omitempty"`
+	FailureID        string                 `json:"failureId"`
+	Terminal         bool                   `json:"terminal"`
+	Sequence         int64                  `json:"sequence"`
+	TimestampMillis  int64                  `json:"timestampMillis"`
+	RecordType       string                 `json:"recordType"`
+	FrameID          string                 `json:"frameId,omitempty"`
+	Route            string                 `json:"route,omitempty"`
+	AttemptID        string                 `json:"attemptId,omitempty"`
+	RetrySequenceID  string                 `json:"retrySequenceId,omitempty"`
+	ValidationStatus string                 `json:"validationStatus,omitempty"`
+	ExceptionType    string                 `json:"exceptionType,omitempty"`
+	ContextSummary   string                 `json:"contextSummary,omitempty"`
+	Diagnostics      []DiagnosticDescriptor `json:"diagnostics,omitempty"`
+	PayloadID        string                 `json:"payloadId,omitempty"`
 }
 
 // PayloadQuery is a bounded, continuable payload descriptor query.

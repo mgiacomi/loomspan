@@ -4,21 +4,162 @@ import com.lokiscale.loomspan.internal.linter.LinterOutcome;
 import com.lokiscale.loomspan.internal.linter.LinterOutcomeStatus;
 import com.lokiscale.loomspan.internal.runtime.observation.ExecutionObservationHandle;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 
+import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class LoomspanSessionTest {
+
+    @Test
+    void journalProjectionFailureUsesCanonicalDiagnosticRecorder() throws Exception {
+        ExecutionTraceHandle handle = failingProjectionHandle();
+        AtomicReference<TraceCompletion> finalized = new AtomicReference<>();
+        doAnswer(invocation -> {
+            finalized.set(invocation.getArgument(0));
+            return Optional.empty();
+        }).when(handle).finalizeTrace(any());
+        LoomspanSession session = TestLoomspanSessions.withTraceHandle(
+                "projection-session", "test.entry", Clock.systemUTC(), handle, () -> "projection-failure");
+
+        assertThatThrownBy(() -> session.finalizeTrace(new TraceCompletion(
+                TraceOutcome.SUCCEEDED,
+                com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot.empty(),
+                null,
+                Map.of())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to finalize execution trace");
+
+        ArgumentCaptor<Map<String, Object>> metadata = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<Object> data = ArgumentCaptor.forClass(Object.class);
+        verify(handle).append(eq(TraceRecordType.ERROR_RECORDED), metadata.capture(), data.capture());
+        assertThat(metadata.getValue()).containsEntry("failureId", "projection-failure");
+        assertThat(((Map<?, ?>) data.getValue()).get("diagnostics")).isNotNull();
+        assertThat(finalized.get().outcome()).isEqualTo(TraceOutcome.FAILED);
+        assertThat(finalized.get().terminalFailureId()).isEqualTo("projection-failure");
+    }
+
+    @Test
+    void journalProjectionFailureDoesNotDuplicateAnExistingTerminalFailure() throws Exception {
+        ExecutionTraceHandle handle = failingProjectionHandle();
+        AtomicReference<TraceCompletion> finalized = new AtomicReference<>();
+        doAnswer(invocation -> {
+            finalized.set(invocation.getArgument(0));
+            return Optional.empty();
+        }).when(handle).finalizeTrace(any());
+        LoomspanSession session = TestLoomspanSessions.withTraceHandle(
+                "projection-existing-session", "test.entry", Clock.systemUTC(), handle, () -> "original-failure");
+        String failureId = session.recordFailure(new IllegalStateException("original"), Map.of("message", "failed"));
+
+        assertThatThrownBy(() -> session.finalizeTrace(new TraceCompletion(
+                TraceOutcome.FAILED,
+                com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot.empty(),
+                failureId,
+                Map.of())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to finalize execution trace");
+
+        verify(handle, times(1)).append(eq(TraceRecordType.ERROR_RECORDED), any(), any());
+        assertThat(finalized.get().terminalFailureId()).isEqualTo(failureId);
+    }
+
+    private static ExecutionTraceHandle failingProjectionHandle() throws IOException {
+        ExecutionTraceHandle handle = mock(ExecutionTraceHandle.class);
+        when(handle.snapshot()).thenReturn(new ExecutionTrace(
+                "projection-trace", "projection-session", null, TracePersistencePolicy.ALWAYS, false, false));
+        doThrow(new IOException("projection read failed")).when(handle).readRecords(any());
+        return handle;
+    }
+
+    @Test
+    void recordsThrowableOnceAndReusesRecordedCause() {
+        LoomspanSession session = new LoomspanSession(8, "test.skill");
+        IllegalStateException cause = new IllegalStateException("same");
+        String first = session.recordFailure(cause, Map.of("message", "failed"));
+        String repeated = session.recordFailure(cause, Map.of("message", "failed"));
+        String wrapped = session.recordFailure(new RuntimeException("wrapper", cause), Map.of("message", "failed"));
+        String distinct = session.recordFailure(new IllegalStateException("same"), Map.of("message", "failed"));
+        assertThat(repeated).isEqualTo(first);
+        assertThat(wrapped).isEqualTo(first);
+        assertThat(distinct).isNotEqualTo(first);
+    }
+
+    @Test
+    void boundsCyclicAndDeepCauseTraversal() {
+        LoomspanSession session = new LoomspanSession(8, "test.skill");
+        RuntimeException first = new RuntimeException("first");
+        RuntimeException second = new RuntimeException("second");
+        first.initCause(second);
+        second.initCause(first);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(1), () -> {
+            String cycleId = session.recordFailure(first, Map.of("message", "failed"));
+            assertThat(session.recordFailure(second, Map.of("message", "failed"))).isEqualTo(cycleId);
+
+            Throwable deep = new IllegalStateException("root");
+            for (int index = 0; index < 100; index++) {
+                deep = new RuntimeException("wrapper-" + index, deep);
+            }
+            assertThat(session.recordFailure(deep, Map.of("message", "failed"))).isNotBlank();
+        });
+    }
+
+    @Test
+    void concurrentObservationsAppendOnceAndSessionsRemainIsolated() throws Exception {
+        LoomspanSession session = new LoomspanSession(8, "test.skill");
+        IllegalStateException failure = new IllegalStateException("shared");
+        CountDownLatch start = new CountDownLatch(1);
+        Set<String> ids = ConcurrentHashMap.newKeySet();
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            var futures = java.util.stream.IntStream.range(0, 32)
+                    .mapToObj(index -> executor.submit(() -> {
+                        start.await();
+                        ids.add(session.recordFailure(failure, Map.of("message", "failed")));
+                        return null;
+                    }))
+                    .toList();
+            start.countDown();
+            for (var future : futures) {
+                future.get();
+            }
+        }
+        AtomicInteger errorRecords = new AtomicInteger();
+        session.readTraceRecords(record -> {
+            if (record.recordType() == TraceRecordType.ERROR_RECORDED) {
+                errorRecords.incrementAndGet();
+            }
+        });
+        assertThat(ids).hasSize(1);
+        assertThat(errorRecords).hasValue(1);
+
+        LoomspanSession other = new LoomspanSession(8, "test.skill");
+        assertThat(other.recordFailure(failure, Map.of("message", "failed"))).isNotIn(ids);
+    }
 
     @Test
     void normalizesEntrySkillOnceBeforeSupplyingTheSameValueToBothFactories() {

@@ -92,9 +92,7 @@ public interface ExecutionStateService
 
     void recordAdvisorResponseMutation(LoomspanSession session, AdvisorTraceContext context, Object payload);
 
-    String logError(LoomspanSession session, Map<String, Object> payload);
-
-    void logError(LoomspanSession session, String failureId, Map<String, Object> payload);
+    String recordFailure(LoomspanSession session, Throwable failure, Map<String, Object> payload);
 
     void recordStepEvent(LoomspanSession session, ExecutionFrame frame, TraceRecordType recordType,
             Map<String, Object> metadata, Object payload);

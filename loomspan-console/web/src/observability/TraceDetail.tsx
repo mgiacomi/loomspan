@@ -171,6 +171,7 @@ export function TraceDetailView() {
             {acquireError && (
               <div className="target-error" role="alert">
                 <strong>{acquireError.message}</strong>
+                {acquireError.details?.rawDownloadAvailable && <p>The analysis copy was rejected, but the raw attachment remains available through the separate download action above.</p>}
               </div>
             )}
 

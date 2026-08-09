@@ -159,6 +159,21 @@ type FailureSummary struct {
 	AttemptID        string
 	RetrySequenceID  string
 	ValidationStatus string
+	ExceptionType    string
+	ContextSummary   string
+	Diagnostics      []DiagnosticDescriptor
+}
+
+type FailureDiagnosticRequest struct {
+	Handle    artifact.Handle
+	FailureID string
+	Ordinal   int
+}
+type FailureDiagnostic struct {
+	Context    TraceContext
+	FailureID  string
+	Descriptor DiagnosticDescriptor
+	Text       string
 }
 
 // UsageBreakdown is the component-wise usage breakdown for a trace or frame.

@@ -19,6 +19,10 @@ type fakeTraceAnalysisService struct {
 	frameQuery        traceanalysis.FrameQuery
 	framePage         traceanalysis.Page[traceanalysis.FrameSummary]
 	failurePage       traceanalysis.Page[traceanalysis.FailureSummary]
+	diagnosticScope   target.ScopeID
+	diagnosticRequest traceanalysis.FailureDiagnosticRequest
+	diagnosticResult  traceanalysis.FailureDiagnostic
+	diagnosticErr     *consolecore.Error
 	searchQuery       traceanalysis.SearchQuery
 	payloadRangeQuery traceanalysis.RangeRequest
 	rawRangeQuery     traceanalysis.RangeRequest
@@ -52,6 +56,11 @@ func (f *fakeTraceAnalysisService) QueryFailures(context.Context, target.ScopeID
 		return f.failurePage, nil
 	}
 	return traceanalysis.Page[traceanalysis.FailureSummary]{Items: []traceanalysis.FailureSummary{}}, nil
+}
+func (f *fakeTraceAnalysisService) GetFailureDiagnostic(_ context.Context, scope target.ScopeID, request traceanalysis.FailureDiagnosticRequest) (traceanalysis.FailureDiagnostic, *consolecore.Error) {
+	f.diagnosticScope = scope
+	f.diagnosticRequest = request
+	return f.diagnosticResult, f.diagnosticErr
 }
 func (f *fakeTraceAnalysisService) QueryPayloads(context.Context, target.ScopeID, traceanalysis.PayloadQuery) (traceanalysis.Page[traceanalysis.PayloadDescriptor], *consolecore.Error) {
 	return traceanalysis.Page[traceanalysis.PayloadDescriptor]{Items: []traceanalysis.PayloadDescriptor{}}, nil
@@ -195,6 +204,47 @@ func TestTraceAnalysisMapsConfiguredLimitsAndDirectFailureRelationships(t *testi
 		if !strings.Contains(failures.Body.String(), expected) {
 			t.Errorf("missing %s in %s", expected, failures.Body.String())
 		}
+	}
+}
+
+func TestTraceAnalysisMapsCompactFailureDescriptorsAndSelectedDiagnostic(t *testing.T) {
+	router, _, cookie, fake := traceAnalysisRouter(t)
+	descriptor := traceanalysis.DiagnosticDescriptor{Ordinal: 0, Kind: "JAVA_STACK_TRACE", ContentType: "text/plain; charset=utf-8", Truncated: true, CaptureLimitBytes: 1048576, DecodedBytes: 10}
+	fake.failurePage = traceanalysis.Page[traceanalysis.FailureSummary]{Items: []traceanalysis.FailureSummary{{
+		FailureID: "failure-1", Terminal: true, ExceptionType: "java.lang.IllegalStateException", ContextSummary: "provider failed", Diagnostics: []traceanalysis.DiagnosticDescriptor{descriptor},
+	}}}
+	failures := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/failures", `{"traceId":"trace-1"}`, cookie)
+	if failures.Code != http.StatusOK {
+		t.Fatalf("failures status=%d body=%s", failures.Code, failures.Body.String())
+	}
+	for _, expected := range []string{`"exceptionType":"java.lang.IllegalStateException"`, `"contextSummary":"provider failed"`, `"kind":"JAVA_STACK_TRACE"`, `"decodedBytes":10`} {
+		if !strings.Contains(failures.Body.String(), expected) {
+			t.Errorf("missing %s in %s", expected, failures.Body.String())
+		}
+	}
+	if strings.Contains(failures.Body.String(), `"text"`) {
+		t.Fatalf("failure list leaked diagnostic text: %s", failures.Body.String())
+	}
+
+	fake.diagnosticResult = traceanalysis.FailureDiagnostic{FailureID: "failure-1", Descriptor: descriptor, Text: "stack-line"}
+	diagnostic := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/failure-diagnostic", `{"traceId":"trace-1","failureId":"failure-1","ordinal":0}`, cookie)
+	if diagnostic.Code != http.StatusOK || !strings.Contains(diagnostic.Body.String(), `"text":"stack-line"`) {
+		t.Fatalf("diagnostic status=%d body=%s", diagnostic.Code, diagnostic.Body.String())
+	}
+	if fake.diagnosticScope != target.ScopeID("scope-1") || fake.diagnosticRequest.Handle != artifact.Handle("opaque-handle") || fake.diagnosticRequest.FailureID != "failure-1" || fake.diagnosticRequest.Ordinal != 0 {
+		t.Fatalf("scope=%s request=%+v", fake.diagnosticScope, fake.diagnosticRequest)
+	}
+	unauthorized := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/failure-diagnostic", `{"traceId":"trace-1","failureId":"failure-1","ordinal":0}`, nil)
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorized.Code)
+	}
+	malformed := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/failure-diagnostic", `{"traceId":"trace-1","failureId":"failure-1","ordinal":0,"unknown":true}`, cookie)
+	if malformed.Code != http.StatusBadRequest {
+		t.Fatalf("malformed status=%d body=%s", malformed.Code, malformed.Body.String())
+	}
+	missingOrdinal := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/failure-diagnostic", `{"traceId":"trace-1","failureId":"failure-1"}`, cookie)
+	if missingOrdinal.Code != http.StatusBadRequest {
+		t.Fatalf("missing ordinal status=%d body=%s", missingOrdinal.Code, missingOrdinal.Body.String())
 	}
 }
 

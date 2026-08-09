@@ -130,10 +130,11 @@ public class DefaultPlanningService implements PlanningService
                     visibleTools,
                     planningFrame);
         }
-        catch (RuntimeException ex)
+        catch (RuntimeException | Error ex)
         {
             planningFailure = ex;
             planningFrameStatus = Thread.currentThread().isInterrupted() ? "aborted" : "failed";
+            executionStateService.recordFailure(session, ex, Map.of("message", "Planning failed"));
             throw ex;
         }
         finally
@@ -440,10 +441,11 @@ public class DefaultPlanningService implements PlanningService
                     planningUserMessage,
                     modelAttempt);
         }
-        catch (RuntimeException ex)
+        catch (RuntimeException | Error ex)
         {
             modelFailure = ex;
             modelFrameStatus = Thread.currentThread().isInterrupted() ? "aborted" : "failed";
+            executionStateService.recordFailure(session, ex, Map.of("message", "Planning model invocation failed"));
             throw ex;
         }
         finally

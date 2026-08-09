@@ -20,10 +20,12 @@ vi.mock("../api/client", () => ({
   BrowserAPIError: class BrowserAPIError extends Error {
     code: string;
     status: number;
-    constructor(code: string, message: string, status: number) {
+    details?: { rawDownloadAvailable?: boolean };
+    constructor(code: string, message: string, status: number, _targetScopeId?: string, details?: { rawDownloadAvailable?: boolean }) {
       super(message);
       this.code = code;
       this.status = status;
+      this.details = details;
     }
   },
 }));
@@ -228,6 +230,18 @@ test("acquire button shows error on failure", async () => {
     expect(screen.getByText("Artifact in use")).toBeInTheDocument();
   });
   expect(screen.getByRole("alert")).toBeInTheDocument();
+});
+
+test("rejected analysis explicitly preserves raw download guidance", async () => {
+  const { BrowserAPIError } = await import("../api/client");
+  vi.mocked(getTraceDetail).mockResolvedValue(trace);
+  vi.mocked(acquireArtifact).mockRejectedValue(
+    new BrowserAPIError("INVALID_ARTIFACT", "Analysis rejected", 422, "scope-1", { rawDownloadAvailable: true }),
+  );
+  render(<TraceDetailView />);
+  await screen.findByText("trace-1");
+  fireEvent.click(screen.getByRole("button", { name: "Acquire for analysis" }));
+  expect(await screen.findByText(/raw attachment remains available/)).toBeVisible();
 });
 
 test("trace detail shows application availability and local artifact status", async () => {

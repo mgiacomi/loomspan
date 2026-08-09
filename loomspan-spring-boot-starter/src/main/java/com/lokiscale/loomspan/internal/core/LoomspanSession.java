@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,6 +33,7 @@ import java.util.LinkedHashSet;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -51,6 +53,12 @@ public final class LoomspanSession
     private final Deque<ExecutionFrame> frames;
     @JsonIgnore
     private final Map<String, Integer> toolActivityCountByFrameId;
+    @JsonIgnore
+    private final IdentityHashMap<Throwable, RecordedFailure> failuresByThrowable;
+    @JsonIgnore
+    private final Supplier<String> failureIdSupplier;
+    @JsonIgnore
+    private RuntimeException failureRecordingFailure;
     @JsonIgnore
     private final @Nullable ExecutionTraceHandle executionTraceHandle;
     @JsonIgnore
@@ -185,6 +193,27 @@ public final class LoomspanSession
             ExecutionObservationHandleFactory observationHandleFactory,
             InternalExecutionTraceHandleFactory traceHandleFactory)
     {
+        this(sessionId, entrySkill, maxDepth, frames, executionPlan, lastLinterOutcome, lastOutputSchemaOutcome,
+                sessionUsage, authentication, persistencePolicy, clock, observationHandleFactory, traceHandleFactory,
+                () -> UUID.randomUUID().toString());
+    }
+
+    LoomspanSession(
+            String sessionId,
+            String entrySkill,
+            int maxDepth,
+            List<ExecutionFrame> frames,
+            ExecutionPlan executionPlan,
+            @Nullable LinterOutcome lastLinterOutcome,
+            @Nullable OutputSchemaOutcome lastOutputSchemaOutcome,
+            @Nullable SessionUsageSnapshot sessionUsage,
+            @Nullable Authentication authentication,
+            TracePersistencePolicy persistencePolicy,
+            Clock clock,
+            ExecutionObservationHandleFactory observationHandleFactory,
+            InternalExecutionTraceHandleFactory traceHandleFactory,
+            Supplier<String> failureIdSupplier)
+    {
         this.sessionId = requireNonBlank(sessionId, "sessionId");
         this.entrySkill = EntrySkillIdentity.normalize(entrySkill);
         if (maxDepth <= 0)
@@ -197,6 +226,9 @@ public final class LoomspanSession
         this.lock = new ReentrantLock();
         this.frames = new ArrayDeque<>(frames == null ? List.of() : List.copyOf(frames));
         this.toolActivityCountByFrameId = new HashMap<>();
+        this.failuresByThrowable = new IdentityHashMap<>();
+        this.failureIdSupplier = Objects.requireNonNull(failureIdSupplier, "failureIdSupplier must not be null");
+        this.failureRecordingFailure = null;
         // The runtime supports one session lifecycle: a live in-process session with a canonical trace handle.
         this.journalProjector = new ExecutionJournalProjector();
         this.executionObservationHandle = Objects.requireNonNull(observationHandleFactory,
@@ -225,6 +257,83 @@ public final class LoomspanSession
     public String getSessionId()
     {
         return sessionId;
+    }
+
+    /** Records a throwable once for this session and returns its stable failure identity. */
+    public String recordFailure(Throwable failure, Map<String, Object> context)
+    {
+        Objects.requireNonNull(failure, "failure must not be null");
+        lock.lock();
+        try
+        {
+            Throwable current = failure;
+            Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (int depth = 0; current != null && depth < 64 && visited.add(current); depth++, current = current.getCause())
+            {
+                RecordedFailure existing = failuresByThrowable.get(current);
+                if (existing != null)
+                {
+                    failuresByThrowable.put(failure, existing);
+                    return existing.failureId();
+                }
+            }
+
+            String failureId;
+            try
+            {
+                failureId = requireNonBlank(failureIdSupplier.get(), "failureId");
+            }
+            catch (RuntimeException | Error ignored)
+            {
+                failureId = UUID.randomUUID().toString();
+            }
+            Map<String, Object> source = context == null ? Map.of() : context;
+            java.util.LinkedHashMap<String, Object> payload = new java.util.LinkedHashMap<>(source);
+            Object message = payload.get("message");
+            TraceFailureMetadata.addTo(payload, failure,
+                    message instanceof String text && !text.isBlank() ? text : "Execution failed");
+            payload.put("diagnostics", List.of(BoundedStackTraceCapture.capture(failure)));
+            ExecutionFrame origin = frames.peek();
+            failuresByThrowable.put(failure, new RecordedFailure(failureId, origin == null ? null : origin.frameId()));
+            try
+            {
+                markTraceErrored();
+                appendTraceRecord(TraceRecordType.ERROR_RECORDED, Map.of("failureId", failureId),
+                        Collections.unmodifiableMap(new java.util.LinkedHashMap<>(payload)));
+            }
+            catch (RuntimeException | Error recordingFailure)
+            {
+                failureRecordingFailure = new FailureRecordingUnavailableException(sessionId, recordingFailure);
+            }
+            return failureId;
+        }
+        finally
+        {
+            lock.unlock();
+        }
+    }
+
+    private record RecordedFailure(String failureId, @Nullable String originFrameId) {}
+
+    boolean hasFailureRecordingFailure()
+    {
+        lock.lock();
+        try
+        {
+            return failureRecordingFailure != null;
+        }
+        finally
+        {
+            lock.unlock();
+        }
+    }
+
+    private static final class FailureRecordingUnavailableException extends IllegalStateException
+    {
+        private FailureRecordingUnavailableException(String sessionId, Throwable cause)
+        {
+            super("Failed to record canonical execution failure for session '" + sessionId + "'", cause);
+        }
     }
 
     String entrySkill()
@@ -707,6 +816,10 @@ public final class LoomspanSession
         lock.lock();
         try
         {
+            if (failureRecordingFailure != null)
+            {
+                return;
+            }
             requireExecutionTraceHandle().markErrored();
         }
         finally
@@ -730,6 +843,10 @@ public final class LoomspanSession
         try
         {
             ExecutionTraceHandle handle = requireExecutionTraceHandle();
+            if (failureRecordingFailure != null)
+            {
+                throw failureRecordingFailure;
+            }
             if (handle.snapshot().completed() && finalizedExecutionJournal != null)
             {
                 return;
@@ -745,25 +862,13 @@ public final class LoomspanSession
             TraceCompletion effectiveCompletion = completion;
             if (projectionFailure != null)
             {
-                String failureId = completion.terminalFailureId() == null
-                        ? UUID.randomUUID().toString()
-                        : completion.terminalFailureId();
-                effectiveCompletion = completion.asFailed(failureId);
+                if (completion.terminalFailureId() == null)
+                {
+                    String failureId = recordFailure(projectionFailure,
+                            Map.of("message", "Execution journal projection failed"));
+                    effectiveCompletion = completion.asFailed(failureId);
+                }
                 observationOutcome = effectiveCompletion.outcome();
-                handle.markErrored();
-                try
-                {
-                    handle.append(
-                            TraceRecordType.ERROR_RECORDED,
-                            Map.of("failureId", failureId),
-                            Map.of(
-                                    "exceptionType", projectionFailure.getClass().getName(),
-                                    "message", "Execution journal projection failed"));
-                }
-                catch (IOException errorAppendFailure)
-                {
-                    projectionFailure.addSuppressed(errorAppendFailure);
-                }
             }
             try
             {
@@ -872,6 +977,10 @@ public final class LoomspanSession
 
         try
         {
+            if (failureRecordingFailure != null)
+            {
+                return;
+            }
             ExecutionTraceHandle handle = requireExecutionTraceHandle();
             handle.append(type, frame, frame.traceFrameType(), metadata == null ? Map.of() : Map.copyOf(metadata), payload);
         }
@@ -890,6 +999,10 @@ public final class LoomspanSession
         lock.lock();
         try
         {
+            if (failureRecordingFailure != null)
+            {
+                return;
+            }
             ExecutionTraceHandle handle = requireExecutionTraceHandle();
             ExecutionFrame activeFrame = frames.peek();
             TraceFrameType frameType = activeFrame == null ? null : activeFrame.traceFrameType();

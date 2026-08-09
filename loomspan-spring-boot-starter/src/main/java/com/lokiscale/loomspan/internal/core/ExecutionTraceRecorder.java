@@ -41,7 +41,5 @@ public interface ExecutionTraceRecorder
 
     void recordOutputSchemaOutcome(LoomspanSession session, OutputSchemaOutcome outcome);
 
-    void recordError(LoomspanSession session, String failureId, Object payload);
-
     void finalizeTrace(LoomspanSession session, TraceCompletion completion);
 }

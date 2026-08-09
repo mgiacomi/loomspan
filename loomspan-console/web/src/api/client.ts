@@ -29,6 +29,7 @@ import type {
   TraceAttempt,
   TraceRetry,
   TraceFailure,
+  TraceFailureDiagnostic,
   TraceValidation,
   TraceGap,
   TraceUncertainty,
@@ -218,6 +219,7 @@ function traceFactPage<T>(operation: string, traceId: string, cursor?: string): 
 export const getTraceAttempts = (traceId: string, cursor?: string) => traceFactPage<TraceAttempt>("attempts", traceId, cursor);
 export const getTraceRetries = (traceId: string, cursor?: string) => traceFactPage<TraceRetry>("retries", traceId, cursor);
 export const getTraceFailures = (traceId: string, cursor?: string) => traceFactPage<TraceFailure>("failures", traceId, cursor);
+export const getTraceFailureDiagnostic = (traceId: string, failureId: string, ordinal: number) => post<TraceFailureDiagnostic>("/api/console/v1/traces/analysis/failure-diagnostic", { traceId, failureId, ordinal });
 export const getTraceValidationLinks = (traceId: string, cursor?: string) => traceFactPage<TraceValidation>("validation-links", traceId, cursor);
 export const getTraceGaps = (traceId: string, cursor?: string) => traceFactPage<TraceGap>("gaps", traceId, cursor);
 export const getTraceUncertainties = (traceId: string, cursor?: string) => traceFactPage<TraceUncertainty>("uncertainties", traceId, cursor);

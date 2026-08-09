@@ -131,9 +131,7 @@ public class ExecutionCoordinator
         catch (RuntimeException | Error ex)
         {
             failure = ex;
-            terminalFailureId = UUID.randomUUID().toString();
-            executionStateService.logError(session, terminalFailureId, errorPayload(skillName, objective, ex));
-            session.markTraceErrored();
+            terminalFailureId = executionStateService.recordFailure(session, ex, errorPayload(skillName, objective, ex));
             throw ex;
         }
         finally
@@ -148,17 +146,14 @@ public class ExecutionCoordinator
                 cleanupFailure = ex;
                 if (terminalFailureId == null)
                 {
-                    terminalFailureId = UUID.randomUUID().toString();
                     try
                     {
-                        executionStateService.logError(
-                                session,
-                                terminalFailureId,
-                                cleanupErrorPayload(skillName, objective, ex));
+                        terminalFailureId = executionStateService.recordFailure(
+                                session, ex, cleanupErrorPayload(skillName, objective, ex));
                     }
                     catch (RuntimeException errorRecordingFailure)
                     {
-                        ex.addSuppressed(errorRecordingFailure);
+                        // Canonical failure recording must not mutate the application exception.
                     }
                 }
             }
@@ -193,7 +188,10 @@ public class ExecutionCoordinator
             {
                 if (failure != null)
                 {
-                    failure.addSuppressed(cleanupFailure);
+                    if (!session.hasFailureRecordingFailure())
+                    {
+                        failure.addSuppressed(cleanupFailure);
+                    }
                 }
                 else
                 {

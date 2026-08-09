@@ -305,14 +305,24 @@ class MissionExecutionEngineTest {
             awaitFramesCleared(session);
 
             List<TraceRecord> records = readRecords(session);
+            TraceRecord error = records.stream()
+                    .filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED)
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(records.stream()
+                    .filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED))
+                    .hasSize(1);
+            TraceRecord frameClosed = records.stream()
+                    .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
+                    .findFirst()
+                    .orElseThrow();
             assertThat(records.stream()
                     .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
                     .count()).isEqualTo(1);
-            assertThat(records.stream()
-                    .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
-                    .findFirst()
-                    .orElseThrow()
-                    .metadata()).containsEntry("status", "aborted");
+            assertThat(frameClosed.metadata()).containsEntry("status", "aborted");
+            assertThat(error.frameId()).isEqualTo(frameClosed.frameId());
+            assertThat(error.frameType()).isEqualTo(TraceFrameType.MODEL_CALL);
+            assertThat(records.indexOf(error)).isLessThan(records.indexOf(frameClosed));
         }
     }
 
@@ -373,13 +383,65 @@ class MissionExecutionEngineTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("boom");
 
-            TraceRecord frameClosed = readRecords(session).stream()
+            List<TraceRecord> records = readRecords(session);
+            TraceRecord frameClosed = records.stream()
                     .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
+                    .filter(record -> "failed".equals(record.metadata().get("status")))
+                    .findFirst()
+                    .orElseThrow();
+            TraceRecord error = records.stream()
+                    .filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED)
                     .findFirst()
                     .orElseThrow();
 
             assertThat(frameClosed.metadata()).containsEntry("status", "failed");
             assertThat(frameClosed.metadata()).containsEntry("exceptionType", IllegalStateException.class.getName());
+            assertThat(error.frameId()).isEqualTo(frameClosed.frameId());
+            assertThat(error.frameType()).isEqualTo(TraceFrameType.MODEL_CALL);
+            assertThat(error.data().path("diagnostics").get(0).path("kind").asText()).isEqualTo("JAVA_STACK_TRACE");
+            assertThat(records.indexOf(error)).isLessThan(records.indexOf(frameClosed));
+        }
+    }
+
+    @Test
+    void recordsAndRethrowsErrorAtModelFrame() {
+        PlanningService planningService = mock(PlanningService.class);
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        AssertionError failure = new AssertionError("fatal model failure");
+        try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+            DefaultMissionExecutionEngine engine = new DefaultMissionExecutionEngine(
+                    planningService,
+                    stateService,
+                    Duration.ofSeconds(5),
+                    missionExecutor);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                    "session-error", "test.entry", 2);
+
+            assertThatThrownBy(() -> engine.executeMission(
+                    session,
+                    definition(),
+                    "hello",
+                    null,
+                    new FailingMissionChatClient(failure),
+                    List.of(),
+                    false,
+                    null))
+                    .isSameAs(failure);
+
+            List<TraceRecord> records = readRecords(session);
+            TraceRecord error = records.stream()
+                    .filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED)
+                    .findFirst()
+                    .orElseThrow();
+            TraceRecord frameClosed = records.stream()
+                    .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(error.frameId()).isEqualTo(frameClosed.frameId());
+            assertThat(error.frameType()).isEqualTo(TraceFrameType.MODEL_CALL);
+            assertThat(frameClosed.metadata()).containsEntry("status", "failed");
+            assertThat(records.indexOf(error)).isLessThan(records.indexOf(frameClosed));
         }
     }
 
@@ -639,8 +701,7 @@ class MissionExecutionEngineTest {
                 }
                 catch (InterruptedException ex) {
                     interrupted.set(true);
-                    Thread.currentThread().interrupt();
-                    return "interrupted";
+                    throw new IllegalStateException("provider interrupted", ex);
                 }
             }
 
@@ -665,16 +726,29 @@ class MissionExecutionEngineTest {
 
     private static final class FailingMissionChatClient extends SimpleChatClient {
 
+        private final Throwable failure;
+
         private FailingMissionChatClient() {
+            this(new IllegalStateException("boom"));
+        }
+
+        private FailingMissionChatClient(Throwable failure) {
             super(null, "unused");
+            this.failure = failure;
         }
 
         @Override
         public ChatClientRequestSpec prompt() {
-            return new FailingRequestSpec();
+            return new FailingRequestSpec(failure);
         }
 
         private static final class FailingRequestSpec implements ChatClientRequestSpec {
+
+            private final Throwable failure;
+
+            private FailingRequestSpec(Throwable failure) {
+                this.failure = failure;
+            }
 
             @Override
             public Builder mutate() {
@@ -788,7 +862,10 @@ class MissionExecutionEngineTest {
 
             @Override
             public CallResponseSpec call() {
-                throw new IllegalStateException("boom");
+                if (failure instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw (Error) failure;
             }
 
             @Override

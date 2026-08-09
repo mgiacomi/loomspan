@@ -37,6 +37,7 @@ type TraceAnalysisService interface {
 	QueryRetries(context.Context, target.ScopeID, traceanalysis.RetryQuery) (traceanalysis.Page[traceanalysis.RetrySummary], *consolecore.Error)
 	QueryValidationLinks(context.Context, target.ScopeID, traceanalysis.ValidationQuery) (traceanalysis.Page[traceanalysis.ValidationSummary], *consolecore.Error)
 	QueryFailures(context.Context, target.ScopeID, traceanalysis.FailureQuery) (traceanalysis.Page[traceanalysis.FailureSummary], *consolecore.Error)
+	GetFailureDiagnostic(context.Context, target.ScopeID, traceanalysis.FailureDiagnosticRequest) (traceanalysis.FailureDiagnostic, *consolecore.Error)
 	QueryPayloads(context.Context, target.ScopeID, traceanalysis.PayloadQuery) (traceanalysis.Page[traceanalysis.PayloadDescriptor], *consolecore.Error)
 	QueryGaps(context.Context, target.ScopeID, traceanalysis.GapQuery) (traceanalysis.Page[traceanalysis.Gap], *consolecore.Error)
 	QueryUncertainties(context.Context, target.ScopeID, traceanalysis.UncertaintyQuery) (traceanalysis.Page[traceanalysis.Uncertainty], *consolecore.Error)
@@ -147,6 +148,8 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 		router.withSession(response, request, false, router.traceAnalysisValidationLinks)
 	case "/api/console/v1/traces/analysis/failures":
 		router.withSession(response, request, false, router.traceAnalysisFailures)
+	case "/api/console/v1/traces/analysis/failure-diagnostic":
+		router.withSession(response, request, false, router.traceAnalysisFailureDiagnostic)
 	case "/api/console/v1/traces/analysis/payloads":
 		router.withSession(response, request, false, router.traceAnalysisPayloads)
 	case "/api/console/v1/traces/analysis/gaps":

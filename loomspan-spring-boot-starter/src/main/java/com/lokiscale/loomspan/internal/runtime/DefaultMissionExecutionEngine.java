@@ -177,10 +177,15 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
                         return responseSpec.content();
                     }
                 }
-                catch (RuntimeException ex)
+                catch (RuntimeException | Error ex)
                 {
                     modelFailure = ex;
-                    modelFrameStatus = Thread.currentThread().isInterrupted() ? "aborted" : "failed";
+                    boolean callerOwnsCleanup = cleanupOwner.get() == CleanupOwner.CALLER;
+                    modelFrameStatus = callerOwnsCleanup || Thread.currentThread().isInterrupted() ? "aborted" : "failed";
+                    if (!callerOwnsCleanup)
+                    {
+                        executionStateService.recordFailure(session, ex, Map.of("message", "Model invocation failed"));
+                    }
                     throw ex;
                 }
                 finally
@@ -214,24 +219,36 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
         }
         catch (TimeoutException ex)
         {
+            boolean callerOwnsCleanup = cleanupOwner.compareAndSet(CleanupOwner.NONE, CleanupOwner.CALLER);
+            LoomspanMissionTimeoutException failure = new LoomspanMissionTimeoutException(
+                    session.getSessionId(), skillName, missionTimeout, ex);
+            executionStateService.recordFailure(session, failure, Map.of("message", "Mission execution timed out"));
             mission.cancel(true);
-            awaitMissionCleanup(session, mission, baselineFrameDepth, cleanupOwner, cleanupComplete);
-            throw new LoomspanMissionTimeoutException(session.getSessionId(), skillName, missionTimeout, ex);
+            awaitMissionCleanup(session, mission, baselineFrameDepth, cleanupOwner, cleanupComplete, callerOwnsCleanup);
+            throw failure;
         }
         catch (InterruptedException ex)
         {
+            boolean callerOwnsCleanup = cleanupOwner.compareAndSet(CleanupOwner.NONE, CleanupOwner.CALLER);
+            LoomspanMissionTimeoutException failure = new LoomspanMissionTimeoutException(
+                    session.getSessionId(), skillName, missionTimeout, ex);
+            executionStateService.recordFailure(session, failure, Map.of("message", "Mission execution interrupted"));
             mission.cancel(true);
-            awaitMissionCleanup(session, mission, baselineFrameDepth, cleanupOwner, cleanupComplete);
+            awaitMissionCleanup(session, mission, baselineFrameDepth, cleanupOwner, cleanupComplete, callerOwnsCleanup);
             Thread.currentThread().interrupt();
-            throw new LoomspanMissionTimeoutException(session.getSessionId(), skillName, missionTimeout, ex);
+            throw failure;
         }
         catch (ExecutionException ex)
         {
-            awaitMissionCleanup(session, mission, baselineFrameDepth, cleanupOwner, cleanupComplete);
+            awaitMissionCleanup(session, mission, baselineFrameDepth, cleanupOwner, cleanupComplete, false);
             Throwable cause = ex.getCause();
             if (cause instanceof RuntimeException runtimeException)
             {
                 throw unwrapMissionFailure(runtimeException);
+            }
+            if (cause instanceof Error error)
+            {
+                throw error;
             }
             throw new IllegalStateException("Mission execution failed for skill '" + skillName + "'", cause);
         }
@@ -265,8 +282,23 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
             Future<String> mission,
             int baselineFrameDepth,
             AtomicReference<CleanupOwner> cleanupOwner,
-            CountDownLatch cleanupComplete)
+            CountDownLatch cleanupComplete,
+            boolean callerOwnsCleanup)
     {
+        if (callerOwnsCleanup)
+        {
+            try
+            {
+                cleanupComplete.await(250, TimeUnit.MILLISECONDS);
+            }
+            catch (InterruptedException ex)
+            {
+                Thread.currentThread().interrupt();
+            }
+            unwindMissionFrames(session, baselineFrameDepth);
+            return;
+        }
+
         try
         {
             mission.get(250, TimeUnit.MILLISECONDS);

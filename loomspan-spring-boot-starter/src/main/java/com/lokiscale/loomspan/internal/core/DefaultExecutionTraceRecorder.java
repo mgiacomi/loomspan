@@ -138,14 +138,6 @@ public final class DefaultExecutionTraceRecorder implements ExecutionTraceRecord
     }
 
     @Override
-    public void recordError(LoomspanSession session, String failureId, Object payload)
-    {
-        session.markTraceErrored();
-        recordOnActiveFrame(session, TraceRecordType.ERROR_RECORDED, Map.of(
-                "failureId", requireNonBlank(failureId, "failureId")), payload);
-    }
-
-    @Override
     public void finalizeTrace(LoomspanSession session, TraceCompletion completion)
     {
         session.finalizeTrace(Objects.requireNonNull(completion, "completion must not be null"));

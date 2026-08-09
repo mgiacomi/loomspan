@@ -3,26 +3,41 @@ package com.lokiscale.loomspan.internal.runtime.trace;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.internal.core.ExecutionFrame;
+import com.lokiscale.loomspan.internal.core.LoomspanSession;
 import com.lokiscale.loomspan.internal.core.OperationType;
 import com.lokiscale.loomspan.internal.core.TraceCompletion;
 import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TraceOutcome;
 import com.lokiscale.loomspan.internal.core.TracePersistencePolicy;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
+import com.lokiscale.loomspan.internal.core.TestLoomspanSessions;
+import com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine;
+import com.lokiscale.loomspan.internal.runtime.attachment.RenderedMissionInput;
+import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
+import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
+import com.lokiscale.loomspan.internal.runtime.usage.NoOpSessionUsageService;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot;
 import com.lokiscale.loomspan.internal.runtime.usage.UsagePrecision;
+import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
+import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
+import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.io.ByteArrayResource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.UncheckedIOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -33,10 +48,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.Mockito.mock;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsoleTraceFixtureCorpusTest
@@ -45,8 +63,8 @@ class ConsoleTraceFixtureCorpusTest
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-07-24T12:00:00Z"), ZoneOffset.UTC);
     private static final Set<String> VALID = Set.of(
             "single-attempt-success",
-            "terminal-failure",
-            "terminal-abort",
+            "runtime-terminal-failure",
+            "runtime-terminal-abort",
             "advisor-retry",
             "nested-retry-sequences",
             "validation-exhaustion",
@@ -147,7 +165,7 @@ class ConsoleTraceFixtureCorpusTest
             JsonNode expected = JSON.readTree(fixtureRoot().resolve("expected").resolve(name + ".json").toFile());
             Map<String, List<Integer>> sequenceAttempts = new LinkedHashMap<>();
             Map<String, List<String>> attemptLifecycle = new LinkedHashMap<>();
-            List<Map<String, Object>> actualAttempts = new ArrayList<>();
+            Map<String, Map<String, Object>> actualAttemptsById = new LinkedHashMap<>();
             Usage attributedUsage = Usage.ZERO;
             Usage unframedAttributedUsage = Usage.ZERO;
             for (JsonNode node : records)
@@ -158,22 +176,25 @@ class ConsoleTraceFixtureCorpusTest
                 }
                 String attemptId = node.path("metadata").path("attemptId").asText();
                 assertThat(attemptId).isNotBlank();
+                String retrySequenceId = node.path("metadata").path("retrySequenceId").asText();
+                int attemptNumber = node.path("metadata").path("attemptNumber").asInt();
+                actualAttemptsById.computeIfAbsent(attemptId, ignored -> attemptResult(
+                        retrySequenceId, attemptId, attemptNumber, Usage.ZERO, false));
                 attemptLifecycle.computeIfAbsent(attemptId, ignored -> new ArrayList<>())
                         .add(node.path("recordType").asText());
                 if (!"MODEL_RESPONSE_RECEIVED".equals(node.path("recordType").asText()))
                 {
                     continue;
                 }
-                String retrySequenceId = node.path("metadata").path("retrySequenceId").asText();
                 sequenceAttempts.computeIfAbsent(retrySequenceId, ignored -> new ArrayList<>())
-                        .add(node.path("metadata").path("attemptNumber").asInt());
+                        .add(attemptNumber);
                 Usage responseUsage = usageFrom(node.at("/metadata/usage"));
                 boolean responseUsageComplete = node.at("/metadata/usage").isObject()
                         && !"UNAVAILABLE".equals(node.at("/metadata/usage/precision").asText());
-                actualAttempts.add(attemptResult(
+                actualAttemptsById.put(attemptId, attemptResult(
                         retrySequenceId,
                         attemptId,
-                        node.path("metadata").path("attemptNumber").asInt(),
+                        attemptNumber,
                         responseUsage,
                         responseUsageComplete));
                 attributedUsage = attributedUsage.plus(responseUsage);
@@ -182,12 +203,19 @@ class ConsoleTraceFixtureCorpusTest
                     unframedAttributedUsage = unframedAttributedUsage.plus(responseUsage);
                 }
             }
+            List<Map<String, Object>> actualAttempts = List.copyOf(actualAttemptsById.values());
             sequenceAttempts.values().forEach(numbers -> assertThat(numbers).containsExactlyElementsOf(
                     Stream.iterate(1, number -> number + 1).limit(numbers.size()).toList()));
-            attemptLifecycle.values().forEach(recordTypes -> assertThat(recordTypes).containsExactly(
-                    TraceRecordType.MODEL_REQUEST_PREPARED.name(),
-                    TraceRecordType.MODEL_REQUEST_SENT.name(),
-                    TraceRecordType.MODEL_RESPONSE_RECEIVED.name()));
+            attemptLifecycle.forEach((attemptId, recordTypes) ->
+            {
+                assertThat(recordTypes).startsWith(
+                        TraceRecordType.MODEL_REQUEST_PREPARED.name(),
+                        TraceRecordType.MODEL_REQUEST_SENT.name());
+                if (!name.startsWith("runtime-terminal-"))
+                {
+                    assertThat(recordTypes).endsWith(TraceRecordType.MODEL_RESPONSE_RECEIVED.name());
+                }
+            });
 
             assertThat(JSON.<JsonNode>valueToTree(actualAttempts)).isEqualTo(expected.path("attempts"));
             assertThat(JSON.<JsonNode>valueToTree(retryResults(actualAttempts))).isEqualTo(expected.path("retries"));
@@ -331,6 +359,25 @@ class ConsoleTraceFixtureCorpusTest
             }
             actualFrames.add(frameEntry);
         }
+        Map<String, Boolean> attemptsWithResponses = new LinkedHashMap<>();
+        for (JsonNode record : records)
+        {
+            if ("MODEL_REQUEST_PREPARED".equals(record.path("recordType").asText()))
+            {
+                attemptsWithResponses.put(record.at("/metadata/attemptId").asText(), false);
+            }
+            else if ("MODEL_RESPONSE_RECEIVED".equals(record.path("recordType").asText()))
+            {
+                attemptsWithResponses.put(record.at("/metadata/attemptId").asText(), true);
+            }
+        }
+        attemptsWithResponses.forEach((attemptId, hasResponse) ->
+        {
+            if (!hasResponse)
+            {
+                gaps.add(ordered("kind", "MODEL_ATTEMPT_RESPONSE_MISSING", "attemptId", attemptId));
+            }
+        });
         assertThat(JSON.<JsonNode>valueToTree(actualFrames)).isEqualTo(expected.path("frames"));
         assertThat(JSON.<JsonNode>valueToTree(gaps)).isEqualTo(expected.path("gaps"));
         assertThat(JSON.<JsonNode>valueToTree(uncertainties)).isEqualTo(expected.path("uncertainties"));
@@ -454,6 +501,8 @@ class ConsoleTraceFixtureCorpusTest
                         "trace-" + name, "session-" + name, "test.entry", trace, TracePersistencePolicy.ALWAYS,
                         CLOCK, () -> "payload-" + ids.incrementAndGet(), "fixture-thread",
                         "traces/" + name + ".ndjson");
+        LoomspanSession session = TestLoomspanSessions.withTraceHandle(
+                "session-" + name, "test.entry", CLOCK, handle, () -> failureIdFor(name));
 
         Usage attributed = Usage.ZERO;
         Usage terminal = Usage.ZERO;
@@ -467,22 +516,15 @@ class ConsoleTraceFixtureCorpusTest
                 appendAttempt(handle, "retry-1", "attempt-1", 1, 10, 4, "EXACT");
                 attributed = terminal = new Usage(10, 4);
             }
-            case "terminal-failure" ->
+            case "runtime-terminal-failure" ->
             {
-                appendAttempt(handle, "retry-1", "attempt-1", 1, 7, 2, "EXACT");
-                terminalFailureId = "failure-terminal";
-                handle.append(TraceRecordType.ERROR_RECORDED,
-                        ordered("failureId", terminalFailureId, "terminal", true),
-                        Map.of("message", "provider failed"));
-                attributed = terminal = new Usage(7, 2);
+                terminalFailureId = executeRuntimeTerminal(session, handle, false);
+                terminal = new Usage(7, 2);
                 outcome = "FAILED";
             }
-            case "terminal-abort" ->
+            case "runtime-terminal-abort" ->
             {
-                terminalFailureId = "failure-abort";
-                handle.append(TraceRecordType.ERROR_RECORDED,
-                        ordered("failureId", terminalFailureId, "terminal", true),
-                        Map.of("message", "interrupted"));
+                terminalFailureId = executeRuntimeTerminal(session, handle, true);
                 outcome = "ABORTED";
             }
             case "advisor-retry" ->
@@ -514,9 +556,7 @@ class ConsoleTraceFixtureCorpusTest
                 handle.append(TraceRecordType.ADVISOR_RESPONSE_MUTATION_RECORDED,
                         attempt("retry-1", "attempt-2", 2, Map.of("status", "exhausted")),
                         Map.of("validator", "output-schema"));
-                terminalFailureId = "failure-validation";
-                handle.append(TraceRecordType.ERROR_RECORDED,
-                        ordered("failureId", terminalFailureId, "terminal", true),
+                terminalFailureId = session.recordFailure(fixtureFailure("validation exhausted"),
                         Map.of("message", "validation exhausted"));
                 attributed = terminal = new Usage(11, 4);
                 outcome = "FAILED";
@@ -533,8 +573,7 @@ class ConsoleTraceFixtureCorpusTest
             }
             case "nonterminal-error-then-success" ->
             {
-                handle.append(TraceRecordType.ERROR_RECORDED,
-                        ordered("failureId", "failure-recovered", "terminal", false),
+                session.recordFailure(fixtureFailure("recoverable cleanup failure"),
                         Map.of("message", "recoverable cleanup failure"));
                 appendAttempt(handle, "retry-1", "attempt-1", 1, 5, 2, "EXACT");
                 attributed = terminal = new Usage(5, 2);
@@ -611,14 +650,10 @@ class ConsoleTraceFixtureCorpusTest
             default -> throw new IllegalArgumentException(name);
         }
 
-        if (terminalFailureId != null)
-        {
-            handle.markErrored();
-        }
         Map<String, Object> completionDetails = new LinkedHashMap<>();
         completionDetails.put("outcome", outcome);
         completionDetails.put("sessionUsageSnapshot", terminal.asMap());
-        handle.finalizeTrace(new TraceCompletion(
+        session.finalizeTrace(new TraceCompletion(
                 TraceOutcome.valueOf(outcome),
                 new SessionUsageSnapshot(
                         0, 0, 0, 0,
@@ -653,6 +688,92 @@ class ConsoleTraceFixtureCorpusTest
         handle.append(TraceRecordType.MODEL_REQUEST_PREPARED, metadata, Map.of("messages", List.of("user")));
         handle.append(TraceRecordType.MODEL_REQUEST_SENT, metadata, Map.of("messages", List.of("user")));
         appendResponse(handle, retryId, attemptId, number, usage, precision);
+    }
+
+    private static String executeRuntimeTerminal(
+            LoomspanSession session,
+            DefaultExecutionTraceHandle handle,
+            boolean aborted) throws IOException
+    {
+        ExecutionFrame rootFrame = frame("root", null, TraceFrameType.ROOT_MISSION, "root.skill");
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, rootFrame, CLOCK.instant());
+        session.pushFrame(rootFrame);
+
+        IllegalStateException failure = fixtureFailure(aborted ? "interrupted" : "provider failed");
+        FixtureExecutionStateService stateService = new FixtureExecutionStateService(handle);
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor())
+        {
+            DefaultMissionExecutionEngine engine = new DefaultMissionExecutionEngine(
+                    mock(PlanningService.class),
+                    stateService,
+                    Duration.ofSeconds(5),
+                    executor,
+                    new NoOpSessionUsageService(),
+                    (ignoredSession, ignoredDefinition, objective, ignoredInput) ->
+                            new RenderedMissionInput(objective, List.of(), Map.of()),
+                    (chatClient, systemPrompt, renderedInput, visibleTools, skillName,
+                            executionConfiguration, modelTraceContext) ->
+                    {
+                        ExecutionFrame modelFrame = session.peekFrame();
+                        Map<String, Object> metadata = attempt("retry-1", "attempt-1", 1, Map.of());
+                        try
+                        {
+                            handle.append(TraceRecordType.MODEL_REQUEST_PREPARED, modelFrame,
+                                    TraceFrameType.MODEL_CALL, metadata, Map.of("messages", List.of("user")));
+                            handle.append(TraceRecordType.MODEL_REQUEST_SENT, modelFrame,
+                                    TraceFrameType.MODEL_CALL, metadata, Map.of("messages", List.of("user")));
+                        }
+                        catch (IOException ex)
+                        {
+                            throw new UncheckedIOException(ex);
+                        }
+                        if (aborted)
+                        {
+                            Thread.currentThread().interrupt();
+                        }
+                        throw failure;
+                    });
+
+            try
+            {
+                engine.executeMission(
+                        session,
+                        runtimeFixtureDefinition(),
+                        "fixture objective",
+                        null,
+                        mock(ChatClient.class),
+                        List.of(),
+                        false,
+                        null);
+                throw new AssertionError("Runtime terminal fixture must fail");
+            }
+            catch (IllegalStateException actual)
+            {
+                assertThat(actual).isSameAs(failure);
+            }
+        }
+        finally
+        {
+            assertThat(session.peekFrame()).isEqualTo(rootFrame);
+            session.popFrame();
+            appendFrame(handle, TraceRecordType.FRAME_CLOSED, rootFrame, CLOCK.instant().plusSeconds(3));
+        }
+
+        // The runtime already recorded this throwable in the model frame. The
+        // terminal coordinator lookup returns that stable identity without
+        // publishing a second ERROR_RECORDED record.
+        return session.recordFailure(failure, Map.of("message", failure.getMessage()));
+    }
+
+    private static YamlSkillDefinition runtimeFixtureDefinition()
+    {
+        YamlSkillManifest manifest = new YamlSkillManifest();
+        manifest.setName("root.skill");
+        manifest.setDescription("Runtime terminal fixture");
+        manifest.setModel("gpt-5");
+        EffectiveSkillExecutionConfiguration configuration = new EffectiveSkillExecutionConfiguration(
+                "gpt-5", "fixture", AiDriver.OPENAI, "openai/gpt-5", "medium");
+        return new YamlSkillDefinition(new ByteArrayResource(new byte[0]), manifest, configuration);
     }
 
     private static void appendAttemptWithoutUsage(
@@ -775,6 +896,27 @@ class ConsoleTraceFixtureCorpusTest
         return result;
     }
 
+    private static String failureIdFor(String name)
+    {
+        return switch (name)
+        {
+            case "runtime-terminal-failure" -> "failure-terminal";
+            case "runtime-terminal-abort" -> "failure-abort";
+            case "validation-exhaustion" -> "failure-validation";
+            case "nonterminal-error-then-success" -> "failure-recovered";
+            default -> throw new IllegalStateException("Unexpected fixture failure for " + name);
+        };
+    }
+
+    private static IllegalStateException fixtureFailure(String message)
+    {
+        IllegalStateException failure = new IllegalStateException(message);
+        failure.setStackTrace(new StackTraceElement[] {
+                new StackTraceElement("fixture.Runtime", "call", "Runtime.java", 1)
+        });
+        return failure;
+    }
+
     private static Map<String, Object> validExpected(
             String name,
             String outcome,
@@ -824,7 +966,7 @@ class ConsoleTraceFixtureCorpusTest
                     expectedAttempt(name, "retry-outer", "attempt-outer-1", 1),
                     expectedAttempt(name, "retry-inner", "attempt-inner-1", 1),
                     expectedAttempt(name, "retry-inner", "attempt-inner-2", 2));
-            case "terminal-abort", "incomplete-frame-duration", "overlapping-frame-duration" -> List.of();
+            case "incomplete-frame-duration", "overlapping-frame-duration" -> List.of();
             case "missing-response-usage" -> List.of(expectedAttempt(name, "retry-1", "attempt-1", 1));
             case "nested-frame-usage" -> List.of(
                     expectedAttempt(name, "retry-framed", "attempt-framed", 1),
@@ -838,7 +980,9 @@ class ConsoleTraceFixtureCorpusTest
 
     private static boolean usageComplete(String name)
     {
-        return !name.equals("unavailable-usage") && !name.equals("missing-response-usage");
+        return !name.equals("unavailable-usage")
+                && !name.equals("missing-response-usage")
+                && !name.startsWith("runtime-terminal-");
     }
 
     private static Usage expectedAttemptUsage(String name, String attemptId)
@@ -853,13 +997,12 @@ class ConsoleTraceFixtureCorpusTest
                 default -> new Usage(3, 1);
             };
             case "validation-exhaustion" -> attemptId.equals("attempt-1") ? new Usage(6, 2) : new Usage(5, 2);
-            case "unavailable-usage", "missing-response-usage" -> Usage.ZERO;
+            case "unavailable-usage", "missing-response-usage", "runtime-terminal-failure", "runtime-terminal-abort" -> Usage.ZERO;
             case "unattributed-usage" -> new Usage(10, 4, 16);
             case "nonterminal-error-then-success" -> new Usage(5, 2);
             case "chunked-payload", "chunked-json-payload" -> new Usage(2, 1);
             case "nested-frame-usage" -> attemptId.equals("attempt-framed") ? new Usage(4, 2) : new Usage(1, 1);
             case "repeated-skill-invocations" -> attemptId.equals("attempt-1") ? new Usage(2, 1) : new Usage(3, 2);
-            case "terminal-failure" -> new Usage(7, 2);
             default -> new Usage(10, 4);
         };
     }
@@ -909,6 +1052,9 @@ class ConsoleTraceFixtureCorpusTest
             case "nested-frame-usage" -> List.of(
                     expectedFrame("root", null, "ROOT_MISSION", "root.skill", 8000, 4000, Usage.ZERO, new Usage(4, 2), new Usage(4, 2)),
                     expectedFrame("skill", "root", "SKILL_EXECUTION", "root.skill", 4000, 4000, new Usage(4, 2), Usage.ZERO, new Usage(4, 2)));
+            case "runtime-terminal-failure", "runtime-terminal-abort" -> List.of(
+                    expectedFrame("root", null, "ROOT_MISSION", "root.skill", 3000, 2000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
+                    expectedFrame("model", "root", "MODEL_CALL", "root.skill#mission-model", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
             case "repeated-skill-invocations" -> List.of(
                     expectedFrame("root", null, "ROOT_MISSION", "root.skill", 7000, 3000, Usage.ZERO, new Usage(5, 3), new Usage(5, 3)),
                     expectedFrame("skill-1", "root", "SKILL_EXECUTION", "root.skill", 2000, 2000, new Usage(2, 1), Usage.ZERO, new Usage(2, 1)),
@@ -956,7 +1102,6 @@ class ConsoleTraceFixtureCorpusTest
         return switch (name)
         {
             case "single-attempt-success" -> new Usage(10, 4);
-            case "terminal-failure" -> new Usage(7, 2);
             case "advisor-retry" -> new Usage(18, 7);
             case "nested-retry-sequences" -> new Usage(12, 4);
             case "validation-exhaustion" -> new Usage(11, 4);
@@ -993,9 +1138,14 @@ class ConsoleTraceFixtureCorpusTest
 
     private static List<Map<String, Object>> expectedGaps(String name)
     {
-        return name.equals("incomplete-frame-duration")
-                ? List.of(ordered("kind", "OPEN_FRAME_NOT_CLOSED", "frameId", "incomplete"))
-                : List.of();
+        return switch (name)
+        {
+            case "incomplete-frame-duration" ->
+                    List.of(ordered("kind", "OPEN_FRAME_NOT_CLOSED", "frameId", "incomplete"));
+            case "runtime-terminal-failure", "runtime-terminal-abort" ->
+                    List.of(ordered("kind", "MODEL_ATTEMPT_RESPONSE_MISSING", "attemptId", "attempt-1"));
+            default -> List.of();
+        };
     }
 
     private static List<Map<String, Object>> expectedUncertainties(String name)
@@ -1095,9 +1245,25 @@ class ConsoleTraceFixtureCorpusTest
         List<String> nonFinal = new ArrayList<>(base);
         JsonNode completion = JSON.readTree(nonFinal.getLast());
         long next = completion.path("sequence").asLong() + 1;
-        nonFinal.add(base.getFirst()
-                .replace("\"sequence\":1", "\"sequence\":" + next)
-                .replace("\"recordType\":\"TRACE_STARTED\"", "\"recordType\":\"ERROR_RECORDED\""));
+        com.fasterxml.jackson.databind.node.ObjectNode trailing = completion.deepCopy();
+        trailing.put("sequence", next);
+        trailing.put("recordType", "ERROR_RECORDED");
+        com.fasterxml.jackson.databind.node.ObjectNode metadata = JSON.createObjectNode();
+        metadata.put("failureId", "failure-after-completion");
+        trailing.set("metadata", metadata);
+        com.fasterxml.jackson.databind.node.ObjectNode data = JSON.createObjectNode();
+        data.put("exceptionType", "java.lang.IllegalStateException");
+        data.put("message", "failure after completion");
+        com.fasterxml.jackson.databind.node.ObjectNode diagnostic = JSON.createObjectNode();
+        diagnostic.put("kind", "JAVA_STACK_TRACE");
+        diagnostic.put("contentType", "text/plain; charset=utf-8");
+        diagnostic.put("text", "java.lang.IllegalStateException: failure after completion\n");
+        diagnostic.put("truncated", false);
+        diagnostic.put("captureLimitBytes", 1_048_576);
+        data.set("diagnostics", JSON.createArrayNode().add(diagnostic));
+        trailing.set("data", data);
+        nonFinal.add(JSON.writeValueAsString(trailing)
+                .replace("\"timestamp\":1.7848944E9", "\"timestamp\":1784894400.000000000"));
         writeInvalid(root, "non-final-completion", nonFinal);
 
         List<String> unsupported = new ArrayList<>(base);
@@ -1134,7 +1300,7 @@ class ConsoleTraceFixtureCorpusTest
         replaceAllLines(cyclicFrame, "\"frameId\":\"root\",\"parentFrameId\":null", "\"frameId\":\"root\",\"parentFrameId\":\"skill\"");
         writeInvalid(root, "cyclic-frame-relationship", cyclicFrame);
 
-        List<String> terminalFailure = Files.readAllLines(root.resolve("traces/terminal-failure.ndjson"), StandardCharsets.UTF_8);
+        List<String> terminalFailure = Files.readAllLines(root.resolve("traces/runtime-terminal-failure.ndjson"), StandardCharsets.UTF_8);
         List<String> invalidTerminalFailure = new ArrayList<>(terminalFailure);
         replaceFirstLineContaining(invalidTerminalFailure, "\"recordType\":\"TRACE_COMPLETED\"", "failure-terminal", "missing-terminal-failure");
         writeInvalid(root, "invalid-terminal-failure-link", invalidTerminalFailure);
@@ -1343,6 +1509,64 @@ class ConsoleTraceFixtureCorpusTest
                     Files.delete(path);
                 }
             }
+        }
+    }
+
+    /** Uses the production mission engine while keeping corpus frame IDs and timestamps deterministic. */
+    private static final class FixtureExecutionStateService extends DefaultExecutionStateService
+    {
+        private final DefaultExecutionTraceHandle handle;
+
+        private FixtureExecutionStateService(DefaultExecutionTraceHandle handle)
+        {
+            super(CLOCK);
+            this.handle = handle;
+        }
+
+        @Override
+        public ExecutionFrame openFrame(
+                LoomspanSession session,
+                TraceFrameType traceFrameType,
+                String route,
+                Map<String, Object> parameters)
+        {
+            assertThat(traceFrameType).isEqualTo(TraceFrameType.MODEL_CALL);
+            ExecutionFrame parent = session.peekFrame();
+            ExecutionFrame frame = new ExecutionFrame(
+                    "model",
+                    parent.frameId(),
+                    OperationType.SKILL,
+                    traceFrameType,
+                    route,
+                    parameters == null ? Map.of() : Map.copyOf(parameters),
+                    CLOCK.instant().plusSeconds(1));
+            session.pushFrame(frame);
+            try
+            {
+                appendFrame(handle, TraceRecordType.FRAME_OPENED, frame, CLOCK.instant().plusSeconds(1));
+            }
+            catch (IOException ex)
+            {
+                throw new UncheckedIOException(ex);
+            }
+            return frame;
+        }
+
+        @Override
+        public void closeFrame(LoomspanSession session, ExecutionFrame frame, Map<String, Object> metadata)
+        {
+            LinkedHashMap<String, Object> closeMetadata = new LinkedHashMap<>(metadata == null ? Map.of() : metadata);
+            closeMetadata.put("timestampOverride", CLOCK.instant().plusSeconds(2).toString());
+            closeMetadata.put("skillName", frame.route());
+            try
+            {
+                handle.append(TraceRecordType.FRAME_CLOSED, frame, frame.traceFrameType(), closeMetadata, null);
+            }
+            catch (IOException ex)
+            {
+                throw new UncheckedIOException(ex);
+            }
+            assertThat(session.popFrame()).isEqualTo(frame);
         }
     }
 

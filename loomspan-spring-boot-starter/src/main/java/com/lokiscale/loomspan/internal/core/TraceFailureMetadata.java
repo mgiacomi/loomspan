@@ -4,9 +4,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Adds failure details that are safe to persist in loomspan-owned traces.
- * Provider and application exception messages are deliberately excluded because
- * they can contain configured endpoints, response bodies, credentials, or inputs.
+ * Adds bounded failure details to loomspan-owned traces.
  */
 public final class TraceFailureMetadata
 {

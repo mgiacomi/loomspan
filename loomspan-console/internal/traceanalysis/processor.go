@@ -193,6 +193,10 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 		_ = payloadStoreWriter.Close()
 		return artifact.ProcessResult{}, d
 	}
+	if d := failures.validateDiagnostics(assembler, scopeID); d != nil {
+		_ = payloadStoreWriter.Close()
+		return artifact.ProcessResult{}, d
+	}
 	if err := payloadStoreWriter.Sync(); err != nil {
 		_ = payloadStoreWriter.Close()
 		return artifact.ProcessResult{}, storageError(scopeID, err)

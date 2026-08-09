@@ -33,6 +33,12 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class LoomspanSessionRunnerTest {
 
@@ -349,6 +355,31 @@ class LoomspanSessionRunnerTest {
 
         String result = runner.callWithNewSession("test.entry", session -> "unchanged");
         assertThat(result).isEqualTo("unchanged");
+    }
+
+    @Test
+    void failureRecordingWriteFailureDoesNotReplaceOrMutateApplicationException() throws Exception {
+        ExecutionTraceHandle handle = mock(ExecutionTraceHandle.class);
+        when(handle.snapshot()).thenReturn(new ExecutionTrace(
+                "trace-write-failure", "session-write-failure", null,
+                TracePersistencePolicy.ALWAYS, false, false));
+        doThrow(new IOException("trace write failed")).when(handle)
+                .append(eq(TraceRecordType.ERROR_RECORDED), any(), any());
+        LoomspanSessionRunner runner = new LoomspanSessionRunner(
+                4,
+                TracePersistencePolicy.ALWAYS,
+                Clock.systemUTC(),
+                (sessionId, entrySkill) -> mock(ExecutionObservationHandle.class),
+                (sessionId, entrySkill, policy, clock, observation) -> handle);
+        IllegalStateException applicationFailure = new IllegalStateException("application failed");
+
+        IllegalStateException delivered = assertThrows(IllegalStateException.class,
+                () -> runner.callWithNewSession("test.entry", session -> {
+                    throw applicationFailure;
+                }));
+
+        assertThat(delivered).isSameAs(applicationFailure);
+        assertThat(delivered.getSuppressed()).isEmpty();
     }
 
     @Test

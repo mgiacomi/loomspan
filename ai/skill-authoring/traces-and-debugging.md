@@ -55,6 +55,26 @@ The final trace record carries one outcome: `SUCCEEDED`, `FAILED`, or `ABORTED`,
 
 If finalization itself cannot append a completion record, do not infer one. A missing completion means the artifact is incomplete, not implicitly failed or successful.
 
+Each recorded Java throwable includes one `JAVA_STACK_TRACE` diagnostic attached
+to the closest active frame that observed it. Propagation of the same throwable,
+or of a normal wrapper whose cause was already recorded, reuses the failure ID.
+Console lists only bounded descriptors until the developer deliberately loads a
+selected diagnostic. The stack is opaque recorded text, not a parsed stack model
+or an inferred root cause.
+
+Stack capture is limited to 1 MiB of valid UTF-8. When necessary Loomspan keeps
+a larger head and a root-cause-oriented tail, inserts an omission marker, and
+reports truncation separately. Provider response bodies are not available when
+the current client integration loses them before Loomspan observes a response.
+
+### Sensitivity and limitations
+
+Exception messages, causes, suppressed exceptions, and stack text are
+application diagnostic content and may contain sensitive values. Loomspan does
+not secret-scan or redact this content. Access traces only through the trusted,
+authenticated local-console boundary and do not treat serialized trace formats
+as durable or cross-version application contracts.
+
 ## Debugging procedure
 
 1. Confirm there is exactly one final completion record.
@@ -63,13 +83,15 @@ If finalization itself cannot append a completion record, do not infer one. A mi
 4. Follow validator mutation facts back to the exact attempt.
 5. Compare attributed response usage with terminal usage; treat a positive remainder as unattributed and a negative remainder as contradictory.
 6. Inspect linked error facts and frame relationships, keeping recovered errors separate from the terminal cause.
-7. For limit comparison, use the finalized usage and the run-start snapshot;
+7. Navigate from the selected failure to its originating frame, review the
+   descriptor and truncation state, then deliberately load the stack diagnostic.
+8. For limit comparison, use the finalized usage and the run-start snapshot;
    preserve unavailable and zero-denominator distinctions.
-8. For a selected frame, use its exact recorded skill names. Console links a
+9. For a selected frame, use its exact recorded skill names. Console links a
    name only when it exactly matches the current target's registered catalog,
    and displays the application-provided YAML unchanged. `sourcePath` is
    descriptive text, not a local workspace locator or provenance claim.
-9. Reproduce with the same checkout before treating a serialized-field difference as a runtime defect.
+10. Reproduce with the same checkout before treating a serialized-field difference as a runtime defect.
 
 ## Implementation and test anchors
 
@@ -78,6 +100,9 @@ If finalization itself cannot append a completion record, do not infer one. A mi
 - [`TraceCompletion.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceCompletion.java) and [`TraceOutcome.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceOutcome.java) define terminal semantics.
 - [`ModelAttemptCallAdvisorIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/chat/ModelAttemptCallAdvisorIntegrationTest.java) protects retry cardinality, failure behavior, usage, and quota enforcement.
 - [`LoomspanSessionRunnerTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/LoomspanSessionRunnerTest.java) and [`ExecutionCoordinatorTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/runtime/ExecutionCoordinatorTest.java) protect terminal failure linkage.
+- `LoomspanSessionTest`, Go `failures.go`/diagnostic query tests, the runtime
+  fixture corpus, and `TraceExplorer` component tests protect stable failure
+  identity, completion-derived terminality, bounded retrieval, and inert text.
 - `EntrySkillIdentityTest`, `DefaultExecutionObservationHandleTest`, and `LiveActivityProjectorTest` protect bounded session identity, first-snapshot availability, and nested immutability.
 - `ObservabilityRestIntegrationTest`, Go browser fallback tests, and the `Traces`/`TraceDetail` component tests protect list/detail propagation, installed-copy restoration, and plain-text presentation.
 - [`loomspan-console-fixtures`](../../loomspan-console-fixtures/README.md) is the executable cross-language semantic corpus.

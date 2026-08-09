@@ -399,21 +399,10 @@ public class DefaultExecutionStateService implements ExecutionStateService
     }
 
     @Override
-    public String logError(LoomspanSession session, Map<String, Object> payload)
+    public String recordFailure(LoomspanSession session, Throwable failure, Map<String, Object> payload)
     {
-        String failureId = UUID.randomUUID().toString();
-        logError(session, failureId, payload);
-        return failureId;
-    }
-
-    @Override
-    public void logError(LoomspanSession session, String failureId, Map<String, Object> payload)
-    {
-        Objects.requireNonNull(session, "session must not be null");
-        traceRecorder.recordError(
-                session,
-                Objects.requireNonNull(failureId, "failureId must not be null"),
-                payload == null ? Map.of() : Map.copyOf(payload));
+        return Objects.requireNonNull(session, "session must not be null").recordFailure(
+                Objects.requireNonNull(failure, "failure must not be null"), payload);
     }
 
     @Override

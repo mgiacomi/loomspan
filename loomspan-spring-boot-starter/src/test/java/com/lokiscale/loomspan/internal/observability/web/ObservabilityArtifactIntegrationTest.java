@@ -94,8 +94,8 @@ class ObservabilityArtifactIntegrationTest
     @ParameterizedTest
     @ValueSource(strings = {
             "single-attempt-success.ndjson",
-            "terminal-failure.ndjson",
-            "terminal-abort.ndjson",
+            "runtime-terminal-failure.ndjson",
+            "runtime-terminal-abort.ndjson",
             "advisor-retry.ndjson",
             "chunked-payload.ndjson",
             "unattributed-usage.ndjson",

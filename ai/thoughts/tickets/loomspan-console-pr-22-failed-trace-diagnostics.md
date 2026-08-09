@@ -20,8 +20,11 @@ it without reading raw NDJSON.
 
 `ERROR_RECORDED` carries bounded typed text diagnostics. The first required
 diagnostic is the ordinary Java stack trace, preserved as familiar text rather
-than decomposed into a Java/Go/TypeScript stack-frame schema. The transport is
-also suitable for later provider, client-library, and transport diagnostics.
+than decomposed into a Java/Go/TypeScript stack-frame schema. The ordered
+diagnostic shape remains suitable for later provider, client-library, and
+transport evidence, but this PR emits only the required Java stack trace. PR 23
+owns the first additional evidence producer and the category names justified by
+that producer.
 
 ## Triggering incident and verified current behavior
 
@@ -61,6 +64,26 @@ Consequently the raw artifact identifies the Spring client exception class but
 does not contain the Java evidence shown on the HTTP error page.
 
 ## Resolved design
+
+### Scope-discipline decisions
+
+The implementation plan deliberately narrows several initially proposed pieces:
+
+- Because one diagnostic is capped at 1 MiB, retrieval returns the selected
+  diagnostic in one bounded, deliberate response. This PR does not add a fourth
+  range source, cursor operation, or continuation contract.
+- The canonical diagnostics array remains generic and accepts unknown nonblank
+  kinds, but PR 22 emits only `JAVA_STACK_TRACE`. PR 23 owns the first real
+  provider/client producer and the category names justified by that evidence.
+- The failure recorder owns bounded diagnostic construction. This PR does not
+  add a separately wired attachment service or synthetic omission diagnostics
+  before a multi-source producer exists.
+- Trace Explorer provides explicit load, wrap/no-wrap, copy, and text download.
+  Browser-native find is sufficient for the bounded first version; a custom
+  search widget is out of scope.
+
+These reductions preserve the incident-driven goals while avoiding speculative
+protocol, service, and UI contracts.
 
 ### 1. Terminality comes from the completion link
 
@@ -133,7 +156,8 @@ developers and LLMs expect.
 
 Each `ERROR_RECORDED` data object retains the existing bounded contextual fields
 such as `exceptionType`, skill name, objective, and safe summary where
-applicable, and adds an ordered `diagnostics` array. Each diagnostic has exactly:
+applicable, and adds an ordered `diagnostics` array. PR 22 emits exactly one
+diagnostic for each recorded `Throwable`, with this shape:
 
 ```json
 {
@@ -148,8 +172,10 @@ applicable, and adds an ordered `diagnostics` array. Each diagnostic has exactly
 Contract rules:
 
 - `kind` is a nonblank bounded diagnostic-category identifier, not the Java
-  exception class. Initial framework-owned kinds are `JAVA_STACK_TRACE`,
-  `PROVIDER_ERROR`, `CLIENT_LIBRARY_ERROR`, and `TRANSPORT_ERROR`.
+  exception class. The only framework-owned kind introduced by this PR is
+  `JAVA_STACK_TRACE`. Go and browser consumers accept unknown nonblank kinds as
+  opaque text so later PRs can add evidence without changing the container
+  shape.
 - The ordered array may contain multiple entries of the same kind. Do not use a
   map, because retries and layered clients can produce repeated diagnostics and
   ordering is useful evidence.
@@ -165,18 +191,17 @@ Contract rules:
   reject an otherwise current-version trace.
 
 Use a 1 MiB UTF-8 byte limit per diagnostic, at most 16 diagnostics per error,
-and a 4 MiB aggregate diagnostic-text limit per error. These are intentionally
-large developer-diagnostic bounds. Apply the bounds while capturing so an
-unbounded intermediate `String`, `StringWriter`, provider body, or exception
-graph is not required.
+and a 4 MiB aggregate diagnostic-text limit per error. Go validates all three
+canonical limits, while the PR 22 Java producer emits one stack diagnostic.
+Apply the per-item bound while capturing so an unbounded intermediate `String`,
+`StringWriter`, provider body, or exception graph is not required.
 
-When one text diagnostic exceeds its bound, retain a UTF-8-safe head and tail
+When the stack trace exceeds its bound, retain a UTF-8-safe head and tail
 with an explicit in-band omission marker, set `truncated: true`, and keep the
 total captured bytes within the declared limit. Preserve substantially more of
-the head than the tail while retaining enough tail for root-cause lines. If the
-diagnostic-count or aggregate limit prevents another diagnostic, append one
-small framework diagnostic stating that additional diagnostics were omitted;
-do not silently discard them.
+the head than the tail while retaining enough tail for root-cause lines. PR 22
+does not define a synthetic "diagnostics omitted" item: count/aggregate omission
+semantics belong with the first real multi-source producer in PR 23.
 
 This ticket intentionally does not add secret detection, field redaction,
 message suppression, or configurable sensitivity modes. Error messages and
@@ -185,16 +210,18 @@ information. The existing authenticated local-console trust warning must be
 updated to state that explicitly. Designing finer-grained capture/redaction
 policy is deferred.
 
-### 4. Provide a diagnostic attachment seam for provider and client evidence
+### 4. Keep the diagnostic producer narrow and extensible
 
-Introduce one internal, bounded diagnostic-attachment abstraction used by the
-failure recorder. It accepts only the fields and limits defined above and never
-changes exception propagation or execution outcome.
+Introduce the internal diagnostic value shape and keep construction inside the
+central failure recorder. The recorder may accept already-bounded additional
+diagnostics without changing exception propagation or execution outcome, but
+PR 22 does not introduce a separately wired attachment service, provider/client
+collector, or speculative producer-specific category catalog.
 
-The Java throwable stack trace is required for every recorded Throwable. At
-catch boundaries where the current provider or client integration already has
-additional textual failure evidence, attach it under the applicable kind rather
-than embedding provider-specific fields into the canonical failure schema.
+The Java throwable stack trace is required for every recorded Throwable. Later
+catch boundaries that actually observe provider or client textual failure
+evidence can attach it without embedding provider-specific fields into the
+canonical failure schema.
 
 The triggering Spring AI/OpenRouter failure proves that a stack trace and a
 provider error body are different evidence. Preserve a provider/client body
@@ -203,13 +230,14 @@ reconstruct an OpenRouter error from the Jackson exception message, do not use
 reflection against Spring AI internals, and do not intercept all successful
 model responses merely to search for failures.
 
-If the current Spring AI `OpenAiApi` construction seam cannot expose the
-error-shaped response without replacing or forking its transport/decoder, land
-the generic diagnostic attachment contract and Java stack trace in this PR,
-document that precise limitation, and leave OpenRouter-aware response decoding
-to dependent PR 23, `loomspan-console-pr-23-provider-retries.md`. Do not delay
-failed-trace validity or invent provider evidence. Provider retry, fallback,
-and recovery policy are outside this ticket.
+The current Spring AI `OpenAiApi` construction seam does not expose the
+error-shaped response before conversion loss. Land the generic diagnostic value
+shape and Java stack trace in this PR, document that precise limitation, and
+leave OpenRouter-aware response decoding, producer-specific kinds, and any
+multi-source omission behavior to dependent PR 23,
+`loomspan-console-pr-23-provider-retries.md`. Do not delay failed-trace validity
+or invent provider evidence. Provider retry, fallback, and recovery policy are
+outside this ticket.
 
 ### 5. Analyze diagnostics without blocking failed traces
 
@@ -234,14 +262,14 @@ semantic error; validate and index its diagnostics after reconstruction. The
 4 MiB canonical per-error bound permits bounded materialization of this one
 logical error object when it is indexed or deliberately queried.
 
-Add a bounded diagnostic-range query that resolves the failure's existing
-payload descriptor, decodes that bounded logical error object, selects one
-diagnostic ordinal, and returns a byte range of its decoded UTF-8 text. Do not
-persist a second decoded copy merely to serve ranges. The query must bind scope,
-artifact handle, failure ID, diagnostic ordinal, byte range, and continuation
-fingerprint while reusing existing lease, capacity-accounting, cancellation,
-and target-scope rules. Raw payload, raw-record, and raw-artifact range
-references are not interchangeable with diagnostic references.
+Add one bounded `GetFailureDiagnostic`-style query that resolves the failure's
+existing payload descriptor, decodes that bounded logical error object, selects
+one diagnostic ordinal, and returns its complete decoded UTF-8 text. The
+canonical 1 MiB per-diagnostic limit is also the response limit, so this query
+does not need a range source, cursor operation, byte offsets, or continuation
+fingerprint. Do not persist a second decoded copy. The operation must still bind
+scope, artifact handle, failure ID, and diagnostic ordinal while reusing existing
+lease, capacity-accounting, cancellation, and target-scope rules.
 
 Content-invalid artifacts continue to be rejected atomically. This ticket does
 not add best-effort parsing of malformed JSON, inconsistent identity,
@@ -264,10 +292,10 @@ the raw-record view. Selecting a failure shows:
 - deliberate loading of the selected diagnostic text.
 
 Render diagnostic content as inert preformatted text, never HTML or Markdown.
-Provide search within the loaded text, wrap/no-wrap, copy, and text-download
-actions. Preserve whitespace and ordinary JVM stack formatting. A truncation
-notice remains visible even when the in-band marker is outside the current
-range.
+Provide explicit load, wrap/no-wrap, copy, and text-download actions. Preserve
+whitespace and ordinary JVM stack formatting. Browser-native find is sufficient
+for this bounded first version; a custom diagnostic-search UI is deferred. Keep
+the truncation notice visible independently of the in-band marker.
 
 `Acquire for analysis` and `Download raw attachment` remain distinct. A valid
 failed trace acquires normally. When any artifact is rejected for a genuine
@@ -304,10 +332,10 @@ Production areas expected to change include:
 - `loomspan-console/internal/traceanalysis/failures.go`;
 - `loomspan-console/internal/traceanalysis/model.go`;
 - `loomspan-console/internal/traceanalysis/processor.go`;
-- failure and diagnostic indexes/components;
+- failure indexes/components with diagnostic descriptors;
 - `loomspan-console/internal/traceanalysis/dto.go`;
-- `loomspan-console/internal/traceanalysis/query_facts.go` and a bounded
-  diagnostic-range query;
+- `loomspan-console/internal/traceanalysis/query_facts.go` and one bounded
+  whole-diagnostic query;
 - `loomspan-console/internal/browserapi/router.go` and trace-analysis handlers;
 - `loomspan-console/web/src/api/contracts.ts`;
 - Trace Explorer frame, failure, and diagnostic views; and
@@ -330,8 +358,9 @@ the canonical `ERROR_RECORDED` contract:
 - nonterminal-error-then-success remains valid and derives nonterminal status;
 - invalid terminal-link fixtures retain missing, duplicate, and contradictory
   cases; and
-- add large, truncated, repeated-kind, unknown-kind, and malformed diagnostic
-  cases.
+- add large, truncated, unknown-kind, and malformed diagnostic cases. Repeated
+  kinds remain structurally valid, but multi-source production and omission
+  behavior are deferred to PR 23.
 
 Most importantly, add a cross-runtime integration fixture produced by an actual
 failing `LoomspanSessionRunner` or skill execution path. Feed those exact bytes
@@ -361,7 +390,8 @@ fixture regeneration rather than accepting unrelated corpus churn.
   exceptions exactly as ordinary `printStackTrace` text.
 - UTF-8 byte bounds preserve valid text, explicit head/tail omission, and a true
   truncation flag without allocating an unbounded intermediate string.
-- Diagnostic count and aggregate bounds emit explicit omission evidence.
+- Diagnostic count and aggregate bounds remain deterministic and cannot cause
+  unbounded capture; PR 22 does not emit synthetic omission diagnostics.
 - Failure recording cannot replace, suppress, or mutate the exception delivered
   to existing callers.
 
@@ -379,8 +409,8 @@ fixture regeneration rather than accepting unrelated corpus churn.
   beyond declared/canonical limits are rejected deterministically.
 - Large diagnostics are stored once and do not inflate summary or failure-list
   rows.
-- Diagnostic range traversal is byte-exact, finite, cancellable, continuable,
-  and target-scope/handle bound.
+- Whole-diagnostic retrieval is capped at 1 MiB, cancellable, and bound to the
+  target scope, artifact handle, failure ID, and diagnostic ordinal.
 
 ### Browser tests
 
@@ -390,8 +420,8 @@ fixture regeneration rather than accepting unrelated corpus churn.
   failure detail.
 - Terminal and recovered failures are clearly distinguishable.
 - Diagnostic text preserves whitespace and renders inertly.
-- Search, wrap/no-wrap, copy, download, range continuation, and truncation notice
-  work for representative large text.
+- Explicit load, wrap/no-wrap, copy, download, and truncation notice work for
+  representative large text; browser-native find works on the loaded text.
 - Unknown diagnostic kinds receive a generic text presentation.
 - An analysis rejection with raw download available explicitly offers the raw
   attachment path.
@@ -407,8 +437,8 @@ fixture regeneration rather than accepting unrelated corpus churn.
 - The closest known failing frame owns the canonical error record; no synthetic
   error frame is introduced.
 - Every recorded Throwable has a bounded ordinary Java stack-trace diagnostic.
-- Large diagnostic text is retrievable without being copied into list, summary,
-  manifest, or cursor responses.
+- Large diagnostic text is deliberately retrievable without being copied into
+  list, summary, manifest, or cursor responses.
 - The console presents complete pre-failure frames, failure linkage, and text
   diagnostics with explicit missing/truncated facts.
 - Java-produced runtime artifacts, Java fixtures, Go analysis, browser DTOs, and
@@ -471,6 +501,10 @@ hand-authored corpus success proves producer conformance.
 
 - Provider retry, OpenRouter-aware response decoding, routing fallback, or
   recovery behavior; dependent PR 23 owns the retry and decoding work.
+- Provider/client/transport diagnostic producers and their framework-owned kind
+  names; PR 23 introduces only those justified by an actual evidence seam.
+- Synthetic diagnostic-omission items and multi-source attachment policy.
+- Diagnostic range/cursor protocols and a custom in-page search interface.
 - Claiming a provider error code or body that the current client integration did
   not actually expose.
 - Replacing or forking Spring AI solely to decode OpenRouter error envelopes;

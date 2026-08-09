@@ -205,9 +205,39 @@ func (router *Router) traceAnalysisFailures(w http.ResponseWriter, r *http.Reque
 	}
 	items := make([]failureDTO, 0, len(v.Items))
 	for _, x := range v.Items {
-		items = append(items, failureDTO{FailureID: x.FailureID, Terminal: x.Terminal, Sequence: x.Sequence, TimestampMillis: x.TimestampMillis, RecordType: x.RecordType, FrameID: x.FrameID, Route: x.Route, AttemptID: x.AttemptID, RetrySequenceID: x.RetrySequenceID, ValidationStatus: x.ValidationStatus})
+		diagnostics := make([]diagnosticDescriptorDTO, 0, len(x.Diagnostics))
+		for _, d := range x.Diagnostics {
+			diagnostics = append(diagnostics, diagnosticDescriptorDTO{Ordinal: d.Ordinal, Kind: d.Kind, ContentType: d.ContentType, Truncated: d.Truncated, CaptureLimitBytes: d.CaptureLimitBytes, DecodedBytes: d.DecodedBytes})
+		}
+		items = append(items, failureDTO{FailureID: x.FailureID, Terminal: x.Terminal, Sequence: x.Sequence, TimestampMillis: x.TimestampMillis, RecordType: x.RecordType, FrameID: x.FrameID, Route: x.Route, AttemptID: x.AttemptID, RetrySequenceID: x.RetrySequenceID, ValidationStatus: x.ValidationStatus, ExceptionType: x.ExceptionType, ContextSummary: x.ContextSummary, Diagnostics: diagnostics})
 	}
 	router.writeScopedJSON(w, s.ID, pageDTO[failureDTO]{TargetScopeID: string(s.ID), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
+}
+func (router *Router) traceAnalysisFailureDiagnostic(w http.ResponseWriter, r *http.Request, _ string) {
+	var b struct {
+		analysisRequest
+		FailureID string `json:"failureId"`
+		Ordinal   *int   `json:"ordinal"`
+	}
+	if decodeJSONLimit(r, &b, maxTraceAnalysisJSONBody) != nil {
+		writeError(w, 400, "INVALID_REQUEST", "Invalid request.")
+		return
+	}
+	if b.Ordinal == nil {
+		writeError(w, 400, "INVALID_REQUEST", "Invalid request.")
+		return
+	}
+	s, h, ok := router.resolveAnalysis(w, r, &b.analysisRequest)
+	if !ok {
+		return
+	}
+	v, d := router.options.TraceAnalysis.GetFailureDiagnostic(r.Context(), s.ID, traceanalysis.FailureDiagnosticRequest{Handle: h, FailureID: b.FailureID, Ordinal: *b.Ordinal})
+	if d != nil {
+		writeDomainError(w, d)
+		return
+	}
+	desc := diagnosticDescriptorDTO{Ordinal: v.Descriptor.Ordinal, Kind: v.Descriptor.Kind, ContentType: v.Descriptor.ContentType, Truncated: v.Descriptor.Truncated, CaptureLimitBytes: v.Descriptor.CaptureLimitBytes, DecodedBytes: v.Descriptor.DecodedBytes}
+	router.writeScopedJSON(w, s.ID, failureDiagnosticDTO{TargetScopeID: string(s.ID), FailureID: v.FailureID, Descriptor: desc, Text: v.Text})
 }
 func (router *Router) traceAnalysisPayloads(w http.ResponseWriter, r *http.Request, _ string) {
 	var b analysisRequest
@@ -449,16 +479,33 @@ type validationDTO struct {
 	AttemptNumber   int64  `json:"attemptNumber"`
 }
 type failureDTO struct {
-	FailureID        string `json:"failureId"`
-	Terminal         bool   `json:"terminal"`
-	Sequence         int64  `json:"sequence"`
-	TimestampMillis  int64  `json:"timestampMillis"`
-	RecordType       string `json:"recordType"`
-	FrameID          string `json:"frameId"`
-	Route            string `json:"route"`
-	AttemptID        string `json:"attemptId"`
-	RetrySequenceID  string `json:"retrySequenceId"`
-	ValidationStatus string `json:"validationStatus"`
+	FailureID        string                    `json:"failureId"`
+	Terminal         bool                      `json:"terminal"`
+	Sequence         int64                     `json:"sequence"`
+	TimestampMillis  int64                     `json:"timestampMillis"`
+	RecordType       string                    `json:"recordType"`
+	FrameID          string                    `json:"frameId"`
+	Route            string                    `json:"route"`
+	AttemptID        string                    `json:"attemptId"`
+	RetrySequenceID  string                    `json:"retrySequenceId"`
+	ValidationStatus string                    `json:"validationStatus"`
+	ExceptionType    string                    `json:"exceptionType,omitempty"`
+	ContextSummary   string                    `json:"contextSummary,omitempty"`
+	Diagnostics      []diagnosticDescriptorDTO `json:"diagnostics,omitempty"`
+}
+type diagnosticDescriptorDTO struct {
+	Ordinal           int    `json:"ordinal"`
+	Kind              string `json:"kind"`
+	ContentType       string `json:"contentType"`
+	Truncated         bool   `json:"truncated"`
+	CaptureLimitBytes int    `json:"captureLimitBytes"`
+	DecodedBytes      int    `json:"decodedBytes"`
+}
+type failureDiagnosticDTO struct {
+	TargetScopeID string                  `json:"targetScopeId"`
+	FailureID     string                  `json:"failureId"`
+	Descriptor    diagnosticDescriptorDTO `json:"descriptor"`
+	Text          string                  `json:"text"`
 }
 
 type configuredLimitsDTO struct {

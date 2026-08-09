@@ -165,6 +165,39 @@ test("failure deep links continue pages until the selected fact is found", async
   expect(api.getTraceFailures).toHaveBeenLastCalledWith("trace-1", "failures-next");
 });
 
+test("failure selection follows its linked frame", async () => {
+  api.getTraceFailures.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "failure-1", terminal: false, sequence: 2, frameId: "f-1" }], hasMore: false, nextCursor: null });
+  render(<MemoryRouter initialEntries={["/?failureId=failure-1"]}><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("failureId=failure-1"));
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=f-1"));
+});
+
+test("frame selection follows its first linked failure", async () => {
+  api.getTraceFrames.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: null, selfDurationMillis: null, failureIds: ["failure-1"] }], hasMore: false, nextCursor: null });
+  api.getTraceFailures.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "failure-1", terminal: false, sequence: 2, frameId: "f-1" }], hasMore: false, nextCursor: null });
+  render(<MemoryRouter><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button", { name: /SKILL: hello/ }));
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=f-1"));
+  expect(screen.getByLabelText("location")).toHaveTextContent("failureId=failure-1");
+});
+
+test("a terminal failure does not pin navigation to its frame", async () => {
+  api.getTraceAnalysisSummary.mockResolvedValueOnce({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "FAILED", terminalFailureId: "terminal-1", recordCount: 5, frameCount: 2, rootFrameIds: ["root"], usageComplete: false });
+  api.getTraceFrames.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [
+    { frameId: "root", parentFrameId: null, childFrameIds: ["model"], frameType: "ROOT", route: "root", inclusiveDurationMillis: 5, selfDurationMillis: 4, failureIds: [] },
+    { frameId: "model", parentFrameId: "root", childFrameIds: [], frameType: "MODEL_CALL", route: "model", inclusiveDurationMillis: 1, selfDurationMillis: 1, failureIds: ["terminal-1"] },
+  ], hasMore: false, nextCursor: null });
+  api.getTraceFailures.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "terminal-1", terminal: true, sequence: 4, frameId: "model" }], hasMore: false, nextCursor: null });
+
+  render(<MemoryRouter><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=model"));
+  fireEvent.click(screen.getByRole("button", { name: /^ROOT: root/ }));
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=root"));
+  expect(screen.getByLabelText("location")).not.toHaveTextContent("failureId=");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.getByLabelText("location")).toHaveTextContent("frameId=root");
+});
+
 test("deep frame selection loads complete ancestry for hierarchy and breadcrumbs", async () => {
   const result = (items: unknown[]) => ({ targetScopeId: "scope-1", items, hasMore: false, nextCursor: null });
   api.getTraceFrames
@@ -206,12 +239,15 @@ test("expired local artifact clears explorer state and requests reacquisition", 
 test("failure focus selects the recorded terminal failure and never loads raw payloads", async () => {
   api.getTraceAnalysisSummary.mockResolvedValueOnce({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "FAILED", terminalFailureId: "terminal-1", recordCount: 120, frameCount: 1, attemptCount: 1, retryCount: 1, validationCount: 1, failureCount: 2, payloadCount: 1, gapCount: 1, uncertaintyCount: 1, rootFrameIds: ["f-1"], usageComplete: false, configuredLimits: null });
   api.getTraceFailures.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "recovered", terminal: false, sequence: 3, timestampMillis: 3, recordType: "ERROR_RECORDED", frameId: "", route: "", attemptId: "", retrySequenceId: "", validationStatus: "" }], hasMore: true, nextCursor: "failure-next" }).mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "terminal-1", terminal: true, sequence: 119, timestampMillis: 119, recordType: "ERROR_RECORDED", frameId: "f-1", route: "hello", attemptId: "a-1", retrySequenceId: "r-1", validationStatus: "exhausted" }], hasMore: false, nextCursor: null });
-  render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
+  render(<MemoryRouter><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Terminal failure evidence" })).toBeInTheDocument();
   await screen.findByText("ERROR_RECORDED sequence 119");
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=f-1"));
   expect(screen.getByText(/does not identify root cause/)).toBeInTheDocument();
   expect(api.getPayloadRange).not.toHaveBeenCalled();
   expect(api.getRawRecordRange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Show in hierarchy" }));
+  await vi.waitFor(() => expect(screen.getByRole("button", { name: /SKILL: hello/ })).toHaveFocus());
 });
 
 test("selected frames link only exact current registered skill names", async () => {

@@ -188,8 +188,11 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 				return Page[RecordSummary]{}, storageError(string(scopeID), findErr)
 			}
 			if desc != nil && desc.StoreLength <= int64(maxInlinePayloadBytes) {
-				payload, derr := readInlinePayload(lease, *desc)
+				payload, derr := readInlinePayload(ctx, lease, *desc)
 				if derr != nil {
+					if ctx.Err() != nil {
+						return Page[RecordSummary]{}, canceledError(ctx.Err())
+					}
 					return Page[RecordSummary]{}, storageError(string(scopeID), derr)
 				}
 				summary.InlinePayload = &InlinePayload{
@@ -344,18 +347,48 @@ func findPayloadDescriptorInIndex(lease *artifact.Lease, payloadID string) (*pay
 }
 
 // readInlinePayload reads a complete small payload from the payload store.
-func readInlinePayload(lease *artifact.Lease, desc payloadDescriptor) ([]byte, error) {
+func readInlinePayload(ctx context.Context, lease *artifact.Lease, desc payloadDescriptor) ([]byte, error) {
 	reader, err := lease.OpenComponent(artifact.ComponentName(ComponentPayloadStore))
 	if err != nil {
 		return nil, err
 	}
 	defer reader.Close()
+	stopCancellationClose := closeReaderOnCancellation(ctx, reader)
+	defer stopCancellationClose()
 	if _, err := reader.Seek(desc.StoreOffset, 0); err != nil {
 		return nil, err
 	}
 	buf := make([]byte, desc.StoreLength)
-	if _, err := io.ReadFull(reader, buf); err != nil {
+	if _, err := io.ReadFull(&contextChunkReader{ctx: ctx, reader: reader}, buf); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return buf, nil
+}
+
+func closeReaderOnCancellation(ctx context.Context, reader io.Closer) func() bool {
+	return context.AfterFunc(ctx, func() { _ = reader.Close() })
+}
+
+const contextReadChunkBytes = 64 << 10
+
+type contextChunkReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *contextChunkReader) Read(buf []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if len(buf) > contextReadChunkBytes {
+		buf = buf[:contextReadChunkBytes]
+	}
+	n, err := reader.reader.Read(buf)
+	if contextErr := reader.ctx.Err(); contextErr != nil {
+		return n, contextErr
+	}
+	return n, err
 }

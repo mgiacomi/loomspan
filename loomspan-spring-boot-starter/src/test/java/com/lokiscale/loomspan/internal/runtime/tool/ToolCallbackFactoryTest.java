@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -38,6 +39,30 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ToolCallbackFactoryTest {
+
+    @Test
+    void recordsToolThrowableOnActiveFrameBeforeClosingIt() {
+        CapabilityExecutionRouter router = mock(CapabilityExecutionRouter.class);
+        PlanningService planningService = mock(PlanningService.class);
+        ExecutionStateService stateService = mock(ExecutionStateService.class);
+        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-failure", "test.entry", 2);
+        CapabilityMetadata capability = capability();
+        ExecutionFrame toolFrame = new ExecutionFrame(
+                "tool-frame-failure", null, com.lokiscale.loomspan.internal.core.OperationType.SKILL,
+                TraceFrameType.TOOL_INVOCATION, capability.name(), java.util.Map.of(), Instant.parse("2026-03-15T12:00:00Z"));
+        IllegalStateException failure = new IllegalStateException("tool boom");
+        when(stateService.openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any())).thenReturn(toolFrame);
+        when(router.execute(eq(capability), any(), eq(session), eq(null))).thenThrow(failure);
+        when(stateService.recordFailure(eq(session), eq(failure), any())).thenReturn("failure-1");
+
+        ToolCallback callback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
+        assertThatThrownBy(() -> callback.call("{\"value\":\"hello\"}")).hasCause(failure);
+
+        org.mockito.InOrder order = inOrder(stateService);
+        order.verify(stateService).recordFailure(eq(session), eq(failure), any());
+        order.verify(stateService).closeFrame(eq(session), eq(toolFrame), any());
+    }
 
     @Test
     void buildsVisibleToolDefinitions() {

@@ -154,14 +154,14 @@ public class DefaultToolCallbackFactory implements ToolCallbackFactory
 
             return result;
         }
-        catch (RuntimeException ex)
+        catch (RuntimeException | Error ex)
         {
             toolFailure = ex;
             toolFrameStatus = Thread.currentThread().isInterrupted() ? "aborted" : "failed";
 
-            if (linkedTaskId != null && boundTaskId == null)
+            if (linkedTaskId != null && boundTaskId == null && ex instanceof RuntimeException runtimeException)
             {
-                planningService.markToolFailed(session, linkedTaskId, capability.name(), ex);
+                planningService.markToolFailed(session, linkedTaskId, capability.name(), runtimeException);
             }
 
             usageMetricsRecorder.recordToolInvocation(currentSkillName, capability.name(), "failure");
@@ -187,7 +187,7 @@ public class DefaultToolCallbackFactory implements ToolCallbackFactory
                 errorPayload.put("linkedTaskId", linkedTaskId);
             }
             TraceFailureMetadata.addTo(errorPayload, ex, "Tool execution failed");
-            executionStateService.logError(session, errorPayload);
+            executionStateService.recordFailure(session, ex, errorPayload);
             throw ex;
         }
         finally

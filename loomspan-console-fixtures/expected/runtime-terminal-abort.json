@@ -1,0 +1,101 @@
+{
+  "case" : "runtime-terminal-abort",
+  "valid" : true,
+  "traceId" : "trace-runtime-terminal-abort",
+  "sessionId" : "session-runtime-terminal-abort",
+  "outcome" : "ABORTED",
+  "terminalFailureId" : "failure-abort",
+  "attributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "terminalUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "unattributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "usageComplete" : false,
+  "attempts" : [ {
+    "retrySequenceId" : "retry-1",
+    "attemptId" : "attempt-1",
+    "attemptNumber" : 1,
+    "usage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "usageComplete" : false
+  } ],
+  "retries" : [ {
+    "retrySequenceId" : "retry-1",
+    "usage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "usageComplete" : false
+  } ],
+  "validationLinks" : [ ],
+  "frames" : [ {
+    "frameId" : "root",
+    "parentFrameId" : null,
+    "frameType" : "ROOT_MISSION",
+    "inclusiveDurationMillis" : 3000,
+    "selfDurationMillis" : 2000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "route" : "root.skill"
+  }, {
+    "frameId" : "model",
+    "parentFrameId" : "root",
+    "frameType" : "MODEL_CALL",
+    "inclusiveDurationMillis" : 1000,
+    "selfDurationMillis" : 1000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "route" : "root.skill#mission-model"
+  } ],
+  "unframedAttributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "payloads" : [ ],
+  "gaps" : [ {
+    "kind" : "MODEL_ATTEMPT_RESPONSE_MISSING",
+    "attemptId" : "attempt-1"
+  } ],
+  "uncertainties" : [ ]
+}

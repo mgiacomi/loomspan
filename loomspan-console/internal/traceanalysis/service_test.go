@@ -548,6 +548,45 @@ func TestServiceQueryFailures(t *testing.T) {
 	}
 }
 
+func TestServiceGetFailureDiagnostic(t *testing.T) {
+	raw := startedRecord(1) + "\n" + errorRecord(2, "failure-diagnostic", false) + "\n" + completionRecord(3, "SUCCEEDED", 0, 0, 0, "") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	page, domain := h.service.QueryFailures(context.Background(), h.scopeID, FailureQuery{Handle: h.handle, PageSize: 10})
+	if domain != nil || len(page.Items) != 1 || len(page.Items[0].Diagnostics) != 1 {
+		t.Fatalf("failure descriptors: page=%+v domain=%v", page, domain)
+	}
+	result, domain := h.service.GetFailureDiagnostic(context.Background(), h.scopeID, FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0})
+	if domain != nil {
+		t.Fatalf("GetFailureDiagnostic: %v", domain)
+	}
+	if result.Text != "stack" || result.Descriptor.DecodedBytes != len([]byte(result.Text)) {
+		t.Fatalf("unexpected diagnostic: %+v", result)
+	}
+	for _, tc := range []struct {
+		name  string
+		scope target.ScopeID
+		req   FailureDiagnosticRequest
+		ctx   context.Context
+	}{
+		{name: "unknown failure", scope: h.scopeID, req: FailureDiagnosticRequest{Handle: h.handle, FailureID: "missing", Ordinal: 0}, ctx: context.Background()},
+		{name: "negative ordinal", scope: h.scopeID, req: FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: -1}, ctx: context.Background()},
+		{name: "out of range ordinal", scope: h.scopeID, req: FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 1}, ctx: context.Background()},
+		{name: "wrong scope", scope: target.ScopeID("other-scope"), req: FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0}, ctx: context.Background()},
+		{name: "wrong handle", scope: h.scopeID, req: FailureDiagnosticRequest{Handle: artifact.Handle("other-handle"), FailureID: "failure-diagnostic", Ordinal: 0}, ctx: context.Background()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, domain := h.service.GetFailureDiagnostic(tc.ctx, tc.scope, tc.req); domain == nil {
+				t.Fatal("expected domain error")
+			}
+		})
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, domain := h.service.GetFailureDiagnostic(cancelled, h.scopeID, FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0}); domain == nil {
+		t.Fatal("expected cancellation error")
+	}
+}
+
 func TestServiceQueryPayloads(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	page, domain := h.service.QueryPayloads(context.Background(), h.scopeID, PayloadQuery{

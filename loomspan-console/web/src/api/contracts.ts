@@ -254,7 +254,9 @@ export type TraceAttempt = { retrySequenceId: string; attemptId: string; attempt
 export type TraceRetry = { retrySequenceId: string; usage: TraceUsageValue; usageComplete: boolean };
 export type TraceFailure = { failureId: string; terminal: boolean; sequence: number; timestampMillis: number;
   recordType: string; frameId: string; route: string; attemptId: string;
-  retrySequenceId: string; validationStatus: string };
+  retrySequenceId: string; validationStatus: string; exceptionType?: string; contextSummary?: string; diagnostics?: TraceDiagnosticDescriptor[] };
+export type TraceDiagnosticDescriptor = { ordinal: number; kind: string; contentType: string; truncated: boolean; captureLimitBytes: number; decodedBytes: number };
+export type TraceFailureDiagnostic = { targetScopeId: string; failureId: string; descriptor: TraceDiagnosticDescriptor; text: string };
 export type TraceValidation = { status: string; retrySequenceId: string; attemptId: string; attemptNumber: number };
 export type TraceGap = { kind: string; frameId: string; attemptId: string };
 export type TraceUncertainty = { kind: string; frameId: string };

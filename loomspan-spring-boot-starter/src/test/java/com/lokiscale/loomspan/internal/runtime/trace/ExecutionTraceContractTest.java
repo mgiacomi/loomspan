@@ -83,7 +83,7 @@ class ExecutionTraceContractTest {
     }
 
     @Test
-    void providerFailureMessagesAreRedactedFromPlanningAndMissionTraces() {
+    void providerFailureMessagesRemainOutOfFrameMetadataAndAppearInDeliberateErrorDiagnostics() {
         String endpointSentinel = "http://127.0.0.1:1/SENTINEL-BASE";
         RuntimeException providerFailure = new IllegalStateException(
                 "I/O error on POST request for \"" + endpointSentinel + "/v1/chat/completions\"");
@@ -129,7 +129,6 @@ class ExecutionTraceContractTest {
     }
 
     private static void assertSafeFailureRecords(List<TraceRecord> records, String sentinel, String safeMessage) {
-        assertThat(records.toString()).doesNotContain(sentinel);
         assertThat(records)
                 .filteredOn(record -> record.recordType() == TraceRecordType.FRAME_CLOSED
                         && "failed".equals(record.metadata().get("status")))
@@ -137,7 +136,13 @@ class ExecutionTraceContractTest {
                 .allSatisfy(record -> {
                     assertThat(record.metadata()).containsEntry("exceptionType", IllegalStateException.class.getName());
                     assertThat(record.metadata()).containsEntry("message", safeMessage);
+                    assertThat(record.metadata().toString()).doesNotContain(sentinel);
                 });
+        assertThat(records)
+                .filteredOn(record -> record.recordType() == TraceRecordType.ERROR_RECORDED)
+                .singleElement()
+                .satisfies(record -> assertThat(record.data().toString())
+                        .contains(sentinel, "JAVA_STACK_TRACE", "captureLimitBytes"));
     }
 
     @Test

@@ -76,7 +76,7 @@ class ExecutionStateServiceTest {
         stateService.logToolResult(session, TaskExecutionEvent.linked("allowedVisibleSkill", "task-1", Map.of("result", "done"), null));
         stateService.recordLinterOutcome(session, outcome);
         stateService.recordOutputSchemaOutcome(session, outputSchemaOutcome);
-        stateService.logError(session, Map.of("message", "boom"));
+        stateService.recordFailure(session, new IllegalStateException("boom"), Map.of("message", "boom"));
         stateService.closeMissionFrame(session, frame);
         stateService.clearPlan(session);
 
@@ -296,10 +296,6 @@ class ExecutionStateServiceTest {
 
             @Override
             public void recordOutputSchemaOutcome(LoomspanSession session, OutputSchemaOutcome outcome) {
-            }
-
-            @Override
-            public void recordError(LoomspanSession session, String failureId, Object payload) {
             }
 
             @Override

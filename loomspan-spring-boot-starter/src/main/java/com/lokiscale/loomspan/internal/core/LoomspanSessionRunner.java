@@ -139,7 +139,6 @@ public class LoomspanSessionRunner
             catch (RuntimeException | Error ex)
             {
                 failure = ex;
-                session.markTraceErrored();
                 throw ex;
             }
             finally
@@ -177,7 +176,6 @@ public class LoomspanSessionRunner
             catch (RuntimeException | Error ex)
             {
                 failure = ex;
-                session.markTraceErrored();
                 throw ex;
             }
             finally
@@ -202,14 +200,9 @@ public class LoomspanSessionRunner
             IllegalStateException openFrameFailure = new IllegalStateException(
                     "Cannot finalize standalone session '%s' with %d open execution frame(s)."
                             .formatted(session.getSessionId(), session.getFramesSnapshot().size()));
-            String failureId = UUID.randomUUID().toString();
+            String failureId = session.recordFailure(openFrameFailure,
+                    Map.of("message", "Standalone session completed with open execution frames"));
             session.markTraceErrored();
-            session.appendTraceRecord(
-                    TraceRecordType.ERROR_RECORDED,
-                    Map.of("failureId", failureId),
-                    Map.of(
-                            "exceptionType", openFrameFailure.getClass().getName(),
-                            "message", "Standalone session completed with open execution frames"));
             session.finalizeTrace(new TraceCompletion(
                     TraceOutcome.FAILED,
                     session.getSessionUsage().orElse(
@@ -222,13 +215,9 @@ public class LoomspanSessionRunner
         String terminalFailureId = null;
         if (failure != null)
         {
-            terminalFailureId = UUID.randomUUID().toString();
             LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
             TraceFailureMetadata.addTo(payload, failure, "Session execution failed");
-            session.appendTraceRecord(
-                    TraceRecordType.ERROR_RECORDED,
-                    Map.of("failureId", terminalFailureId),
-                    Map.copyOf(payload));
+            terminalFailureId = session.recordFailure(failure, Map.copyOf(payload));
         }
 
         session.finalizeTrace(new TraceCompletion(
@@ -258,7 +247,10 @@ public class LoomspanSessionRunner
         {
             if (failure != null)
             {
-                failure.addSuppressed(cleanupFailure);
+                if (!session.hasFailureRecordingFailure())
+                {
+                    failure.addSuppressed(cleanupFailure);
+                }
             }
             else
             {

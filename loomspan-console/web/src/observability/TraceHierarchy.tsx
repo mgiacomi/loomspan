@@ -24,6 +24,6 @@ export function TraceHierarchy({ frames, selectedFrameId, onSelect }: { frames: 
   };
   return <ul aria-label="Frame hierarchy" role="tree">{visible.map(({ frame, level }) => <li key={frame.frameId} role="treeitem" aria-selected={selectedFrameId === frame.frameId} aria-level={level} aria-expanded={(frame.childFrameIds?.length ?? 0) ? !collapsed.has(frame.frameId) : undefined} style={{ paddingInlineStart: `${(level - 1) * 1.25}rem` }}>
     {(frame.childFrameIds?.length ?? 0) > 0 && <button type="button" aria-label={`${collapsed.has(frame.frameId) ? "Expand" : "Collapse"} ${frame.route || frame.frameId}`} onClick={() => toggle(frame.frameId)}>{collapsed.has(frame.frameId) ? "+" : "−"}</button>}
-    <button data-frame={frame.frameId} type="button" aria-pressed={selectedFrameId === frame.frameId} onKeyDown={(event) => move(event, frame)} onClick={() => onSelect(frame.frameId)}>{frame.frameType}: {frame.route || frame.frameId}</button>{frame.inclusiveDurationMillis == null ? " (timing unavailable)" : ` (${frame.inclusiveDurationMillis} ms)`}
+    <button data-frame={frame.frameId} type="button" aria-pressed={selectedFrameId === frame.frameId} onKeyDown={(event) => move(event, frame)} onClick={() => onSelect(frame.frameId)}>{frame.frameType}: {frame.route || frame.frameId}{(frame.failureIds?.length ?? 0) > 0 && ` · ${frame.failureIds.length} failure${frame.failureIds.length === 1 ? "" : "s"}`}</button>{frame.inclusiveDurationMillis == null ? " (timing unavailable)" : ` (${frame.inclusiveDurationMillis} ms)`}
   </li>)}</ul>;
 }

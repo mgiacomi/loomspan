@@ -8,7 +8,8 @@ Representative diagnostic matrix:
 
 | Purpose | Fixture or deterministic generator | Bound/workflow evidence |
 | --- | --- | --- |
-| Failed execution | `terminal-failure` | `WF-FE-*`; terminal failure and direct frame/attempt/retry relationships |
+| Failed execution | `runtime-terminal-failure` | `WF-FE-*`; runtime-produced terminal failure, direct frame/attempt relationships, and missing response evidence |
+| Aborted execution | `runtime-terminal-abort` | Runtime-produced abort, stable terminal failure linkage, complete frames, and missing response evidence |
 | Expensive execution | `nested-frame-usage`, `unattributed-usage`, `incomplete-frame-duration` | `WF-UE-*`; direct/descendant/inclusive usage without double counting |
 | Unfamiliar skill path | `repeated-skill-invocations`, `nested-frame-usage` | `WF-SP-*`; invocation identity and exact recorded skill names |
 | Live to completed inspection | `single-attempt-success` | `WF-SE-*`; configured limits and terminal facts |
@@ -16,6 +17,12 @@ Representative diagnostic matrix:
 | Large evidence range | `makeLargeChunkedPayloadArtifact` in `web/e2e/artifact-storage.spec.ts` | multi-megabyte content read in deliberate 64-KiB ranges |
 | Structural limits | named invalid line/depth/usage/chunk/frame cases | exact bounded parser rejection |
 | Configured-limit strictness | `configured-limits-*` invalid cases | missing, unknown, duplicate, fractional, negative, and overflow rejection |
+
+Failure fixtures carry one or more bounded diagnostic objects in the
+`ERROR_RECORDED` data. Terminality is derived only from a matching terminal
+completion record; an error record is recovered/nonterminal when no completion
+links its `failureId`. Diagnostic text is opaque application content and is
+loaded separately from failure summaries.
 
 The Java test generates valid cases through `DefaultExecutionTraceHandle`; invalid cases are minimal named mutations. Normal tests generate into a temporary directory and byte-compare the complete inventory:
 

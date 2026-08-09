@@ -14,8 +14,10 @@ import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
 import com.lokiscale.loomspan.internal.core.SkillExecutionDescriptor;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
+import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.linter.LinterOutcomeStatus;
 import com.lokiscale.loomspan.internal.outputschema.OutputSchemaOutcomeStatus;
+import com.lokiscale.loomspan.internal.runtime.LoomspanMissionTimeoutException;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
 import com.lokiscale.loomspan.internal.runtime.planning.DefaultPlanningService;
@@ -53,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -65,9 +68,41 @@ import static org.mockito.Mockito.when;
 
 class StepLoopMissionExecutionEngineTest {
 
+    private static final String BLOCK_UNTIL_INTERRUPTED = "__block_until_interrupted__";
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-03-15T12:00:00Z"), ZoneOffset.UTC);
     private static final EffectiveSkillExecutionConfiguration EXECUTION_CONFIGURATION =
             new EffectiveSkillExecutionConfiguration("gpt-5", "test-connection", AiDriver.OPENAI, "openai/gpt-5", "medium");
+
+    @Test
+    void recordsStepModelFailureBeforeItsModelFrameCloses() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        PlanningService planningService = new InitializingPlanningService(stateService, singleTaskPlan());
+        SequenceChatClient chatClient = new SequenceChatClient();
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "step-model-failure", "test.entry", 3);
+
+        try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+            StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
+            assertThatThrownBy(() -> executeMission(engine, session, definition(), chatClient, List.of()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("No more queued chat responses");
+        }
+
+        List<TraceRecord> records = readRecords(session);
+        TraceRecord error = records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED)
+                .findFirst()
+                .orElseThrow();
+        TraceRecord modelClose = records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
+                .filter(record -> record.frameType() == TraceFrameType.MODEL_CALL)
+                .findFirst()
+                .orElseThrow();
+        assertThat(error.frameType()).isEqualTo(TraceFrameType.MODEL_CALL);
+        assertThat(error.frameId()).isEqualTo(modelClose.frameId());
+        assertThat(error.sequence()).isLessThan(modelClose.sequence());
+        assertThat(error.data().path("diagnostics")).hasSize(1);
+    }
 
     @Test
     void executesNewlyUnblockedTasksAcrossMultipleSteps() {
@@ -882,8 +917,37 @@ class StepLoopMissionExecutionEngineTest {
                     .hasMessageContaining("Step action validation exhausted");
         }
 
-        assertThat(readRecords(session)).anyMatch(record -> record.recordType() == TraceRecordType.ERROR_RECORDED
-                && String.valueOf(record.data()).contains("Step action validation exhausted"));
+        List<TraceRecord> records = readRecords(session);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED
+                && String.valueOf(record.data()).contains("Step action validation exhausted"))).hasSize(1);
+    }
+
+    @Test
+    void timeoutRecordsOnlyTheCallerOwnedFailureWhenInterruptedModelThrows() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        PlanningService planningService = new InitializingPlanningService(stateService, singleTaskPlan());
+        SequenceChatClient chatClient = new SequenceChatClient(BLOCK_UNTIL_INTERRUPTED);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "step-loop-timeout", "test.entry", 3);
+
+        try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+            StepLoopMissionExecutionEngine engine = engine(
+                    stateService, planningService, missionExecutor, definition(), Duration.ofMillis(100));
+
+            assertThatThrownBy(() -> executeMission(engine, session, definition(), chatClient, List.of()))
+                    .isInstanceOf(LoomspanMissionTimeoutException.class)
+                    .hasMessageContaining("step-loop-timeout");
+        }
+
+        List<TraceRecord> records = readRecords(session);
+        assertThat(records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED))
+                .hasSize(1)
+                .allSatisfy(record -> assertThat(String.valueOf(record.data()))
+                        .contains(LoomspanMissionTimeoutException.class.getName()));
+        assertThat(records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED))
+                .allSatisfy(record -> assertThat(record.metadata()).containsEntry("status", "aborted"));
     }
 
     @Test
@@ -1041,12 +1105,20 @@ class StepLoopMissionExecutionEngineTest {
                                                          PlanningService planningService,
                                                          ExecutorService missionExecutor,
                                                          YamlSkillDefinition definition) {
+        return engine(stateService, planningService, missionExecutor, definition, Duration.ofSeconds(5));
+    }
+
+    private static StepLoopMissionExecutionEngine engine(DefaultExecutionStateService stateService,
+                                                         PlanningService planningService,
+                                                         ExecutorService missionExecutor,
+                                                         YamlSkillDefinition definition,
+                                                         Duration missionTimeout) {
         return new StepLoopMissionExecutionEngine(
                 planningService,
                 stateService,
                 mock(com.lokiscale.loomspan.internal.core.CapabilityRegistry.class),
                 new StubYamlSkillCatalog(definition),
-                Duration.ofSeconds(5),
+                missionTimeout,
                 missionExecutor,
                 new NoOpSessionUsageService());
     }
@@ -1602,6 +1674,15 @@ class StepLoopMissionExecutionEngineTest {
 
             @Override
             public String content() {
+                if (BLOCK_UNTIL_INTERRUPTED.equals(content)) {
+                    try {
+                        new CountDownLatch(1).await();
+                        throw new AssertionError("Latch await returned unexpectedly");
+                    }
+                    catch (InterruptedException ex) {
+                        throw new IllegalStateException("provider interrupted", ex);
+                    }
+                }
                 return content;
             }
 
