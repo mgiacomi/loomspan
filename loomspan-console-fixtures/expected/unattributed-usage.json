@@ -25,6 +25,10 @@
     "retrySequenceId" : "retry-1",
     "attemptId" : "attempt-1",
     "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
     "usage" : {
       "promptUnits" : 10,
       "completionUnits" : 4,

@@ -165,7 +165,8 @@ class ExecutionStateServiceTest {
                 new ModelTraceContext(new com.lokiscale.loomspan.internal.core.ModelExecutionIdentity(
                         "gpt-5", "openai-main", com.lokiscale.loomspan.autoconfigure.AiDriver.OPENAI,
                         "openai/gpt-5"), "rootVisibleSkill", "unit"),
-                Map.of("retrySequenceId", "sequence-1", "attemptId", "attempt-1", "attemptNumber", 1),
+                Map.of("retrySequenceId", "sequence-1", "attemptId", "attempt-1", "attemptNumber", 1,
+                        "attemptReason", "INITIAL", "providerAttemptNumber", 1),
                 Map.of("user", "hello"));
         stateService.logToolCall(session, TaskExecutionEvent.linked("allowedVisibleSkill", "task-1", Map.of("arguments", Map.of("value", "hello")), null));
         stateService.closeFrame(session, frame, Map.of("status", "completed"));
@@ -256,6 +257,11 @@ class ExecutionStateServiceTest {
                     Map<String, Object> attempt,
                     com.lokiscale.loomspan.internal.runtime.usage.ModelUsageRecord usage,
                     Object payload) {
+            }
+
+            @Override
+            public void recordModelAttemptFailed(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
+                    Map<String, Object> attempt, Map<String, Object> failureMetadata, Object payload) {
             }
 
             @Override

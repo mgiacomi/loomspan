@@ -189,14 +189,14 @@ func TestTraceAnalysisFramesPreserveTimingUsageAndUnknownValues(t *testing.T) {
 
 func TestTraceAnalysisMapsConfiguredLimitsAndDirectFailureRelationships(t *testing.T) {
 	router, _, cookie, fake := traceAnalysisRouter(t)
-	fake.summary.ConfiguredLimits = &traceanalysis.ConfiguredLimits{MaxSkillInvocations: 7, MaxToolInvocations: 11, MaxLinterRetries: 3, MaxModelCalls: 5, MaxUsageUnits: 1234}
+	fake.summary.ConfiguredLimits = &traceanalysis.ConfiguredLimits{MaxSkillInvocations: 7, MaxToolInvocations: 11, MaxLinterRetries: 3, MaxModelCalls: 5, MaxProviderAttempts: 15, MaxUsageUnits: 1234}
 	fake.failurePage = traceanalysis.Page[traceanalysis.FailureSummary]{Items: []traceanalysis.FailureSummary{{
 		FailureID: "failure-1", Terminal: true, Sequence: 42, TimestampMillis: 1000,
 		RecordType: "ERROR_RECORDED", FrameID: "frame-1", Route: "root.child",
 		AttemptID: "attempt-1", RetrySequenceID: "retry-1", ValidationStatus: "exhausted",
 	}}}
 	summary := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/summary", `{"traceId":"trace-1"}`, cookie)
-	if summary.Code != http.StatusOK || !strings.Contains(summary.Body.String(), `"configuredLimits":{"maxSkillInvocations":7,"maxToolInvocations":11,"maxLinterRetries":3,"maxModelCalls":5,"maxUsageUnits":1234}`) {
+	if summary.Code != http.StatusOK || !strings.Contains(summary.Body.String(), `"configuredLimits":{"maxSkillInvocations":7,"maxToolInvocations":11,"maxLinterRetries":3,"maxModelCalls":5,"maxProviderAttempts":15,"maxUsageUnits":1234}`) {
 		t.Fatalf("summary=%s", summary.Body.String())
 	}
 	failures := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/failures", `{"traceId":"trace-1"}`, cookie)

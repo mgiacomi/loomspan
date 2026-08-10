@@ -90,6 +90,8 @@ Every LLM-backed YAML skill must name one of the entries under `loomspan.models`
 
 A connection is a concrete endpoint/account and chooses a built-in `driver`; a model is a framework alias that chooses a connection and the request-level `provider-model`. Multiple connections may use the same driver. Loomspan does not merge or inherit `spring.ai.*` settings. Keep credentials in environment variables or an external secret store.
 
+Provider retries are owned by each application connection, not by YAML skills. The default is three total attempts with 500 ms initial backoff, a 2.0 multiplier, a 5 s cap, and 0.2 jitter. Set `provider-retry.enabled: false` (or `max-attempts: 1`) for one attempt. Loomspan disables the supported Spring AI clients' own application-level retries so these limits describe actual downstream calls.
+
 The `openai` driver uses the OpenAI chat-completions protocol and supports custom `base-url`, static `headers`, organization/project IDs, and a custom chat-completions path. Use it only for compatible services. A `base-url` that already ends in `/v1` is combined with `/chat/completions`; an unversioned base URL uses `/v1/chat/completions`. Set `openai.chat-completions-path` for a different route. The `ollama` driver uses Ollama's native `/api/chat` protocol. Anthropic supports its native base URL and version/path options. Gemini supports either API-key mode or Vertex AI mode (`project-id` and `location`, with optional credentials resource), but not both on one connection.
 
 Several model aliases can share one connection while choosing different provider model IDs. An OpenAI-compatible gateway is another named connection using `driver: openai`; it does not need a vendor-specific driver:
@@ -103,6 +105,15 @@ loomspan:
       api-key: ${OPENROUTER_API_KEY}
       headers:
         HTTP-Referer: ${OPENROUTER_SITE_URL}
+      openai:
+        compatibility-profile: openrouter
+      provider-retry:
+        enabled: true
+        max-attempts: 3
+        initial-backoff: 500ms
+        multiplier: 2.0
+        max-backoff: 5s
+        jitter: 0.2
   models:
     fast:
       connection: openai-main
@@ -253,7 +264,7 @@ public class ExpenseService {
 
 ## Operations and limits
 
-`loomspan.session` provides execution safeguards. Defaults are a 60-second mission timeout, maximum depth 32, 64 skill invocations, 128 tool invocations, 32 linter retries, 64 model calls, and 200,000 usage units. Attachments default to a 20 MB maximum size.
+`loomspan.session` provides execution safeguards. Defaults are a 60-second mission timeout, maximum depth 32, 64 skill invocations, 128 tool invocations, 32 linter retries, 64 model calls, 192 physical provider attempts, and 200,000 usage units. Attachments default to a 20 MB maximum size.
 
 ```yaml
 loomspan:
@@ -267,6 +278,7 @@ loomspan:
       max-tool-invocations: 128
       max-linter-retries: 32
       max-model-calls: 64
+      max-provider-attempts: 192
       max-usage-units: 200000
 
 execution-trace:

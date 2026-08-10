@@ -12,7 +12,7 @@ class TraceCompletionMetadataTest {
     @Test
     void metadataSerializesSessionUsageSnapshotWithTraceContractFieldNames() {
         SessionUsageSnapshot snapshot = new SessionUsageSnapshot(
-                2, 1, 0, 3, 150, 40, 190, 3, 0, 0);
+                2, 1, 0, 3, 0, 150, 40, 190, 3, 0, 0);
         TraceCompletion completion = new TraceCompletion(
                 TraceOutcome.SUCCEEDED, snapshot, null, Map.of());
 
@@ -69,7 +69,7 @@ class TraceCompletionMetadataTest {
     @Test
     void metadataIncludesDetailsAlongsideSessionUsageSnapshot() {
         SessionUsageSnapshot snapshot = new SessionUsageSnapshot(
-                1, 0, 0, 1, 10, 4, 14, 1, 0, 0);
+                1, 0, 0, 1, 0, 10, 4, 14, 1, 0, 0);
         TraceCompletion completion = new TraceCompletion(
                 TraceOutcome.SUCCEEDED,
                 snapshot,

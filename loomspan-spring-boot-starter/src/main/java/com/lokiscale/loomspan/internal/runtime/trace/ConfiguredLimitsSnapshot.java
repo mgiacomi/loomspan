@@ -17,6 +17,7 @@ public record ConfiguredLimitsSnapshot(
         int maxToolInvocations,
         int maxLinterRetries,
         int maxModelCalls,
+        int maxProviderAttempts,
         int maxUsageUnits)
 {
     public ConfiguredLimitsSnapshot
@@ -25,6 +26,7 @@ public record ConfiguredLimitsSnapshot(
         requireNonNegative(maxToolInvocations, "maxToolInvocations");
         requireNonNegative(maxLinterRetries, "maxLinterRetries");
         requireNonNegative(maxModelCalls, "maxModelCalls");
+        requireNonNegative(maxProviderAttempts, "maxProviderAttempts");
         requireNonNegative(maxUsageUnits, "maxUsageUnits");
     }
 
@@ -36,6 +38,7 @@ public record ConfiguredLimitsSnapshot(
                 quotas.getMaxToolInvocations(),
                 quotas.getMaxLinterRetries(),
                 quotas.getMaxModelCalls(),
+                quotas.getMaxProviderAttempts(),
                 quotas.getMaxUsageUnits());
     }
 
@@ -46,6 +49,7 @@ public record ConfiguredLimitsSnapshot(
         values.put("maxToolInvocations", maxToolInvocations);
         values.put("maxLinterRetries", maxLinterRetries);
         values.put("maxModelCalls", maxModelCalls);
+        values.put("maxProviderAttempts", maxProviderAttempts);
         values.put("maxUsageUnits", maxUsageUnits);
         return Collections.unmodifiableMap(values);
     }

@@ -110,6 +110,24 @@ class LoomspanSessionTest {
     }
 
     @Test
+    void linksTheCanonicalTerminalErrorToTheRegisteredFinalProviderAttempt() {
+        LoomspanSession session = new LoomspanSession(8, "test.skill");
+        IllegalStateException cause = new IllegalStateException("provider failed");
+        RuntimeException wrapper = new RuntimeException("call failed", cause);
+        session.registerProviderFailure(cause, Map.of(
+                "attemptId", "attempt-final", "retrySequenceId", "retry-sequence"));
+
+        session.recordFailure(wrapper, Map.of("message", "failed"));
+
+        java.util.List<TraceRecord> records = new java.util.ArrayList<>();
+        session.readTraceRecords(records::add);
+        assertThat(records).filteredOn(record -> record.recordType() == TraceRecordType.ERROR_RECORDED)
+                .singleElement().satisfies(record -> assertThat(record.metadata())
+                        .containsEntry("attemptId", "attempt-final")
+                        .containsEntry("retrySequenceId", "retry-sequence"));
+    }
+
+    @Test
     void boundsCyclicAndDeepCauseTraversal() {
         LoomspanSession session = new LoomspanSession(8, "test.skill");
         RuntimeException first = new RuntimeException("first");

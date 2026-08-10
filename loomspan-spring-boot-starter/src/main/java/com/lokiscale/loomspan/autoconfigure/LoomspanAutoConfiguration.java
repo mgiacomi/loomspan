@@ -1,11 +1,7 @@
 package com.lokiscale.loomspan.autoconfigure;
 
-import com.lokiscale.loomspan.internal.autoconfigure.AiConnectionChatModelFactory;
-import com.lokiscale.loomspan.internal.autoconfigure.AnthropicConnectionChatModelFactory;
-import com.lokiscale.loomspan.internal.autoconfigure.GeminiConnectionChatModelFactory;
 import com.lokiscale.loomspan.internal.autoconfigure.NamedAiConnectionRegistry;
-import com.lokiscale.loomspan.internal.autoconfigure.OllamaConnectionChatModelFactory;
-import com.lokiscale.loomspan.internal.autoconfigure.OpenAiConnectionChatModelFactory;
+import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
 import com.lokiscale.loomspan.internal.chat.DefaultSkillAdvisorResolver;
 import com.lokiscale.loomspan.internal.chat.DefaultSkillChatModelResolver;
 import com.lokiscale.loomspan.internal.chat.SkillAdvisorResolver;
@@ -401,11 +397,8 @@ public class LoomspanAutoConfiguration
     NamedAiConnectionRegistry namedAiConnectionRegistry(LoomspanProperties properties,
             ResourceLoader resourceLoader)
     {
-        return new NamedAiConnectionRegistry(properties.getConnections(), List.of(
-                new OpenAiConnectionChatModelFactory(),
-                new AnthropicConnectionChatModelFactory(),
-                new GeminiConnectionChatModelFactory(resourceLoader),
-                new OllamaConnectionChatModelFactory()));
+        return new NamedAiConnectionRegistry(properties.getConnections(),
+                new SpringAiV11ProviderIntegration(resourceLoader));
     }
 
     @Bean

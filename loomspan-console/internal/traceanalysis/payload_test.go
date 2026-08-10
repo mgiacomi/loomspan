@@ -22,13 +22,15 @@ func chunkEnvelopeRecord(seq int, payloadID, contentType string, chunkCount int)
 // chunked payload envelope for a specific attempt.
 func chunkEnvelopeRecordFor(seq int, retryID, attemptID string, attemptNum int, payloadID, contentType string, chunkCount int) string {
 	meta := map[string]any{
-		"retrySequenceId": retryID,
-		"attemptId":       attemptID,
-		"attemptNumber":   attemptNum,
-		"payloadChunked":  true,
-		"payloadId":       payloadID,
-		"contentType":     contentType,
-		"chunkCount":      chunkCount,
+		"retrySequenceId":       retryID,
+		"attemptId":             attemptID,
+		"attemptNumber":         attemptNum,
+		"attemptReason":         attemptReason(attemptNum),
+		"providerAttemptNumber": 1,
+		"payloadChunked":        true,
+		"payloadId":             payloadID,
+		"contentType":           contentType,
+		"chunkCount":            chunkCount,
 	}
 	metaJSON, _ := json.Marshal(meta)
 	return `{"traceId":"t","sessionId":"s","sequence":` + itoa(seq) +

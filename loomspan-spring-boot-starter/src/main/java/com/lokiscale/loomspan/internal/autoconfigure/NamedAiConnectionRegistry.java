@@ -1,47 +1,38 @@
 package com.lokiscale.loomspan.internal.autoconfigure;
 
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
-import com.lokiscale.loomspan.autoconfigure.AiDriver;
-import org.springframework.ai.chat.model.ChatModel;
+import com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime;
+import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
 import org.springframework.beans.factory.DisposableBean;
 
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public final class NamedAiConnectionRegistry implements DisposableBean
 {
-    private final Map<String, ChatModel> modelsByConnection;
+    private final Map<String, ProviderConnectionRuntime> connections;
 
     public NamedAiConnectionRegistry(Map<String, LoomspanProperties.ConnectionProperties> connections,
-            List<AiConnectionChatModelFactory> factories)
+            SpringAiV11ProviderIntegration integration)
     {
         Objects.requireNonNull(connections, "connections must not be null");
-        EnumMap<AiDriver, AiConnectionChatModelFactory> byDriver = new EnumMap<>(AiDriver.class);
-        for (AiConnectionChatModelFactory factory : factories)
-        {
-            AiConnectionChatModelFactory previous = byDriver.put(factory.driver(), factory);
-            if (previous != null)
-            {
-                throw new IllegalStateException("Multiple connection factories configured for driver " + factory.driver());
-            }
-        }
-        Map<String, ChatModel> built = new LinkedHashMap<>();
+        Objects.requireNonNull(integration, "integration must not be null");
+        Map<String, ProviderConnectionRuntime> built = new LinkedHashMap<>();
         for (Map.Entry<String, LoomspanProperties.ConnectionProperties> entry : connections.entrySet())
         {
             String name = entry.getKey();
             LoomspanProperties.ConnectionProperties properties = entry.getValue();
-            AiConnectionChatModelFactory factory = byDriver.get(properties.getDriver());
-            if (factory == null)
-            {
-                throw new IllegalStateException("No connection factory configured for driver " + properties.getDriver()
-                        + " required by connection '" + name + "'");
-            }
             try
             {
-                built.put(name, factory.create(name, properties));
+                ProviderConnectionRuntime runtime = integration.create(name, properties);
+                if (runtime.attemptOwnership() != com.lokiscale.loomspan.internal.provider.AttemptOwnership.EXACT_ATTEMPT_OWNERSHIP
+                        && properties.getProviderRetry().isEnabled())
+                {
+                    throw new SafeAiConnectionConfigurationException("loomspan.connections." + name
+                            + ".provider-retry.enabled must be false because the configured client has opaque retries");
+                }
+                built.put(name, runtime);
             }
             catch (SafeAiConnectionConfigurationException ex)
             {
@@ -56,37 +47,38 @@ public final class NamedAiConnectionRegistry implements DisposableBean
                 throw failure;
             }
         }
-        modelsByConnection = Map.copyOf(built);
+        this.connections = Map.copyOf(built);
     }
 
-    ChatModel get(String connectionName)
+    ProviderConnectionRuntime get(String connectionName)
     {
-        return modelsByConnection.get(connectionName);
+        return connections.get(connectionName);
     }
 
-    public Map<String, ChatModel> asMap()
+    public Map<String, ProviderConnectionRuntime> asMap()
     {
-        return modelsByConnection;
+        return connections;
     }
 
     @Override
     public void destroy() throws Exception
     {
-        Exception failure = destroyModels(modelsByConnection);
+        Exception failure = destroyModels(connections);
         if (failure != null) throw failure;
     }
 
-    private static void cleanupAfterConstructionFailure(Map<String, ChatModel> built, RuntimeException failure)
+    private static void cleanupAfterConstructionFailure(Map<String, ProviderConnectionRuntime> built, RuntimeException failure)
     {
         Exception cleanupFailure = destroyModels(built);
         if (cleanupFailure != null) failure.addSuppressed(cleanupFailure);
     }
 
-    private static Exception destroyModels(Map<String, ChatModel> models)
+    private static Exception destroyModels(Map<String, ProviderConnectionRuntime> models)
     {
         Exception failure = null;
-        for (ChatModel model : models.values())
+        for (ProviderConnectionRuntime runtime : models.values())
         {
+            Object model = runtime.chatModel();
             try
             {
                 if (model instanceof DisposableBean disposableBean) disposableBean.destroy();

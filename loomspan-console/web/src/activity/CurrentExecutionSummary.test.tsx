@@ -23,6 +23,7 @@ const execution: ActiveExecution = {
     toolInvocations: 7,
     linterRetries: 1,
     modelCalls: 3,
+    providerAttempts: 4,
     promptUnits: 100,
     completionUnits: 50,
     usageUnits: 150,
@@ -35,6 +36,7 @@ const execution: ActiveExecution = {
     maxToolInvocations: 20,
     maxLinterRetries: 5,
     maxModelCalls: 30,
+    maxProviderAttempts: 90,
     maxUsageUnits: 1000,
   },
 };

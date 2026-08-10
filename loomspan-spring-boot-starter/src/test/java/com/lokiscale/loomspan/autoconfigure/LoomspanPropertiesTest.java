@@ -94,6 +94,30 @@ class LoomspanPropertiesTest {
     }
 
     @Test
+    void bindsExplicitOpenRouterProfileAndProviderRetryDefaults()
+    {
+        contextRunner.withPropertyValues(
+                "loomspan.connections.openrouter.driver=openai",
+                "loomspan.connections.openrouter.api-key=test-key",
+                "loomspan.connections.openrouter.openai.compatibility-profile=openrouter")
+                .run(context ->
+                {
+                    assertThat(context).hasNotFailed();
+                    LoomspanProperties properties = context.getBean(LoomspanProperties.class);
+                    LoomspanProperties.ConnectionProperties connection = properties.getConnections().get("openrouter");
+                    assertThat(connection.getOpenai().getCompatibilityProfile())
+                            .isEqualTo(LoomspanProperties.OpenAiCompatibilityProfile.OPENROUTER);
+                    assertThat(connection.getProviderRetry().isEnabled()).isTrue();
+                    assertThat(connection.getProviderRetry().getMaxAttempts()).isEqualTo(3);
+                    assertThat(connection.getProviderRetry().getInitialBackoff()).isEqualTo(java.time.Duration.ofMillis(500));
+                    assertThat(connection.getProviderRetry().getMultiplier()).isEqualTo(2.0d);
+                    assertThat(connection.getProviderRetry().getMaxBackoff()).isEqualTo(java.time.Duration.ofSeconds(5));
+                    assertThat(connection.getProviderRetry().getJitter()).isEqualTo(0.2d);
+                    assertThat(properties.getSession().getQuotas().getMaxProviderAttempts()).isEqualTo(192);
+                });
+    }
+
+    @Test
     void rejectsRemovedProviderAndUnknownConnectionReferencesWithExactPaths() {
         contextRunner
                 .withPropertyValues(

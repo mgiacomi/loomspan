@@ -937,6 +937,17 @@ class PlanningServiceTest {
         }
 
         @Override
+        public void reserveProviderAttempt(LoomspanSession session, String skillName) {
+        }
+
+        @Override
+        public void recordProviderAttemptOutcome(String skillName,
+                com.lokiscale.loomspan.internal.core.ModelExecutionIdentity identity, String outcome,
+                com.lokiscale.loomspan.internal.provider.ProviderFailureCategory category,
+                com.lokiscale.loomspan.internal.provider.ProviderRetryDecision decision) {
+        }
+
+        @Override
         public void recordModelResponse(LoomspanSession session,
                                         String skillName,
                                         com.lokiscale.loomspan.internal.core.ModelExecutionIdentity identity,

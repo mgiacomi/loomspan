@@ -25,6 +25,10 @@
     "retrySequenceId" : "retry-outer",
     "attemptId" : "attempt-outer-1",
     "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
     "usage" : {
       "promptUnits" : 4,
       "completionUnits" : 2,
@@ -35,6 +39,10 @@
     "retrySequenceId" : "retry-inner",
     "attemptId" : "attempt-inner-1",
     "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
     "usage" : {
       "promptUnits" : 5,
       "completionUnits" : 1,
@@ -45,6 +53,10 @@
     "retrySequenceId" : "retry-inner",
     "attemptId" : "attempt-inner-2",
     "attemptNumber" : 2,
+    "attemptReason" : "SEMANTIC_RETRY",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
     "usage" : {
       "promptUnits" : 3,
       "completionUnits" : 1,

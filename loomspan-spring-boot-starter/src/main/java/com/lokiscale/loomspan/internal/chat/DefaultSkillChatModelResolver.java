@@ -1,27 +1,27 @@
 package com.lokiscale.loomspan.internal.chat;
 
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
-import org.springframework.ai.chat.model.ChatModel;
+import com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime;
 
 import java.util.Map;
 import java.util.Objects;
 
 public class DefaultSkillChatModelResolver implements SkillChatModelResolver
 {
-    private final Map<String, ChatModel> modelsByConnection;
+    private final Map<String, ProviderConnectionRuntime> modelsByConnection;
 
-    public DefaultSkillChatModelResolver(Map<String, ChatModel> modelsByConnection)
+    public DefaultSkillChatModelResolver(Map<String, ProviderConnectionRuntime> modelsByConnection)
     {
         Objects.requireNonNull(modelsByConnection, "modelsByConnection must not be null");
         this.modelsByConnection = Map.copyOf(modelsByConnection);
     }
 
     @Override
-    public ChatModel resolve(String skillName, EffectiveSkillExecutionConfiguration configuration)
+    public ProviderConnectionRuntime resolve(String skillName, EffectiveSkillExecutionConfiguration configuration)
     {
         Objects.requireNonNull(skillName, "skillName must not be null");
         Objects.requireNonNull(configuration, "configuration must not be null");
-        ChatModel chatModel = modelsByConnection.get(configuration.connection());
+        ProviderConnectionRuntime chatModel = modelsByConnection.get(configuration.connection());
 
         if (chatModel == null)
         {

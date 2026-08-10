@@ -73,7 +73,24 @@ class SessionUsageServiceTest {
         service.recordModelResponse(session, "root.skill", IDENTITY, new ModelUsageRecord(3, 4, 7, UsagePrecision.HEURISTIC, null));
         service.recordLinterOutcome(session, outcome(LinterOutcomeStatus.RETRYING, 0, 1));
 
-        assertThat(service.snapshot(session)).isEqualTo(new SessionUsageSnapshot(1, 1, 1, 1, 3, 4, 7, 0, 1, 0));
+        assertThat(service.snapshot(session)).isEqualTo(new SessionUsageSnapshot(1, 1, 1, 1, 0, 3, 4, 7, 0, 1, 0));
+    }
+
+    @Test
+    void reservesProviderAttemptsAtomicallyAndDoesNotIncrementWhenBlocked() {
+        LoomspanProperties.Session.Quotas quotas = quotas(10, 10, 10, 10, 100);
+        quotas.setMaxProviderAttempts(2);
+        DefaultSessionUsageService service = new DefaultSessionUsageService(quotas, new NoOpUsageMetricsRecorder());
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-provider-attempts", "test.entry", 3);
+
+        service.reserveProviderAttempt(session, "root.skill");
+        service.reserveProviderAttempt(session, "root.skill");
+
+        assertThatThrownBy(() -> service.reserveProviderAttempt(session, "root.skill"))
+                .isInstanceOf(LoomspanQuotaExceededException.class)
+                .extracting("guardrailType", "limit", "observed")
+                .containsExactly(GuardrailType.MAX_PROVIDER_ATTEMPTS, 2L, 3L);
+        assertThat(service.snapshot(session).providerAttempts()).isEqualTo(2);
     }
 
     @Test
@@ -90,7 +107,7 @@ class SessionUsageServiceTest {
         service.recordLinterOutcome(session, outcome(LinterOutcomeStatus.RETRYING, 0, 1));
         service.recordLinterOutcome(session, outcome(LinterOutcomeStatus.RETRYING, 1, 2));
 
-        assertThat(service.snapshot(session)).isEqualTo(new SessionUsageSnapshot(2, 2, 2, 2, 8, 10, 18, 0, 2, 0));
+        assertThat(service.snapshot(session)).isEqualTo(new SessionUsageSnapshot(2, 2, 2, 2, 0, 8, 10, 18, 0, 2, 0));
     }
 
     @Test
@@ -158,6 +175,12 @@ class SessionUsageServiceTest {
 
         @Override
         public void recordModelUsage(String skillName, ModelExecutionIdentity identity, ModelUsageRecord usageRecord) {
+        }
+
+        @Override
+        public void recordProviderAttempt(String skillName, ModelExecutionIdentity identity, String outcome,
+                com.lokiscale.loomspan.internal.provider.ProviderFailureCategory category,
+                com.lokiscale.loomspan.internal.provider.ProviderRetryDecision decision) {
         }
 
         @Override

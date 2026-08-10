@@ -60,6 +60,15 @@ public final class DefaultExecutionTraceRecorder implements ExecutionTraceRecord
     }
 
     @Override
+    public void recordModelAttemptFailed(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
+            Map<String, Object> attempt, Map<String, Object> failureMetadata, Object payload)
+    {
+        LinkedHashMap<String, Object> metadata = new LinkedHashMap<>(context.metadata(attempt));
+        metadata.putAll(failureMetadata);
+        recordAgainstFrame(session, frame, TraceRecordType.MODEL_ATTEMPT_FAILED, Map.copyOf(metadata), payload);
+    }
+
+    @Override
     public void recordPlanCreated(LoomspanSession session, ExecutionPlan plan)
     {
         Map<String, Object> metadata = new LinkedHashMap<>();

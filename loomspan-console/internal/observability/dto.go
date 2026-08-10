@@ -40,6 +40,7 @@ type Usage struct {
 	ToolInvocations           int `json:"toolInvocations"`
 	LinterRetries             int `json:"linterRetries"`
 	ModelCalls                int `json:"modelCalls"`
+	ProviderAttempts          int `json:"providerAttempts"`
 	PromptUnits               int `json:"promptUnits"`
 	CompletionUnits           int `json:"completionUnits"`
 	UsageUnits                int `json:"usageUnits"`
@@ -53,6 +54,7 @@ type ConfiguredLimits struct {
 	MaxToolInvocations  int `json:"maxToolInvocations"`
 	MaxLinterRetries    int `json:"maxLinterRetries"`
 	MaxModelCalls       int `json:"maxModelCalls"`
+	MaxProviderAttempts int `json:"maxProviderAttempts"`
 	MaxUsageUnits       int `json:"maxUsageUnits"`
 }
 

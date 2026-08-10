@@ -121,12 +121,24 @@ type InlinePayload struct {
 
 // AttemptSummary is one model attempt's neutral result.
 type AttemptSummary struct {
-	Context         TraceContext
-	RetrySequenceID string
-	AttemptID       string
-	AttemptNumber   int64
-	Usage           Usage
-	UsageComplete   bool
+	Context               TraceContext
+	RetrySequenceID       string
+	AttemptID             string
+	AttemptNumber         int64
+	AttemptReason         string
+	ProviderAttemptNumber int64
+	Outcome               string
+	FailureClassification string
+	FailureCategory       string
+	RetryDecision         string
+	RetryDelayMillis      int64
+	RetryDelaySource      string
+	HTTPStatus            int64
+	ProviderErrorType     string
+	ProviderErrorCode     string
+	PayloadID             string
+	Usage                 Usage
+	UsageComplete         bool
 }
 
 // RetrySummary is one retry sequence's aggregated neutral result.

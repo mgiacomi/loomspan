@@ -128,6 +128,27 @@ func (g *failureGraph) validateTerminalLink(outcome TraceOutcome, terminalFailur
 	return nil
 }
 
+// validateTerminalAttemptLink verifies an optional provider-attempt link on the
+// canonical terminal failure. Non-provider terminal failures have no link.
+func (g *failureGraph) validateTerminalAttemptLink(terminalFailureID string, attempts *attemptGraph, traceID string) *consolecore.Error {
+	failure, ok := g.failures[terminalFailureID]
+	if !ok {
+		return nil
+	}
+	if failure.AttemptID == "" && failure.RetrySequenceID == "" {
+		return nil
+	}
+	if failure.AttemptID == "" || failure.RetrySequenceID == "" {
+		return invalidityError(CategoryInvalidTerminalFailure, traceID)
+	}
+	attempt, exists := attempts.attempts[failure.AttemptID]
+	if !exists || !attempt.hasFailure || attempt.retrySequenceID != failure.RetrySequenceID ||
+		attempt.retryDecision == "RETRY" || attempts.lastByRetry[failure.RetrySequenceID] != attempt {
+		return invalidityError(CategoryInvalidTerminalFailure, traceID)
+	}
+	return nil
+}
+
 // hasTerminalFailure reports whether a terminal failure with the given ID was
 // recorded.
 func (g *failureGraph) hasTerminalFailure(id string) bool {

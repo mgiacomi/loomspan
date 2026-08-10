@@ -179,7 +179,7 @@ class ConsoleTraceFixtureCorpusTest
                 String retrySequenceId = node.path("metadata").path("retrySequenceId").asText();
                 int attemptNumber = node.path("metadata").path("attemptNumber").asInt();
                 actualAttemptsById.computeIfAbsent(attemptId, ignored -> attemptResult(
-                        retrySequenceId, attemptId, attemptNumber, Usage.ZERO, false));
+                        retrySequenceId, attemptId, attemptNumber, Usage.ZERO, false, false));
                 attemptLifecycle.computeIfAbsent(attemptId, ignored -> new ArrayList<>())
                         .add(node.path("recordType").asText());
                 if (!"MODEL_RESPONSE_RECEIVED".equals(node.path("recordType").asText()))
@@ -196,7 +196,8 @@ class ConsoleTraceFixtureCorpusTest
                         attemptId,
                         attemptNumber,
                         responseUsage,
-                        responseUsageComplete));
+                        responseUsageComplete,
+                        true));
                 attributedUsage = attributedUsage.plus(responseUsage);
                 if (node.path("frameId").isNull())
                 {
@@ -496,7 +497,7 @@ class ConsoleTraceFixtureCorpusTest
                 ? new DefaultExecutionTraceHandle(
                         "trace-" + name, "session-" + name, "test.entry", trace, TracePersistencePolicy.ALWAYS,
                         CLOCK, () -> "payload-" + ids.incrementAndGet(), "fixture-thread",
-                        "traces/" + name + ".ndjson", new ConfiguredLimitsSnapshot(7, 11, 3, 5, 1234))
+                        "traces/" + name + ".ndjson", new ConfiguredLimitsSnapshot(7, 11, 3, 5, 15, 1234))
                 : new DefaultExecutionTraceHandle(
                         "trace-" + name, "session-" + name, "test.entry", trace, TracePersistencePolicy.ALWAYS,
                         CLOCK, () -> "payload-" + ids.incrementAndGet(), "fixture-thread",
@@ -656,7 +657,7 @@ class ConsoleTraceFixtureCorpusTest
         session.finalizeTrace(new TraceCompletion(
                 TraceOutcome.valueOf(outcome),
                 new SessionUsageSnapshot(
-                        0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
                         terminal.promptUnits(), terminal.completionUnits(), terminal.totalUnits(),
                         0, 0, 0),
                 terminalFailureId,
@@ -875,6 +876,8 @@ class ConsoleTraceFixtureCorpusTest
         result.put("retrySequenceId", retryId);
         result.put("attemptId", attemptId);
         result.put("attemptNumber", number);
+        result.put("attemptReason", number == 1 ? "INITIAL" : "SEMANTIC_RETRY");
+        result.put("providerAttemptNumber", 1);
         result.putAll(extra);
         return result;
     }
@@ -938,6 +941,7 @@ class ConsoleTraceFixtureCorpusTest
                     "maxToolInvocations", 11,
                     "maxLinterRetries", 3,
                     "maxModelCalls", 5,
+                    "maxProviderAttempts", 15,
                     "maxUsageUnits", 1234));
         }
         result.put("attributedUsage", attributed.asMap());
@@ -1171,7 +1175,8 @@ class ConsoleTraceFixtureCorpusTest
                 attemptId,
                 attemptNumber,
                 expectedAttemptUsage(name, attemptId),
-                usageComplete(name));
+                usageComplete(name),
+                !name.equals("runtime-terminal-abort") && !name.equals("runtime-terminal-failure"));
     }
 
     private static Map<String, Object> attemptResult(
@@ -1179,12 +1184,17 @@ class ConsoleTraceFixtureCorpusTest
             String attemptId,
             int attemptNumber,
             Usage usage,
-            boolean usageComplete)
+            boolean usageComplete,
+            boolean succeeded)
     {
         return ordered(
                 "retrySequenceId", retrySequenceId,
                 "attemptId", attemptId,
                 "attemptNumber", attemptNumber,
+                "attemptReason", attemptNumber == 1 ? "INITIAL" : "SEMANTIC_RETRY",
+                "providerAttemptNumber", 1,
+                "outcome", succeeded ? "SUCCEEDED" : "INCOMPLETE",
+                "retryDelayMillis", 0,
                 "usage", usage.asMap(),
                 "usageComplete", usageComplete);
     }

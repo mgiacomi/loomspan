@@ -19,6 +19,7 @@ const ERROR_KINDS: ReadonlySet<ActivityKind> = new Set([
   "STEP_ACTION_REJECTED",
   "PLAN_VALIDATION_FAILED",
   "TOOL_CALL_FAILED",
+  "MODEL_ATTEMPT_FAILED",
 ]);
 
 const FRAME_BOUNDARY_KINDS: ReadonlySet<ActivityKind> = new Set([

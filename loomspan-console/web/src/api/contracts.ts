@@ -119,6 +119,7 @@ export type Usage = {
   toolInvocations: number;
   linterRetries: number;
   modelCalls: number;
+  providerAttempts: number;
   promptUnits: number;
   completionUnits: number;
   usageUnits: number;
@@ -132,6 +133,7 @@ export type ConfiguredLimits = {
   maxToolInvocations: number;
   maxLinterRetries: number;
   maxModelCalls: number;
+  maxProviderAttempts: number;
   maxUsageUnits: number;
 };
 
@@ -250,7 +252,12 @@ export type TraceAnalysisPage<T> = { targetScopeId: string; items: T[]; hasMore:
 export type TraceRange = { targetScopeId: string; actualStart: number; actualEnd: number; totalLength: number; contentType: string; encoding: "TEXT" | "BASE64"; content: string; hasMore: boolean; nextCursor: string | null };
 export type TraceUsage = { targetScopeId: string; attributed: TraceUsageValue; unattributed: TraceUsageValue; unframedAttributed: TraceUsageValue; terminal: TraceUsageValue };
 export type TraceUsageValue = { promptUnits: number; completionUnits: number; totalUnits: number };
-export type TraceAttempt = { retrySequenceId: string; attemptId: string; attemptNumber: number; usage: TraceUsageValue; usageComplete: boolean };
+export type TraceAttempt = { retrySequenceId: string; attemptId: string; attemptNumber: number;
+  attemptReason: "INITIAL" | "SEMANTIC_RETRY" | "PROVIDER_RETRY"; providerAttemptNumber: number;
+  outcome: "SUCCEEDED" | "FAILED" | "INCOMPLETE"; failureClassification?: string;
+  failureCategory?: string; retryDecision?: string; retryDelayMillis: number;
+  retryDelaySource?: string; httpStatus?: number; providerErrorType?: string;
+  providerErrorCode?: string; payloadId?: string; usage: TraceUsageValue; usageComplete: boolean };
 export type TraceRetry = { retrySequenceId: string; usage: TraceUsageValue; usageComplete: boolean };
 export type TraceFailure = { failureId: string; terminal: boolean; sequence: number; timestampMillis: number;
   recordType: string; frameId: string; route: string; attemptId: string;
@@ -273,6 +280,7 @@ export type ActivityKind =
   | "FRAME_CLOSED"
   | "MODEL_REQUEST_SENT"
   | "MODEL_RESPONSE_RECEIVED"
+  | "MODEL_ATTEMPT_FAILED"
   | "PLAN_CREATED"
   | "PLAN_UPDATED"
   | "PLAN_VALIDATION_FAILED"
@@ -293,6 +301,7 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   FRAME_CLOSED: "Skill execution completed",
   MODEL_REQUEST_SENT: "Model request sent",
   MODEL_RESPONSE_RECEIVED: "Model response received",
+  MODEL_ATTEMPT_FAILED: "Provider attempt failed",
   PLAN_CREATED: "Plan created",
   PLAN_UPDATED: "Plan updated",
   PLAN_VALIDATION_FAILED: "Plan validation failed",

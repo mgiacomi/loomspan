@@ -41,13 +41,13 @@ const execution: ActiveExecution = {
   totalFrameDepth: 1,
   activePathTruncated: false,
   usage: {
-    skillInvocations: 1, toolInvocations: 2, linterRetries: 0, modelCalls: 3,
+    skillInvocations: 1, toolInvocations: 2, linterRetries: 0, modelCalls: 3, providerAttempts: 4,
     promptUnits: 100, completionUnits: 50, usageUnits: 150,
     exactModelResponses: 2, heuristicModelResponses: 1, unavailableModelResponses: 0,
   },
   configuredLimits: {
     maxSkillInvocations: 10, maxToolInvocations: 20, maxLinterRetries: 5,
-    maxModelCalls: 30, maxUsageUnits: 1000,
+    maxModelCalls: 30, maxProviderAttempts: 90, maxUsageUnits: 1000,
   },
 };
 

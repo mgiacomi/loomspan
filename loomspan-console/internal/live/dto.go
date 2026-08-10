@@ -20,6 +20,7 @@ const (
 	KindFrameClosed               ActivityKind = "FRAME_CLOSED"
 	KindModelRequestSent          ActivityKind = "MODEL_REQUEST_SENT"
 	KindModelResponseReceived     ActivityKind = "MODEL_RESPONSE_RECEIVED"
+	KindModelAttemptFailed        ActivityKind = "MODEL_ATTEMPT_FAILED"
 	KindPlanCreated               ActivityKind = "PLAN_CREATED"
 	KindPlanUpdated               ActivityKind = "PLAN_UPDATED"
 	KindPlanValidationFailed      ActivityKind = "PLAN_VALIDATION_FAILED"

@@ -56,6 +56,8 @@ public final class LoomspanSession
     @JsonIgnore
     private final IdentityHashMap<Throwable, RecordedFailure> failuresByThrowable;
     @JsonIgnore
+    private final IdentityHashMap<Throwable, ProviderAttemptLink> providerAttemptsByThrowable;
+    @JsonIgnore
     private final Supplier<String> failureIdSupplier;
     @JsonIgnore
     private RuntimeException failureRecordingFailure;
@@ -227,6 +229,7 @@ public final class LoomspanSession
         this.frames = new ArrayDeque<>(frames == null ? List.of() : List.copyOf(frames));
         this.toolActivityCountByFrameId = new HashMap<>();
         this.failuresByThrowable = new IdentityHashMap<>();
+        this.providerAttemptsByThrowable = new IdentityHashMap<>();
         this.failureIdSupplier = Objects.requireNonNull(failureIdSupplier, "failureIdSupplier must not be null");
         this.failureRecordingFailure = null;
         // The runtime supports one session lifecycle: a live in-process session with a canonical trace handle.
@@ -267,9 +270,11 @@ public final class LoomspanSession
         try
         {
             Throwable current = failure;
+            ProviderAttemptLink attemptLink = null;
             Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
             for (int depth = 0; current != null && depth < 64 && visited.add(current); depth++, current = current.getCause())
             {
+                if (attemptLink == null) attemptLink = providerAttemptsByThrowable.get(current);
                 RecordedFailure existing = failuresByThrowable.get(current);
                 if (existing != null)
                 {
@@ -294,11 +299,18 @@ public final class LoomspanSession
                     message instanceof String text && !text.isBlank() ? text : "Execution failed");
             payload.put("diagnostics", List.of(BoundedStackTraceCapture.capture(failure)));
             ExecutionFrame origin = frames.peek();
-            failuresByThrowable.put(failure, new RecordedFailure(failureId, origin == null ? null : origin.frameId()));
+            failuresByThrowable.put(failure, new RecordedFailure(failureId, origin == null ? null : origin.frameId(), attemptLink));
             try
             {
                 markTraceErrored();
-                appendTraceRecord(TraceRecordType.ERROR_RECORDED, Map.of("failureId", failureId),
+                java.util.LinkedHashMap<String, Object> metadata = new java.util.LinkedHashMap<>();
+                metadata.put("failureId", failureId);
+                if (attemptLink != null)
+                {
+                    metadata.put("attemptId", attemptLink.attemptId());
+                    metadata.put("retrySequenceId", attemptLink.retrySequenceId());
+                }
+                appendTraceRecord(TraceRecordType.ERROR_RECORDED, Map.copyOf(metadata),
                         Collections.unmodifiableMap(new java.util.LinkedHashMap<>(payload)));
             }
             catch (RuntimeException | Error recordingFailure)
@@ -313,7 +325,25 @@ public final class LoomspanSession
         }
     }
 
-    private record RecordedFailure(String failureId, @Nullable String originFrameId) {}
+    public void registerProviderFailure(Throwable failure, Map<String, Object> attempt)
+    {
+        Objects.requireNonNull(failure, "failure must not be null");
+        ProviderAttemptLink link = new ProviderAttemptLink(
+                Objects.toString(attempt.get("attemptId")), Objects.toString(attempt.get("retrySequenceId")));
+        lock.lock();
+        try
+        {
+            Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (Throwable current = failure; current != null && visited.size() < 64 && visited.add(current); current = current.getCause())
+            {
+                providerAttemptsByThrowable.putIfAbsent(current, link);
+            }
+        }
+        finally { lock.unlock(); }
+    }
+
+    private record ProviderAttemptLink(String attemptId, String retrySequenceId) {}
+    private record RecordedFailure(String failureId, @Nullable String originFrameId, @Nullable ProviderAttemptLink attemptLink) {}
 
     boolean hasFailureRecordingFailure()
     {

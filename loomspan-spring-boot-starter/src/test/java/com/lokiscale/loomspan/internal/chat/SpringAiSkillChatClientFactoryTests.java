@@ -13,6 +13,8 @@ import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateServic
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
 import com.lokiscale.loomspan.internal.runtime.usage.NoOpSessionUsageService;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
+import com.lokiscale.loomspan.internal.provider.*;
+import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
@@ -81,7 +83,7 @@ class SpringAiSkillChatClientFactoryTests {
         SkillChatModelResolver chatModelResolver = mock(SkillChatModelResolver.class);
         EffectiveSkillExecutionConfiguration configuration = new EffectiveSkillExecutionConfiguration(
                 "ollama-llama3", "test-connection", AiDriver.OLLAMA, "llama3.2", null);
-        when(chatModelResolver.resolve("test.skill", configuration)).thenReturn(ollamaChatModel);
+        when(chatModelResolver.resolve("test.skill", configuration)).thenReturn(runtime(ollamaChatModel));
 
         CapturedFactoryResult result = captureFactoryInvocation(
                 definition(configuration),
@@ -154,7 +156,7 @@ class SpringAiSkillChatClientFactoryTests {
 
         assertThat(result.options()).isInstanceOf(OpenAiChatOptions.class);
         assertThat(result.advisors().getFirst()).isSameAs(advisor);
-        assertThat(result.advisors().getLast()).isInstanceOf(ModelAttemptCallAdvisor.class);
+        assertThat(result.advisors().getLast()).isInstanceOf(ProviderAttemptCallAdvisor.class);
         verify(result.builder()).defaultOptions(any(ChatOptions.class));
         verify(result.builder()).defaultAdvisors(anyList());
         verify(result.builder()).build();
@@ -171,7 +173,7 @@ class SpringAiSkillChatClientFactoryTests {
         CapturedFactoryResult result = captureFactoryInvocation(definition, new NoOpSkillAdvisorResolver());
 
         assertThat(result.client()).isSameAs(result.factoryClient());
-        assertThat(result.advisors()).singleElement().isInstanceOf(ModelAttemptCallAdvisor.class);
+        assertThat(result.advisors()).singleElement().isInstanceOf(ProviderAttemptCallAdvisor.class);
         verify(result.builder()).defaultOptions(any(ChatOptions.class));
         verify(result.builder()).defaultAdvisors(anyList());
     }
@@ -201,7 +203,7 @@ class SpringAiSkillChatClientFactoryTests {
         CapturedFactoryResult result = builderFactory.result(created);
 
         assertThat(result.advisors().getFirst()).isSameAs(passthroughAdvisor);
-        assertThat(result.advisors().getLast()).isInstanceOf(ModelAttemptCallAdvisor.class);
+        assertThat(result.advisors().getLast()).isInstanceOf(ProviderAttemptCallAdvisor.class);
         verify(result.builder()).defaultOptions(any(ChatOptions.class));
         verify(result.builder()).defaultAdvisors(anyList());
     }
@@ -246,7 +248,7 @@ class SpringAiSkillChatClientFactoryTests {
     @Test
     void throwsExecutionTimeErrorForUnavailableProvider() {
         SpringAiSkillChatClientFactory factory = new SpringAiSkillChatClientFactory(
-                new DefaultSkillChatModelResolver(Map.of("openai-main", mock(ChatModel.class))),
+                new DefaultSkillChatModelResolver(Map.of("openai-main", runtime(mock(ChatModel.class)))),
                 SpringAiSkillChatClientFactory.defaultAdapters(),
                 new NoOpSkillAdvisorResolver(),
                 stateService(),
@@ -294,7 +296,16 @@ class SpringAiSkillChatClientFactoryTests {
     }
 
     private SkillChatModelResolver resolver(Map<String, ChatModel> modelsByConnection) {
-        return new DefaultSkillChatModelResolver(modelsByConnection);
+        Map<String, ProviderConnectionRuntime> runtimes = new java.util.LinkedHashMap<>();
+        modelsByConnection.forEach((name, model) -> runtimes.put(name, runtime(model)));
+        return new DefaultSkillChatModelResolver(runtimes);
+    }
+
+    private static ProviderConnectionRuntime runtime(ChatModel model) {
+        LoomspanProperties.ProviderRetryProperties retry = new LoomspanProperties.ProviderRetryProperties();
+        retry.setEnabled(false);
+        return new ProviderConnectionRuntime(model, AiDriver.OPENAI, AttemptOwnership.EXACT_ATTEMPT_OWNERSHIP,
+                ProviderRetryPolicy.from(retry), ignored -> ProviderFailureDetails.unknown());
     }
 
     private static DefaultExecutionStateService stateService() {

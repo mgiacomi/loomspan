@@ -1,6 +1,8 @@
 package com.lokiscale.loomspan.internal.autoconfigure;
 
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
+import com.lokiscale.loomspan.autoconfigure.AiDriver;
+import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
@@ -20,41 +22,49 @@ class AiConnectionChatModelFactoryTests {
     @Test
     void constructsDistinctOpenAiAndOllamaModelsPerConnection() {
         LoomspanProperties.ConnectionProperties openAi = new LoomspanProperties.ConnectionProperties();
+        openAi.setDriver(AiDriver.OPENAI);
         openAi.setApiKey("test-key");
-        OpenAiConnectionChatModelFactory openAiFactory = new OpenAiConnectionChatModelFactory();
-        assertThat(openAiFactory.create("one", openAi)).isInstanceOf(OpenAiChatModel.class)
-                .isNotSameAs(openAiFactory.create("two", openAi));
+        SpringAiV11ProviderIntegration integration = integration();
+        assertThat(integration.create("one", openAi).chatModel()).isInstanceOf(OpenAiChatModel.class)
+                .isNotSameAs(integration.create("two", openAi).chatModel());
 
         LoomspanProperties.ConnectionProperties ollama = new LoomspanProperties.ConnectionProperties();
+        ollama.setDriver(AiDriver.OLLAMA);
         ollama.setBaseUrl("http://localhost:11434");
-        OllamaConnectionChatModelFactory ollamaFactory = new OllamaConnectionChatModelFactory();
-        assertThat(ollamaFactory.create("one", ollama)).isInstanceOf(OllamaChatModel.class)
-                .isNotSameAs(ollamaFactory.create("two", ollama));
+        assertThat(integration.create("one", ollama).chatModel()).isInstanceOf(OllamaChatModel.class)
+                .isNotSameAs(integration.create("two", ollama).chatModel());
     }
 
     @Test
     void constructsAnthropicAndBothGeminiCredentialModes() {
         LoomspanProperties.ConnectionProperties anthropic = new LoomspanProperties.ConnectionProperties();
+        anthropic.setDriver(AiDriver.ANTHROPIC);
         anthropic.setApiKey("test-key");
-        assertThat(new AnthropicConnectionChatModelFactory().create("anthropic", anthropic))
+        assertThat(integration().create("anthropic", anthropic).chatModel())
                 .isInstanceOf(AnthropicChatModel.class);
 
         ResourceLoader resourceLoader = mock(ResourceLoader.class);
         when(resourceLoader.getResource("test:credentials")).thenReturn(new ByteArrayResource("""
                 {"type":"authorized_user","client_id":"client","client_secret":"secret","refresh_token":"token"}
                 """.getBytes(StandardCharsets.UTF_8)));
-        GeminiConnectionChatModelFactory geminiFactory = new GeminiConnectionChatModelFactory(resourceLoader);
+        SpringAiV11ProviderIntegration geminiFactory = new SpringAiV11ProviderIntegration(resourceLoader);
         LoomspanProperties.ConnectionProperties apiKeyGemini = new LoomspanProperties.ConnectionProperties();
+        apiKeyGemini.setDriver(AiDriver.GEMINI);
         apiKeyGemini.setApiKey("test-key");
-        assertThat(geminiFactory.create("gemini-key", apiKeyGemini)).isInstanceOf(GoogleGenAiChatModel.class);
+        assertThat(geminiFactory.create("gemini-key", apiKeyGemini).chatModel()).isInstanceOf(GoogleGenAiChatModel.class);
 
         LoomspanProperties.ConnectionProperties vertexGemini = new LoomspanProperties.ConnectionProperties();
+        vertexGemini.setDriver(AiDriver.GEMINI);
         LoomspanProperties.GeminiOptions vertex = new LoomspanProperties.GeminiOptions();
         vertex.setVertexAi(true);
         vertex.setProjectId("test-project");
         vertex.setLocation("us-central1");
         vertex.setCredentialsUri("test:credentials");
         vertexGemini.setGemini(vertex);
-        assertThat(geminiFactory.create("gemini-vertex", vertexGemini)).isInstanceOf(GoogleGenAiChatModel.class);
+        assertThat(geminiFactory.create("gemini-vertex", vertexGemini).chatModel()).isInstanceOf(GoogleGenAiChatModel.class);
+    }
+
+    private static SpringAiV11ProviderIntegration integration() {
+        return new SpringAiV11ProviderIntegration(mock(ResourceLoader.class));
     }
 }

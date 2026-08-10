@@ -238,6 +238,11 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	if d := failures.validateTerminalLink(outcome, terminalFailureID, scopeID); d != nil {
 		return artifact.ProcessResult{}, d
 	}
+	if hasTerminalFailure {
+		if d := failures.validateTerminalAttemptLink(terminalFailureID, attempts, scopeID); d != nil {
+			return artifact.ProcessResult{}, d
+		}
+	}
 	terminalUsage, ok := extractTerminalUsage(completionRec)
 	if !ok {
 		return artifact.ProcessResult{}, invalidityError(CategoryContradictoryUsage, scopeID)
@@ -264,7 +269,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	}
 	validationLinks := attempts.validationLinks
 	for _, attemptID := range attempts.order {
-		if !attempts.attempts[attemptID].hasResponse {
+		if !attempts.attempts[attemptID].hasResponse && !attempts.attempts[attemptID].hasFailure {
 			gaps = append(gaps, gapResult{Kind: "MODEL_ATTEMPT_RESPONSE_MISSING", AttemptID: attemptID})
 		}
 	}
@@ -381,7 +386,7 @@ func storageError(scopeID string, cause error) *consolecore.Error {
 // isModelRecord reports whether a record type is a consumed model lifecycle
 // record whose attempt identity must be validated.
 func isModelRecord(t TraceRecordType) bool {
-	return t == RecordModelRequestPrepared || t == RecordModelRequestSent || t == RecordModelResponseReceived
+	return t == RecordModelRequestPrepared || t == RecordModelRequestSent || t == RecordModelResponseReceived || t == RecordModelAttemptFailed
 }
 
 // buildAttemptResults produces the neutral attempt and retry results in
@@ -395,11 +400,31 @@ func buildAttemptResults(g *attemptGraph, completion *Record) ([]attemptResult, 
 	for _, id := range g.order {
 		a := g.attempts[id]
 		attempts = append(attempts, attemptResult{
-			RetrySequenceID: a.retrySequenceID,
-			AttemptID:       a.attemptID,
-			AttemptNumber:   a.attemptNumber,
-			Usage:           a.usage,
-			UsageComplete:   a.usageComplete,
+			RetrySequenceID:       a.retrySequenceID,
+			AttemptID:             a.attemptID,
+			AttemptNumber:         a.attemptNumber,
+			AttemptReason:         a.attemptReason,
+			ProviderAttemptNumber: a.providerAttemptNumber,
+			Outcome: func() string {
+				if a.hasResponse {
+					return "SUCCEEDED"
+				}
+				if a.hasFailure {
+					return "FAILED"
+				}
+				return "INCOMPLETE"
+			}(),
+			FailureClassification: a.failureClassification,
+			FailureCategory:       a.failureCategory,
+			RetryDecision:         a.retryDecision,
+			RetryDelayMillis:      a.retryDelayMillis,
+			RetryDelaySource:      a.retryDelaySource,
+			HTTPStatus:            a.httpStatus,
+			ProviderErrorType:     a.providerErrorType,
+			ProviderErrorCode:     a.providerErrorCode,
+			PayloadID:             a.payloadID,
+			Usage:                 a.usage,
+			UsageComplete:         a.usageComplete,
 		})
 		if _, seen := retryUsage[a.retrySequenceID]; !seen {
 			retryOrder = append(retryOrder, a.retrySequenceID)
@@ -477,7 +502,7 @@ func extractConfiguredLimits(rec *Record) (*ConfiguredLimits, bool) {
 		return nil, false
 	}
 	fields, ok := decodeUniqueObject(raw)
-	if !ok || len(fields) != 5 {
+	if !ok || len(fields) != 6 {
 		return nil, false
 	}
 	read := func(name string) (int64, bool) {
@@ -498,12 +523,13 @@ func extractConfiguredLimits(rec *Record) (*ConfiguredLimits, bool) {
 	maxTools, ok2 := read("maxToolInvocations")
 	maxRetries, ok3 := read("maxLinterRetries")
 	maxModels, ok4 := read("maxModelCalls")
-	maxUsage, ok5 := read("maxUsageUnits")
-	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 {
+	maxProviderAttempts, ok5 := read("maxProviderAttempts")
+	maxUsage, ok6 := read("maxUsageUnits")
+	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 {
 		return nil, false
 	}
 	return &ConfiguredLimits{MaxSkillInvocations: maxSkills, MaxToolInvocations: maxTools,
-		MaxLinterRetries: maxRetries, MaxModelCalls: maxModels, MaxUsageUnits: maxUsage}, true
+		MaxLinterRetries: maxRetries, MaxModelCalls: maxModels, MaxProviderAttempts: maxProviderAttempts, MaxUsageUnits: maxUsage}, true
 }
 
 func decodeUniqueObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {

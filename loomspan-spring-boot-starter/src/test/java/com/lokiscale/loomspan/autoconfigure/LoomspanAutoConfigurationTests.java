@@ -218,7 +218,11 @@ class LoomspanAutoConfigurationTests {
 
     @Test
     void doesNotBackOffWhenApplicationRegistersInternalModelResolver() {
-        SkillChatModelResolver unsupportedResolver = (skillName, configuration) -> Mockito.mock(ChatModel.class);
+        SkillChatModelResolver unsupportedResolver = (skillName, configuration) -> new com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime(
+                Mockito.mock(ChatModel.class), AiDriver.OPENAI,
+                com.lokiscale.loomspan.internal.provider.AttemptOwnership.EXACT_ATTEMPT_OWNERSHIP,
+                com.lokiscale.loomspan.internal.provider.ProviderRetryPolicy.from(new LoomspanProperties.ProviderRetryProperties()),
+                ignored -> com.lokiscale.loomspan.internal.provider.ProviderFailureDetails.unknown());
 
         modelFreeContextRunner
                 .withBean("unsupportedResolver", SkillChatModelResolver.class, () -> unsupportedResolver)
@@ -258,9 +262,11 @@ class LoomspanAutoConfigurationTests {
 
                     assertThat(resolver.resolve("openaiSkill", new EffectiveSkillExecutionConfiguration(
                             "gpt-5", "openai-main", AiDriver.OPENAI, "openai/gpt-5", "medium")))
+                            .extracting(com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime::chatModel)
                             .isInstanceOf(OpenAiChatModel.class);
                     assertThat(resolver.resolve("ollamaSkill", new EffectiveSkillExecutionConfiguration(
                             "ollama-llama3", "ollama-main", AiDriver.OLLAMA, "llama3.2", null)))
+                            .extracting(com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime::chatModel)
                             .isInstanceOf(OllamaChatModel.class);
                 });
     }

@@ -25,6 +25,10 @@
     "retrySequenceId" : "retry-framed",
     "attemptId" : "attempt-framed",
     "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
     "usage" : {
       "promptUnits" : 4,
       "completionUnits" : 2,
@@ -35,6 +39,10 @@
     "retrySequenceId" : "retry-unframed",
     "attemptId" : "attempt-unframed",
     "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
     "usage" : {
       "promptUnits" : 1,
       "completionUnits" : 1,

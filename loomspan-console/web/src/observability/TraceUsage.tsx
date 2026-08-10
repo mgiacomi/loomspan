@@ -23,7 +23,8 @@ function Limits({ limits, summary }: { limits: ConfiguredLimits | null; summary:
       <LimitRow label="Skill invocations" limit={limits.maxSkillInvocations} />
       <LimitRow label="Tool invocations" limit={limits.maxToolInvocations} />
       <LimitRow label="Linter retries" limit={limits.maxLinterRetries} />
-      <LimitRow label="Model calls" value={summary.attemptCount} limit={limits.maxModelCalls} />
+      <LimitRow label="Model calls" limit={limits.maxModelCalls} />
+      <LimitRow label="Provider attempts" value={summary.attemptCount} limit={limits.maxProviderAttempts} />
       <LimitRow label="Usage units" value={summary.terminalUsage.totalUnits} limit={limits.maxUsageUnits} />
     </tbody>
   </table></div>;

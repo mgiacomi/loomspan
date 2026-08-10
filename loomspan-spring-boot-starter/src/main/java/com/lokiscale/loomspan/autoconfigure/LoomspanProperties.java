@@ -126,6 +126,36 @@ public class LoomspanProperties implements InitializingBean
             validateApplicableOptions(path, connection, driver);
             validateRequiredFields(path, connection, driver);
             validateHeaders(path, connection, driver);
+            validateProviderRetry(path, connection.getProviderRetry());
+        }
+    }
+
+    private void validateProviderRetry(String connectionPath, ProviderRetryProperties retry)
+    {
+        String path = connectionPath + ".provider-retry";
+        if (retry.getMaxAttempts() < 1 || retry.getMaxAttempts() > 10)
+        {
+            throw invalid(path + ".max-attempts", "must be between 1 and 10");
+        }
+        if (retry.getInitialBackoff().isNegative())
+        {
+            throw invalid(path + ".initial-backoff", "must not be negative");
+        }
+        if (retry.getMaxBackoff().isNegative())
+        {
+            throw invalid(path + ".max-backoff", "must not be negative");
+        }
+        if (retry.getMaxBackoff().compareTo(retry.getInitialBackoff()) < 0)
+        {
+            throw invalid(path + ".max-backoff", "must not be less than " + path + ".initial-backoff");
+        }
+        if (!Double.isFinite(retry.getMultiplier()) || retry.getMultiplier() < 1.0d)
+        {
+            throw invalid(path + ".multiplier", "must be finite and at least 1.0");
+        }
+        if (!Double.isFinite(retry.getJitter()) || retry.getJitter() < 0.0d || retry.getJitter() > 1.0d)
+        {
+            throw invalid(path + ".jitter", "must be finite and between 0.0 and 1.0");
         }
     }
 
@@ -300,6 +330,7 @@ public class LoomspanProperties implements InitializingBean
             @Min(0) private int maxToolInvocations = 128;
             @Min(0) private int maxLinterRetries = 32;
             @Min(0) private int maxModelCalls = 64;
+            @Min(0) private int maxProviderAttempts = 192;
             @Min(0) private int maxUsageUnits = 200_000;
             public int getMaxSkillInvocations() { return maxSkillInvocations; }
             public void setMaxSkillInvocations(int value) { maxSkillInvocations = value; }
@@ -309,6 +340,8 @@ public class LoomspanProperties implements InitializingBean
             public void setMaxLinterRetries(int value) { maxLinterRetries = value; }
             public int getMaxModelCalls() { return maxModelCalls; }
             public void setMaxModelCalls(int value) { maxModelCalls = value; }
+            public int getMaxProviderAttempts() { return maxProviderAttempts; }
+            public void setMaxProviderAttempts(int value) { maxProviderAttempts = value; }
             public int getMaxUsageUnits() { return maxUsageUnits; }
             public void setMaxUsageUnits(int value) { maxUsageUnits = value; }
         }
@@ -374,6 +407,7 @@ public class LoomspanProperties implements InitializingBean
         @Valid private OpenAiOptions openai;
         @Valid private AnthropicOptions anthropic;
         @Valid private GeminiOptions gemini;
+        @Valid private ProviderRetryProperties providerRetry = new ProviderRetryProperties();
 
         public AiDriver getDriver() { return driver; }
         public void setDriver(AiDriver driver) { this.driver = driver; }
@@ -392,6 +426,11 @@ public class LoomspanProperties implements InitializingBean
         public void setAnthropic(AnthropicOptions anthropic) { this.anthropic = anthropic; }
         public GeminiOptions getGemini() { return gemini; }
         public void setGemini(GeminiOptions gemini) { this.gemini = gemini; }
+        public ProviderRetryProperties getProviderRetry() { return providerRetry; }
+        public void setProviderRetry(ProviderRetryProperties retry)
+        {
+            providerRetry = retry == null ? new ProviderRetryProperties() : retry;
+        }
 
         @Override
         public String toString()
@@ -403,6 +442,7 @@ public class LoomspanProperties implements InitializingBean
 
     public static class OpenAiOptions
     {
+        @NotNull private OpenAiCompatibilityProfile compatibilityProfile = OpenAiCompatibilityProfile.STANDARD;
         private String organizationId;
         private String projectId;
         private String chatCompletionsPath;
@@ -412,6 +452,41 @@ public class LoomspanProperties implements InitializingBean
         public void setProjectId(String projectId) { this.projectId = projectId; }
         public String getChatCompletionsPath() { return chatCompletionsPath; }
         public void setChatCompletionsPath(String path) { chatCompletionsPath = path; }
+        public OpenAiCompatibilityProfile getCompatibilityProfile() { return compatibilityProfile; }
+        public void setCompatibilityProfile(OpenAiCompatibilityProfile value)
+        {
+            compatibilityProfile = value == null ? OpenAiCompatibilityProfile.STANDARD : value;
+        }
+    }
+
+    public enum OpenAiCompatibilityProfile
+    {
+        STANDARD,
+        OPENROUTER
+    }
+
+    public static class ProviderRetryProperties
+    {
+        private boolean enabled = true;
+        private int maxAttempts = 3;
+        @NotNull private Duration initialBackoff = Duration.ofMillis(500);
+        private double multiplier = 2.0d;
+        @NotNull private Duration maxBackoff = Duration.ofSeconds(5);
+        private double jitter = 0.20d;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean value) { enabled = value; }
+        public int getMaxAttempts() { return maxAttempts; }
+        public void setMaxAttempts(int value) { maxAttempts = value; }
+        public Duration getInitialBackoff() { return initialBackoff; }
+        public void setInitialBackoff(Duration value) { initialBackoff = value == null ? Duration.ofMillis(500) : value; }
+        public double getMultiplier() { return multiplier; }
+        public void setMultiplier(double value) { multiplier = value; }
+        public Duration getMaxBackoff() { return maxBackoff; }
+        public void setMaxBackoff(Duration value) { maxBackoff = value == null ? Duration.ofSeconds(5) : value; }
+        public double getJitter() { return jitter; }
+        public void setJitter(double value) { jitter = value; }
+        public int effectiveMaxAttempts() { return enabled ? maxAttempts : 1; }
     }
 
     public static class AnthropicOptions

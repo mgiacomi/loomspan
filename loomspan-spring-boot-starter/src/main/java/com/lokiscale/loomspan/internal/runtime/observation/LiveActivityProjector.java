@@ -22,6 +22,7 @@ public class LiveActivityProjector
             TraceRecordType.TRACE_STARTED,
             TraceRecordType.MODEL_REQUEST_SENT,
             TraceRecordType.MODEL_RESPONSE_RECEIVED,
+            TraceRecordType.MODEL_ATTEMPT_FAILED,
             TraceRecordType.PLAN_CREATED,
             TraceRecordType.PLAN_UPDATED,
             TraceRecordType.PLAN_VALIDATION_FAILED,
@@ -39,7 +40,9 @@ public class LiveActivityProjector
             "skillName", "segment", "retrySequenceId", "attemptId", "attemptNumber",
             "capabilityName", "linkedTaskId", "unplanned", "planId", "stepNumber",
             "stepAction", "retry", "reason", "exhausted", "failureId", "classification",
-            "exceptionType", "message", "outcome", "terminalFailureId");
+            "exceptionType", "message", "outcome", "terminalFailureId", "providerAttemptNumber",
+            "attemptReason", "failureClassification", "failureCategory", "retryDecision",
+            "retryDelayMillis", "retryDelaySource");
 
     Projection project(ExecutionProjectionState state, TraceRecord record)
     {
@@ -101,6 +104,10 @@ public class LiveActivityProjector
         else if (type == TraceRecordType.MODEL_RESPONSE_RECEIVED)
         {
             state.usage = addModelUsage(state.usage, record.metadata().get("usage"));
+        }
+        else if (type == TraceRecordType.MODEL_REQUEST_SENT)
+        {
+            state.usage = state.usage.incrementProviderAttempts();
         }
         else if (type == TraceRecordType.TRACE_COMPLETED)
         {
@@ -300,6 +307,7 @@ public class LiveActivityProjector
             case FRAME_CLOSED -> ExecutionActivityKind.FRAME_CLOSED;
             case MODEL_REQUEST_SENT -> ExecutionActivityKind.MODEL_REQUEST_SENT;
             case MODEL_RESPONSE_RECEIVED -> ExecutionActivityKind.MODEL_RESPONSE_RECEIVED;
+            case MODEL_ATTEMPT_FAILED -> ExecutionActivityKind.MODEL_ATTEMPT_FAILED;
             case PLAN_CREATED -> ExecutionActivityKind.PLAN_CREATED;
             case PLAN_UPDATED -> ExecutionActivityKind.PLAN_UPDATED;
             case PLAN_VALIDATION_FAILED -> ExecutionActivityKind.PLAN_VALIDATION_FAILED;
@@ -322,7 +330,7 @@ public class LiveActivityProjector
         {
             case TRACE_STARTED, TRACE_CAPTURE_POLICY_RECORDED -> "STARTING";
             case FRAME_OPENED, FRAME_METADATA_RECORDED, FRAME_CLOSED -> "EXECUTING_SKILL";
-            case MODEL_REQUEST_PREPARED, MODEL_REQUEST_SENT, MODEL_RESPONSE_RECEIVED,
+            case MODEL_REQUEST_PREPARED, MODEL_REQUEST_SENT, MODEL_RESPONSE_RECEIVED, MODEL_ATTEMPT_FAILED,
                     ADVISOR_REQUEST_MUTATION_RECORDED, ADVISOR_RESPONSE_MUTATION_RECORDED,
                     MODEL_THOUGHT_CAPTURED -> "MODEL";
             case PLAN_CREATED, PLAN_UPDATED, PLAN_VALIDATION_FAILED, PLAN_RETRY_REQUESTED,
@@ -345,6 +353,7 @@ public class LiveActivityProjector
             case FRAME_CLOSED -> "Skill execution completed";
             case MODEL_REQUEST_SENT -> "Model request sent";
             case MODEL_RESPONSE_RECEIVED -> "Model response received";
+            case MODEL_ATTEMPT_FAILED -> failedAttemptSummary(record);
             case PLAN_CREATED -> "Plan created";
             case PLAN_UPDATED -> "Plan updated";
             case PLAN_VALIDATION_FAILED -> "Plan validation failed";
@@ -359,6 +368,17 @@ public class LiveActivityProjector
             case TRACE_COMPLETED -> "Execution completed";
             default -> record.recordType().name().toLowerCase().replace('_', ' ');
         };
+    }
+
+    private String failedAttemptSummary(TraceRecord record)
+    {
+        Object number = record.metadata().get("providerAttemptNumber");
+        if ("RETRY".equals(record.metadata().get("retryDecision")))
+        {
+            return "Provider attempt " + number + " failed; retrying in "
+                    + record.metadata().getOrDefault("retryDelayMillis", 0) + " ms";
+        }
+        return "Provider attempt " + number + " failed";
     }
 
     private SessionUsageSnapshot addModelUsage(SessionUsageSnapshot current, Object value)
@@ -391,6 +411,7 @@ public class LiveActivityProjector
                 integer(map.get("toolInvocations")),
                 integer(map.get("linterRetries")),
                 integer(map.get("modelCalls")),
+                integer(map.get("providerAttempts")),
                 integer(map.get("promptUnits")),
                 integer(map.get("completionUnits")),
                 integer(map.get("totalUnits")),

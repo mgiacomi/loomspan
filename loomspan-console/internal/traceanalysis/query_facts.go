@@ -217,12 +217,24 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID target.ScopeI
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[attemptResult, AttemptSummary](ctx, lease, scopeID, ComponentAttemptIndex, startIdx, pageSize, func(a attemptResult) AttemptSummary {
 		return AttemptSummary{
-			Context:         traceCtx,
-			RetrySequenceID: a.RetrySequenceID,
-			AttemptID:       a.AttemptID,
-			AttemptNumber:   a.AttemptNumber,
-			Usage:           a.Usage,
-			UsageComplete:   a.UsageComplete,
+			Context:               traceCtx,
+			RetrySequenceID:       a.RetrySequenceID,
+			AttemptID:             a.AttemptID,
+			AttemptNumber:         a.AttemptNumber,
+			AttemptReason:         a.AttemptReason,
+			ProviderAttemptNumber: a.ProviderAttemptNumber,
+			Outcome:               a.Outcome,
+			FailureClassification: a.FailureClassification,
+			FailureCategory:       a.FailureCategory,
+			RetryDecision:         a.RetryDecision,
+			RetryDelayMillis:      a.RetryDelayMillis,
+			RetryDelaySource:      a.RetryDelaySource,
+			HTTPStatus:            a.HTTPStatus,
+			ProviderErrorType:     a.ProviderErrorType,
+			ProviderErrorCode:     a.ProviderErrorCode,
+			PayloadID:             a.PayloadID,
+			Usage:                 a.Usage,
+			UsageComplete:         a.UsageComplete,
 		}
 	})
 	if domain != nil {

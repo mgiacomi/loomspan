@@ -62,6 +62,9 @@ public interface ExecutionStateService
     void recordModelResponseReceived(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
             Map<String, Object> attempt, ModelUsageRecord usage, Object payload);
 
+    void recordModelAttemptFailed(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
+            Map<String, Object> attempt, Map<String, Object> failureMetadata, Object payload);
+
     void logToolCall(LoomspanSession session, TaskExecutionEvent event);
 
     void logUnplannedToolCall(LoomspanSession session, TaskExecutionEvent event);

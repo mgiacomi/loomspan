@@ -24,6 +24,7 @@ const ALL_KINDS: ActivityKind[] = [
   "FRAME_CLOSED",
   "MODEL_REQUEST_SENT",
   "MODEL_RESPONSE_RECEIVED",
+  "MODEL_ATTEMPT_FAILED",
   "PLAN_CREATED",
   "PLAN_UPDATED",
   "PLAN_VALIDATION_FAILED",
@@ -61,6 +62,7 @@ describe("presentActivity", () => {
     expect(presentActivity(makeActivity("STEP_ACTION_REJECTED")).isError).toBe(true);
     expect(presentActivity(makeActivity("PLAN_VALIDATION_FAILED")).isError).toBe(true);
     expect(presentActivity(makeActivity("TOOL_CALL_FAILED")).isError).toBe(true);
+    expect(presentActivity(makeActivity("MODEL_ATTEMPT_FAILED")).isError).toBe(true);
     expect(presentActivity(makeActivity("STEP_COMPLETED")).isError).toBe(false);
   });
 

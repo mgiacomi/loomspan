@@ -273,6 +273,16 @@ public class DefaultExecutionStateService implements ExecutionStateService
     }
 
     @Override
+    public void recordModelAttemptFailed(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
+            Map<String, Object> attempt, Map<String, Object> failureMetadata, Object payload)
+    {
+        Objects.requireNonNull(session, "session must not be null");
+        traceRecorder.recordModelAttemptFailed(session, Objects.requireNonNull(frame, "frame must not be null"),
+                Objects.requireNonNull(context, "context must not be null"), attempt,
+                failureMetadata == null ? Map.of() : Map.copyOf(failureMetadata), payload);
+    }
+
+    @Override
     public void logToolCall(LoomspanSession session, TaskExecutionEvent event)
     {
         Objects.requireNonNull(session, "session must not be null");

@@ -10,6 +10,7 @@ public record SessionUsageSnapshot(
         int toolInvocations,
         int linterRetries,
         int modelCalls,
+        int providerAttempts,
         int promptUnits,
         int completionUnits,
         int usageUnits,
@@ -23,6 +24,7 @@ public record SessionUsageSnapshot(
         validateNonNegative(toolInvocations, "toolInvocations");
         validateNonNegative(linterRetries, "linterRetries");
         validateNonNegative(modelCalls, "modelCalls");
+        validateNonNegative(providerAttempts, "providerAttempts");
         validateNonNegative(promptUnits, "promptUnits");
         validateNonNegative(completionUnits, "completionUnits");
         validateNonNegative(usageUnits, "usageUnits");
@@ -33,7 +35,7 @@ public record SessionUsageSnapshot(
 
     public static SessionUsageSnapshot empty()
     {
-        return new SessionUsageSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new SessionUsageSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     public SessionUsageSnapshot incrementSkillInvocations()
@@ -43,6 +45,7 @@ public record SessionUsageSnapshot(
                 toolInvocations,
                 linterRetries,
                 modelCalls,
+                providerAttempts,
                 promptUnits,
                 completionUnits,
                 usageUnits,
@@ -58,6 +61,7 @@ public record SessionUsageSnapshot(
                 toolInvocations + 1,
                 linterRetries,
                 modelCalls,
+                providerAttempts,
                 promptUnits,
                 completionUnits,
                 usageUnits,
@@ -73,6 +77,7 @@ public record SessionUsageSnapshot(
                 toolInvocations,
                 linterRetries + 1,
                 modelCalls,
+                providerAttempts,
                 promptUnits,
                 completionUnits,
                 usageUnits,
@@ -89,12 +94,20 @@ public record SessionUsageSnapshot(
                 toolInvocations,
                 linterRetries,
                 modelCalls + 1,
+                providerAttempts,
                 promptUnits + usageRecord.promptUnits(),
                 completionUnits + usageRecord.completionUnits(),
                 usageUnits + usageRecord.totalUnits(),
                 exactModelResponses + (usageRecord.precision() == UsagePrecision.EXACT ? 1 : 0),
                 heuristicModelResponses + (usageRecord.precision() == UsagePrecision.HEURISTIC ? 1 : 0),
                 unavailableModelResponses + (usageRecord.precision() == UsagePrecision.UNAVAILABLE ? 1 : 0));
+    }
+
+    public SessionUsageSnapshot incrementProviderAttempts()
+    {
+        return new SessionUsageSnapshot(skillInvocations, toolInvocations, linterRetries, modelCalls,
+                providerAttempts + 1, promptUnits, completionUnits, usageUnits, exactModelResponses,
+                heuristicModelResponses, unavailableModelResponses);
     }
 
     /**
@@ -114,6 +127,7 @@ public record SessionUsageSnapshot(
         map.put("toolInvocations", toolInvocations);
         map.put("linterRetries", linterRetries);
         map.put("modelCalls", modelCalls);
+        map.put("providerAttempts", providerAttempts);
         map.put("promptUnits", promptUnits);
         map.put("completionUnits", completionUnits);
         map.put("totalUnits", usageUnits);

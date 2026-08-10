@@ -10,6 +10,7 @@ import com.lokiscale.loomspan.internal.runtime.usage.MicrometerUsageMetricsRecor
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageRecord;
 import com.lokiscale.loomspan.internal.runtime.usage.UsagePrecision;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
+import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(OutputCaptureExtension.class)
 class SensitiveConnectionDataRedactionTest {
@@ -78,20 +81,11 @@ class SensitiveConnectionDataRedactionTest {
     }
 
     private static String registryFailure(LoomspanProperties.ConnectionProperties connection) {
-        AiConnectionChatModelFactory factory = new AiConnectionChatModelFactory() {
-            @Override
-            public AiDriver driver() {
-                return AiDriver.OPENAI;
-            }
-
-            @Override
-            public org.springframework.ai.chat.model.ChatModel create(
-                    String connectionName, LoomspanProperties.ConnectionProperties properties) {
-                throw new IllegalStateException(API_KEY + HEADER_VALUE + BASE_URL + CREDENTIAL_URI);
-            }
-        };
+        SpringAiV11ProviderIntegration integration = mock(SpringAiV11ProviderIntegration.class);
+        when(integration.create("sensitive", connection))
+                .thenThrow(new IllegalStateException(API_KEY + HEADER_VALUE + BASE_URL + CREDENTIAL_URI));
         try {
-            new NamedAiConnectionRegistry(Map.of("sensitive", connection), List.of(factory));
+            new NamedAiConnectionRegistry(Map.of("sensitive", connection), integration);
             throw new AssertionError("Expected connection construction to fail");
         }
         catch (IllegalStateException ex) {

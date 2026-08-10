@@ -53,6 +53,7 @@ func responseRecord(seq int, frameID, retryID, attemptID string, attemptNum int,
 		`,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th",` +
 		`"metadata":{"retrySequenceId":"` + retryID + `","attemptId":"` + attemptID +
 		`","attemptNumber":` + itoa(attemptNum) +
+		`,"attemptReason":"` + attemptReason(attemptNum) + `","providerAttemptNumber":1` +
 		`,"usage":{"promptUnits":` + itoa(prompt) + `,"completionUnits":` + itoa(completion) +
 		`,"totalUnits":` + itoa(total) + `,"precision":"` + precision + `"}},"data":{"content":"r"}}`
 }
@@ -67,7 +68,15 @@ func requestRecord(seq int, retryID, attemptID string, attemptNum int, prepared 
 		`,"timestamp":` + timestampForSeq(seq) +
 		`,"recordType":"` + rt + `","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th",` +
 		`"metadata":{"retrySequenceId":"` + retryID + `","attemptId":"` + attemptID +
-		`","attemptNumber":` + itoa(attemptNum) + `},"data":{"messages":["u"]}}`
+		`","attemptNumber":` + itoa(attemptNum) + `,"attemptReason":"` + attemptReason(attemptNum) +
+		`","providerAttemptNumber":1},"data":{"messages":["u"]}}`
+}
+
+func attemptReason(number int) string {
+	if number == 1 {
+		return "INITIAL"
+	}
+	return "SEMANTIC_RETRY"
 }
 
 // completionRecord builds a TRACE_COMPLETED record.
@@ -678,7 +687,7 @@ func TestAttemptsRejectInconsistentIdentityNumberAndLifecycleOrder(t *testing.T)
 			requestRecord(2, "retry-1", "attempt-1", 1, true) + "\n" +
 			`{"traceId":"t","sessionId":"s","sequence":3,"timestamp":` + timestampForSeq(3) +
 			`,"recordType":"MODEL_REQUEST_SENT","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th",` +
-			`"metadata":{"retrySequenceId":"retry-2","attemptId":"attempt-1","attemptNumber":1},"data":{"messages":["u"]}}` + "\n" +
+			`"metadata":{"retrySequenceId":"retry-2","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1},"data":{"messages":["u"]}}` + "\n" +
 			completionRecord(4, "SUCCEEDED", 0, 0, 0, "") + "\n"
 		_, cat, ok := processTrace(t, raw)
 		if ok {

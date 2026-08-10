@@ -145,7 +145,12 @@ func (router *Router) traceAnalysisAttempts(w http.ResponseWriter, r *http.Reque
 	}
 	items := make([]attemptDTO, 0, len(v.Items))
 	for _, x := range v.Items {
-		items = append(items, attemptDTO{RetrySequenceID: x.RetrySequenceID, AttemptID: x.AttemptID, AttemptNumber: x.AttemptNumber, Usage: usageDTOValue(x.Usage), UsageComplete: x.UsageComplete})
+		items = append(items, attemptDTO{RetrySequenceID: x.RetrySequenceID, AttemptID: x.AttemptID, AttemptNumber: x.AttemptNumber,
+			AttemptReason: x.AttemptReason, ProviderAttemptNumber: x.ProviderAttemptNumber, Outcome: x.Outcome,
+			FailureClassification: x.FailureClassification, FailureCategory: x.FailureCategory,
+			RetryDecision: x.RetryDecision, RetryDelayMillis: x.RetryDelayMillis, RetryDelaySource: x.RetryDelaySource,
+			HTTPStatus: x.HTTPStatus, ProviderErrorType: x.ProviderErrorType, ProviderErrorCode: x.ProviderErrorCode,
+			PayloadID: x.PayloadID, Usage: usageDTOValue(x.Usage), UsageComplete: x.UsageComplete})
 	}
 	router.writeScopedJSON(w, s.ID, pageDTO[attemptDTO]{TargetScopeID: string(s.ID), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
 }
@@ -461,11 +466,23 @@ func usageDTOValue(v traceanalysis.Usage) usageValueDTO {
 }
 
 type attemptDTO struct {
-	RetrySequenceID string        `json:"retrySequenceId"`
-	AttemptID       string        `json:"attemptId"`
-	AttemptNumber   int64         `json:"attemptNumber"`
-	Usage           usageValueDTO `json:"usage"`
-	UsageComplete   bool          `json:"usageComplete"`
+	RetrySequenceID       string        `json:"retrySequenceId"`
+	AttemptID             string        `json:"attemptId"`
+	AttemptNumber         int64         `json:"attemptNumber"`
+	AttemptReason         string        `json:"attemptReason"`
+	ProviderAttemptNumber int64         `json:"providerAttemptNumber"`
+	Outcome               string        `json:"outcome"`
+	FailureClassification string        `json:"failureClassification,omitempty"`
+	FailureCategory       string        `json:"failureCategory,omitempty"`
+	RetryDecision         string        `json:"retryDecision,omitempty"`
+	RetryDelayMillis      int64         `json:"retryDelayMillis"`
+	RetryDelaySource      string        `json:"retryDelaySource,omitempty"`
+	HTTPStatus            int64         `json:"httpStatus,omitempty"`
+	ProviderErrorType     string        `json:"providerErrorType,omitempty"`
+	ProviderErrorCode     string        `json:"providerErrorCode,omitempty"`
+	PayloadID             string        `json:"payloadId,omitempty"`
+	Usage                 usageValueDTO `json:"usage"`
+	UsageComplete         bool          `json:"usageComplete"`
 }
 type retryDTO struct {
 	RetrySequenceID string        `json:"retrySequenceId"`
@@ -513,6 +530,7 @@ type configuredLimitsDTO struct {
 	MaxToolInvocations  int64 `json:"maxToolInvocations"`
 	MaxLinterRetries    int64 `json:"maxLinterRetries"`
 	MaxModelCalls       int64 `json:"maxModelCalls"`
+	MaxProviderAttempts int64 `json:"maxProviderAttempts"`
 	MaxUsageUnits       int64 `json:"maxUsageUnits"`
 }
 
@@ -521,7 +539,8 @@ func configuredLimitsDTOValue(v *traceanalysis.ConfiguredLimits) *configuredLimi
 		return nil
 	}
 	return &configuredLimitsDTO{MaxSkillInvocations: v.MaxSkillInvocations, MaxToolInvocations: v.MaxToolInvocations,
-		MaxLinterRetries: v.MaxLinterRetries, MaxModelCalls: v.MaxModelCalls, MaxUsageUnits: v.MaxUsageUnits}
+		MaxLinterRetries: v.MaxLinterRetries, MaxModelCalls: v.MaxModelCalls,
+		MaxProviderAttempts: v.MaxProviderAttempts, MaxUsageUnits: v.MaxUsageUnits}
 }
 
 type payloadDTO struct {

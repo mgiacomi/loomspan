@@ -15,6 +15,7 @@ const (
 	RecordModelRequestSent         TraceRecordType = "MODEL_REQUEST_SENT"
 	RecordAdvisorRequestMutation   TraceRecordType = "ADVISOR_REQUEST_MUTATION_RECORDED"
 	RecordModelResponseReceived    TraceRecordType = "MODEL_RESPONSE_RECEIVED"
+	RecordModelAttemptFailed       TraceRecordType = "MODEL_ATTEMPT_FAILED"
 	RecordAdvisorResponseMutation  TraceRecordType = "ADVISOR_RESPONSE_MUTATION_RECORDED"
 	RecordModelThoughtCaptured     TraceRecordType = "MODEL_THOUGHT_CAPTURED"
 	RecordPlanCreated              TraceRecordType = "PLAN_CREATED"
@@ -48,7 +49,7 @@ func knownRecordType(value string) (TraceRecordType, bool) {
 	switch rt {
 	case RecordTraceStarted, RecordTraceCapturePolicy, RecordFrameOpened, RecordFrameMetadata,
 		RecordPayloadChunkAppended, RecordModelRequestPrepared, RecordModelRequestSent,
-		RecordAdvisorRequestMutation, RecordModelResponseReceived, RecordAdvisorResponseMutation,
+		RecordAdvisorRequestMutation, RecordModelResponseReceived, RecordModelAttemptFailed, RecordAdvisorResponseMutation,
 		RecordModelThoughtCaptured, RecordPlanCreated, RecordPlanUpdated, RecordPlanValidationFailed,
 		RecordPlanRetryRequested, RecordPlanQualityWarning, RecordToolCallRequested, RecordToolCallStarted,
 		RecordToolCallCompleted, RecordToolCallFailed, RecordEvidenceRecorded, RecordEvidenceValidationFailed,

@@ -59,7 +59,15 @@ public final class ModelTraceContext
 
     public Map<String, Object> nextAttempt()
     {
-        return attempt(UUID.randomUUID().toString(), attemptCounter.incrementAndGet());
+        return nextAttempt(1);
+    }
+
+    public Map<String, Object> nextAttempt(int providerAttemptNumber)
+    {
+        int attemptNumber = attemptCounter.incrementAndGet();
+        String reason = attemptNumber == 1 ? "INITIAL"
+                : providerAttemptNumber > 1 ? "PROVIDER_RETRY" : "SEMANTIC_RETRY";
+        return attempt(UUID.randomUUID().toString(), attemptNumber, reason, providerAttemptNumber);
     }
 
     public Map<String, Object> metadata(Map<String, Object> attempt)
@@ -105,12 +113,14 @@ public final class ModelTraceContext
         return requireAttempt(attempt);
     }
 
-    private Map<String, Object> attempt(String attemptId, int attemptNumber)
+    private Map<String, Object> attempt(String attemptId, int attemptNumber, String reason, int providerAttemptNumber)
     {
         return Map.of(
                 "retrySequenceId", retrySequenceId,
                 "attemptId", requireNonBlank(attemptId, "attemptId"),
-                "attemptNumber", attemptNumber);
+                "attemptNumber", attemptNumber,
+                "attemptReason", reason,
+                "providerAttemptNumber", providerAttemptNumber);
     }
 
     private static Map<String, Object> requireAttempt(Map<String, Object> attempt)
@@ -126,10 +136,18 @@ public final class ModelTraceContext
         {
             throw new IllegalArgumentException("attemptNumber must be greater than zero");
         }
+        String reason = requireNonBlank((String) attempt.get("attemptReason"), "attemptReason");
+        Object rawProviderAttemptNumber = attempt.get("providerAttemptNumber");
+        if (!(rawProviderAttemptNumber instanceof Number providerNumber) || providerNumber.intValue() <= 0)
+        {
+            throw new IllegalArgumentException("providerAttemptNumber must be greater than zero");
+        }
         return Map.of(
                 "retrySequenceId", retrySequenceId,
                 "attemptId", attemptId,
-                "attemptNumber", number.intValue());
+                "attemptNumber", number.intValue(),
+                "attemptReason", reason,
+                "providerAttemptNumber", providerNumber.intValue());
     }
 
     private static String requireNonBlank(String value, String fieldName)

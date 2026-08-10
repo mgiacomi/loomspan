@@ -23,6 +23,7 @@ class LiveActivityProjectorTest
             TraceRecordType.FRAME_CLOSED,
             TraceRecordType.MODEL_REQUEST_SENT,
             TraceRecordType.MODEL_RESPONSE_RECEIVED,
+            TraceRecordType.MODEL_ATTEMPT_FAILED,
             TraceRecordType.PLAN_CREATED,
             TraceRecordType.PLAN_UPDATED,
             TraceRecordType.PLAN_VALIDATION_FAILED,
@@ -130,7 +131,7 @@ class LiveActivityProjectorTest
         ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
         projector.project(state, record(
                 TraceRecordType.TOOL_CALL_STARTED, 1, null, Map.of("capabilityName", "tool"), null));
-        SessionUsageSnapshot terminal = new SessionUsageSnapshot(4, 5, 6, 7, 8, 9, 17, 1, 2, 4);
+        SessionUsageSnapshot terminal = new SessionUsageSnapshot(4, 5, 6, 7, 0, 8, 9, 17, 1, 2, 4);
 
         LiveActivityProjector.Projection projection = projector.project(state, record(
                 TraceRecordType.TRACE_COMPLETED,
@@ -206,7 +207,7 @@ class LiveActivityProjectorTest
                 null));
 
         assertThat(projection.snapshot().usage())
-                .isEqualTo(new SessionUsageSnapshot(1, 1, 1, 1, 2, 3, 5, 1, 0, 0));
+                .isEqualTo(new SessionUsageSnapshot(1, 1, 1, 1, 0, 2, 3, 5, 1, 0, 0));
     }
 
     @Test
@@ -236,6 +237,28 @@ class LiveActivityProjectorTest
                 ExecutionActivityKind.TRACE_STARTED, null, null, null, null, null,
                 "summary", Map.of(), ExecutionObservationLimits.ACTIVITY_UTF8_BYTES + 1))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void providerRetryActivityContainsOnlyBoundedNeutralFacts()
+    {
+        LiveActivityProjector projector = new LiveActivityProjector();
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
+        LiveActivityProjector.Projection projection = projector.project(state, record(
+                TraceRecordType.MODEL_ATTEMPT_FAILED, 1, null,
+                Map.of("providerAttemptNumber", 2, "attemptReason", "PROVIDER_RETRY",
+                        "failureClassification", "TRANSIENT", "failureCategory", "RATE_LIMITED",
+                        "retryDecision", "RETRY", "retryDelayMillis", 750,
+                        "retryDelaySource", "RETRY_AFTER", "summary", "secret provider body"),
+                TextNode.valueOf("secret provider body and partial assistant content")));
+
+        assertThat(projection.activity().summary()).isEqualTo("Provider attempt 2 failed; retrying in 750 ms");
+        assertThat(projection.activity().details())
+                .containsEntry("failureCategory", "RATE_LIMITED")
+                .containsEntry("retryDecision", "RETRY")
+                .doesNotContainKey("summary");
+        assertThat(projection.activity().toString())
+                .doesNotContain("secret provider body", "partial assistant content");
     }
 
     @Test

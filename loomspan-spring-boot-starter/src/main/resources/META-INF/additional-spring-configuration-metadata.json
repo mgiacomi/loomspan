@@ -64,6 +64,54 @@
       "description": "OpenAI-only chat-completions path override."
     },
     {
+      "name": "loomspan.connections.*.openai.compatibility-profile",
+      "type": "com.lokiscale.loomspan.autoconfigure.LoomspanProperties$OpenAiCompatibilityProfile",
+      "defaultValue": "standard",
+      "description": "Explicit OpenAI compatibility profile. OpenRouter error-completion decoding is enabled only by openrouter."
+    },
+    {
+      "name": "loomspan.connections.*.provider-retry.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Whether Loomspan retries retryable synchronous provider failures. Disabled always means one total attempt."
+    },
+    {
+      "name": "loomspan.connections.*.provider-retry.max-attempts",
+      "type": "java.lang.Integer",
+      "defaultValue": 3,
+      "description": "Maximum total sends for one unchanged synchronous request (1 through 10)."
+    },
+    {
+      "name": "loomspan.connections.*.provider-retry.initial-backoff",
+      "type": "java.time.Duration",
+      "defaultValue": "500ms",
+      "description": "Nonnegative initial provider retry delay."
+    },
+    {
+      "name": "loomspan.connections.*.provider-retry.multiplier",
+      "type": "java.lang.Double",
+      "defaultValue": 2.0,
+      "description": "Finite exponential backoff multiplier of at least 1.0."
+    },
+    {
+      "name": "loomspan.connections.*.provider-retry.max-backoff",
+      "type": "java.time.Duration",
+      "defaultValue": "5s",
+      "description": "Maximum provider retry backoff; must not be less than initial-backoff."
+    },
+    {
+      "name": "loomspan.connections.*.provider-retry.jitter",
+      "type": "java.lang.Double",
+      "defaultValue": 0.2,
+      "description": "Uniform plus/minus jitter fraction from 0.0 through 1.0."
+    },
+    {
+      "name": "loomspan.session.quotas.max-provider-attempts",
+      "type": "java.lang.Integer",
+      "defaultValue": 192,
+      "description": "Session-wide physical provider-attempt quota; zero disables enforcement."
+    },
+    {
       "name": "loomspan.connections.*.anthropic.completions-path",
       "type": "java.lang.String",
       "description": "Anthropic-only messages/completions path override."
@@ -127,6 +175,13 @@
         { "value": "anthropic" },
         { "value": "gemini" },
         { "value": "ollama" }
+      ]
+    },
+    {
+      "name": "loomspan.connections.*.openai.compatibility-profile",
+      "values": [
+        { "value": "standard" },
+        { "value": "openrouter" }
       ]
     }
   ]

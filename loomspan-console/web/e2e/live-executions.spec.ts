@@ -32,12 +32,12 @@ function activePage(sessionId: string, traceId: string): string {
       activePathTruncated: false,
       usage: {
         skillInvocations: 0, toolInvocations: 0, linterRetries: 0,
-        modelCalls: 0, promptUnits: 0, completionUnits: 0, usageUnits: 0,
+        modelCalls: 0, providerAttempts: 0, promptUnits: 0, completionUnits: 0, usageUnits: 0,
         exactModelResponses: 0, heuristicModelResponses: 0, unavailableModelResponses: 0,
       },
       configuredLimits: {
         maxSkillInvocations: 10, maxToolInvocations: 10, maxLinterRetries: 3,
-        maxModelCalls: 10, maxUsageUnits: 1000,
+        maxModelCalls: 10, maxProviderAttempts: 30, maxUsageUnits: 1000,
       },
     }],
     hasMore: false,

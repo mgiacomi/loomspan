@@ -47,6 +47,7 @@ export function ActiveExecutionUsage({ usage, limits }: { usage: Usage; limits: 
             <BoundedRow label="Tool invocations" observed={usage.toolInvocations} limit={limits.maxToolInvocations} />
             <BoundedRow label="Linter retries" observed={usage.linterRetries} limit={limits.maxLinterRetries} />
             <BoundedRow label="Model calls" observed={usage.modelCalls} limit={limits.maxModelCalls} />
+            <BoundedRow label="Provider attempts" observed={usage.providerAttempts} limit={limits.maxProviderAttempts} />
             <BoundedRow label="Usage units" observed={usage.usageUnits} limit={limits.maxUsageUnits} />
           </tbody>
         </table>

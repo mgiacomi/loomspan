@@ -82,6 +82,7 @@ type ConfiguredLimits struct {
 	MaxToolInvocations  int64 `json:"maxToolInvocations"`
 	MaxLinterRetries    int64 `json:"maxLinterRetries"`
 	MaxModelCalls       int64 `json:"maxModelCalls"`
+	MaxProviderAttempts int64 `json:"maxProviderAttempts"`
 	MaxUsageUnits       int64 `json:"maxUsageUnits"`
 }
 
@@ -142,11 +143,23 @@ type usageJSON struct {
 
 // attemptResult is one model attempt's neutral semantic result.
 type attemptResult struct {
-	RetrySequenceID string `json:"retrySequenceId"`
-	AttemptID       string `json:"attemptId"`
-	AttemptNumber   int64  `json:"attemptNumber"`
-	Usage           Usage  `json:"usage"`
-	UsageComplete   bool   `json:"usageComplete"`
+	RetrySequenceID       string `json:"retrySequenceId"`
+	AttemptID             string `json:"attemptId"`
+	AttemptNumber         int64  `json:"attemptNumber"`
+	AttemptReason         string `json:"attemptReason"`
+	ProviderAttemptNumber int64  `json:"providerAttemptNumber"`
+	Outcome               string `json:"outcome"`
+	FailureClassification string `json:"failureClassification,omitempty"`
+	FailureCategory       string `json:"failureCategory,omitempty"`
+	RetryDecision         string `json:"retryDecision,omitempty"`
+	RetryDelayMillis      int64  `json:"retryDelayMillis"`
+	RetryDelaySource      string `json:"retryDelaySource,omitempty"`
+	HTTPStatus            int64  `json:"httpStatus,omitempty"`
+	ProviderErrorType     string `json:"providerErrorType,omitempty"`
+	ProviderErrorCode     string `json:"providerErrorCode,omitempty"`
+	PayloadID             string `json:"payloadId,omitempty"`
+	Usage                 Usage  `json:"usage"`
+	UsageComplete         bool   `json:"usageComplete"`
 }
 
 // retryResult is one retry sequence's aggregated neutral result.

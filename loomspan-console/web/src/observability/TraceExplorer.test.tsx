@@ -126,7 +126,7 @@ test("response scope mismatch clears explorer selection and refreshes target", a
 
 test("all fact collections expose and consume their own continuations", async () => {
   const page = (items: unknown[], hasMore: boolean, nextCursor: string | null) => ({ targetScopeId: "scope-1", items, hasMore, nextCursor });
-  api.getTraceAttempts.mockResolvedValueOnce(page([], true, "attempts-next")).mockResolvedValueOnce(page([{ retrySequenceId: "retry", attemptId: "attempt-2", attemptNumber: 2, usage: { promptUnits: 1, completionUnits: 1, totalUnits: 2 }, usageComplete: true }], false, null));
+  api.getTraceAttempts.mockResolvedValueOnce(page([], true, "attempts-next")).mockResolvedValueOnce(page([{ retrySequenceId: "retry", attemptId: "attempt-2", attemptNumber: 2, attemptReason: "PROVIDER_RETRY", providerAttemptNumber: 2, outcome: "SUCCEEDED", retryDelayMillis: 0, usage: { promptUnits: 1, completionUnits: 1, totalUnits: 2 }, usageComplete: true }], false, null));
   api.getTraceRetries.mockResolvedValueOnce(page([], true, "retries-next"));
   api.getTraceFailures.mockResolvedValueOnce(page([], true, "failures-next"));
   api.getTraceValidationLinks.mockResolvedValueOnce(page([], true, "validations-next"));

@@ -6,6 +6,8 @@ import com.lokiscale.loomspan.internal.core.ModelExecutionIdentity;
 import com.lokiscale.loomspan.internal.linter.LinterOutcome;
 import com.lokiscale.loomspan.internal.linter.LinterOutcomeStatus;
 import com.lokiscale.loomspan.internal.runtime.LoomspanQuotaExceededException;
+import com.lokiscale.loomspan.internal.provider.ProviderFailureCategory;
+import com.lokiscale.loomspan.internal.provider.ProviderRetryDecision;
 
 import java.util.Objects;
 import java.util.function.UnaryOperator;
@@ -46,6 +48,36 @@ public class DefaultSessionUsageService implements SessionUsageService
         usageMetricsRecorder.recordModelUsage(skillName, Objects.requireNonNull(identity, "identity must not be null"), usageRecord);
         enforce(session, skillName, GuardrailType.MAX_MODEL_CALLS, quotas.getMaxModelCalls(), updated.modelCalls());
         enforce(session, skillName, GuardrailType.MAX_USAGE_UNITS, quotas.getMaxUsageUnits(), updated.usageUnits());
+    }
+
+    @Override
+    public void reserveProviderAttempt(LoomspanSession session, String skillName)
+    {
+        Objects.requireNonNull(session, "session must not be null");
+        int limit = quotas.getMaxProviderAttempts();
+        final boolean[] rejected = {false};
+        SessionUsageSnapshot updated = update(session, snapshot ->
+        {
+            if (limit > 0 && snapshot.providerAttempts() >= limit)
+            {
+                rejected[0] = true;
+                return snapshot;
+            }
+            return snapshot.incrementProviderAttempts();
+        });
+        if (rejected[0])
+        {
+            usageMetricsRecorder.recordGuardrailTrip(skillName, GuardrailType.MAX_PROVIDER_ATTEMPTS);
+            throw new LoomspanQuotaExceededException(session.getSessionId(), GuardrailType.MAX_PROVIDER_ATTEMPTS,
+                    limit, (long) updated.providerAttempts() + 1L);
+        }
+    }
+
+    @Override
+    public void recordProviderAttemptOutcome(String skillName, ModelExecutionIdentity identity, String outcome,
+            ProviderFailureCategory category, ProviderRetryDecision decision)
+    {
+        usageMetricsRecorder.recordProviderAttempt(skillName, identity, outcome, category, decision);
     }
 
     @Override

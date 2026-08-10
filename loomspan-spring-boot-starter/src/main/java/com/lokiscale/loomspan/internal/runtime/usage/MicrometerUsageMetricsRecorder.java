@@ -2,6 +2,8 @@ package com.lokiscale.loomspan.internal.runtime.usage;
 
 import com.lokiscale.loomspan.internal.linter.LinterOutcome;
 import com.lokiscale.loomspan.internal.core.ModelExecutionIdentity;
+import com.lokiscale.loomspan.internal.provider.ProviderFailureCategory;
+import com.lokiscale.loomspan.internal.provider.ProviderRetryDecision;
 import io.micrometer.core.instrument.MeterRegistry;
 
 import java.util.Locale;
@@ -37,6 +39,21 @@ public class MicrometerUsageMetricsRecorder implements UsageMetricsRecorder
         meterRegistry.counter("loomspan.model.prompt.units", identityTags).increment(usageRecord.promptUnits());
         meterRegistry.counter("loomspan.model.completion.units", identityTags).increment(usageRecord.completionUnits());
         meterRegistry.counter("loomspan.model.usage.units", append(identityTags, "precision", usageRecord.precision().name())).increment(usageRecord.totalUnits());
+    }
+
+    @Override
+    public void recordProviderAttempt(String skillName, ModelExecutionIdentity identity, String outcome,
+            ProviderFailureCategory category, ProviderRetryDecision decision)
+    {
+        Objects.requireNonNull(identity, "identity must not be null");
+        meterRegistry.counter("loomspan.provider.attempts",
+                "skill", normalize(skillName),
+                "model", normalize(identity.frameworkModel()),
+                "connection", normalize(identity.connection()),
+                "driver", normalize(identity.driver().name()),
+                "outcome", normalize(outcome),
+                "category", category == null ? "none" : category.name().toLowerCase(Locale.ROOT),
+                "decision", decision == null ? "none" : decision.name().toLowerCase(Locale.ROOT)).increment();
     }
 
     @Override

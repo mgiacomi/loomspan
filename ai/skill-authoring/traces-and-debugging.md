@@ -17,11 +17,11 @@ Use execution traces to explain what Loomspan and the model provider did during 
 
 ## Model attempts and retries
 
-One physical attempt is one downstream provider call. Each attempt has an `attemptId`, a positive `attemptNumber`, and a `retrySequenceId`. Attempts created while correcting one logical call share the retry sequence and increase the attempt number; a nested or separate logical call uses a different sequence.
+One physical attempt is one downstream provider call. Each attempt has an `attemptId`, a positive `attemptNumber`, a `retrySequenceId`, an `attemptReason` (`INITIAL`, `PROVIDER_RETRY`, or `SEMANTIC_RETRY`), and a provider-attempt number. An unchanged provider retry increments the provider number; a semantic correction resets it to one while the physical attempt number continues increasing.
 
-For an attempt that reaches the provider and returns, the trace records prepared request, sent request, and received response facts with the same attempt identity. If the provider throws, prepared and sent facts can exist without a received response. Validator mutation facts identify the exact attempt whose output caused a pass, retry, or exhaustion.
+For an attempt that reaches the provider and returns, the trace records prepared request, sent request, and received response facts with the same attempt identity. A known provider failure instead ends with `MODEL_ATTEMPT_FAILED`, including neutral classification, category, retry decision, delay, and bounded diagnostics; it is not reported as a missing-response gap. Validator mutation facts identify the exact attempt whose output caused a pass, retry, or exhaustion.
 
-Linter, output-schema, planning-quality, and evidence correction can therefore create additional physical model attempts. Those attempts consume model-call and usage quotas. Evidence output correction reuses already completed tool work; it does not rerun tools merely to retry the final model output.
+Linter, output-schema, planning-quality, and evidence correction can therefore create additional physical model attempts. Every actual send consumes the provider-attempt quota. `modelCalls`, response usage, and response precision remain response-only. Evidence output correction reuses already completed tool work; it does not rerun tools merely to retry the final model output.
 
 ## Usage interpretation
 
@@ -35,11 +35,11 @@ Response usage is normalized as prompt, completion, and total units with a preci
 
 Each returned physical attempt is traced before its usage is applied to quota and metrics accounting, and is accounted once. `UNAVAILABLE` is a property of an individual attempt. `Unattributed usage` is different: Console derives it component-wise when the terminal session snapshot exceeds the sum of attributed response facts. Java does not emit a separate unattributed counter.
 
-For Spring-created executions, `TRACE_STARTED.configuredLimits` records the five
+For Spring-created executions, `TRACE_STARTED.configuredLimits` records the six
 quota values in effect when the trace is created: skill invocations, tool
-invocations, linter retries, model calls, and usage units. The snapshot is
+invocations, linter retries, model calls, provider attempts, and usage units. The snapshot is
 immutable for that run. Standalone/internal trace construction may omit the
-object; omission means limit comparison is unavailable. When present, all five
+object; omission means limit comparison is unavailable. When present, all six
 values are required non-negative integers.
 
 Console compares only counters for which the finalized trace exposes matching
@@ -52,6 +52,8 @@ cost, excess, correctness, importance, cause, or action recommendations.
 ## Terminal outcome and failures
 
 The final trace record carries one outcome: `SUCCEEDED`, `FAILED`, or `ABORTED`, plus the authoritative terminal session-usage snapshot. A failed or aborted completion has a `terminalFailureId` that links to the corresponding `ERROR_RECORDED` fact. Success has no terminal failure ID. Earlier nonterminal errors can coexist with a successful outcome.
+
+A recovered provider failure remains an attempt fact and does not create an `ERROR_RECORDED` fact. When a permanent or exhausted provider failure becomes terminal, the canonical error links to the final failed `attemptId` and `retrySequenceId`; Console can navigate in either direction.
 
 If finalization itself cannot append a completion record, do not infer one. A missing completion means the artifact is incomplete, not implicitly failed or successful.
 
@@ -95,7 +97,7 @@ as durable or cross-version application contracts.
 
 ## Implementation and test anchors
 
-- [`ModelAttemptCallAdvisor.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/chat/ModelAttemptCallAdvisor.java) owns the final pre-provider attempt boundary.
+- [`ProviderAttemptCallAdvisor.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/chat/ProviderAttemptCallAdvisor.java) owns the final pre-provider attempt boundary.
 - [`ModelTraceContext.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/ModelTraceContext.java) owns retry-sequence and attempt identity.
 - [`TraceCompletion.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceCompletion.java) and [`TraceOutcome.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceOutcome.java) define terminal semantics.
 - [`ModelAttemptCallAdvisorIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/chat/ModelAttemptCallAdvisorIntegrationTest.java) protects retry cardinality, failure behavior, usage, and quota enforcement.

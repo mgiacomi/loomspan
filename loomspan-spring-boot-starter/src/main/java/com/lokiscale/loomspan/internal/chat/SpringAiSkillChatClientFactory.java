@@ -7,6 +7,7 @@ import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContractCallAdvi
 import com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService;
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageService;
+import com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import org.slf4j.Logger;
@@ -39,7 +40,9 @@ public class SpringAiSkillChatClientFactory implements SkillChatClientFactory
     private final ChatClientBuilderFactory chatClientBuilderFactory;
     private final Map<AiDriver, SkillChatOptionsAdapter> adaptersByDriver;
     private final SkillAdvisorResolver skillAdvisorResolver;
-    private final ModelAttemptCallAdvisor modelAttemptCallAdvisor;
+    private final ExecutionStateService executionStateService;
+    private final ModelUsageExtractor modelUsageExtractor;
+    private final SessionUsageService sessionUsageService;
 
     public SpringAiSkillChatClientFactory(SkillChatModelResolver chatModelResolver,
             List<SkillChatOptionsAdapter> adapters,
@@ -63,7 +66,9 @@ public class SpringAiSkillChatClientFactory implements SkillChatClientFactory
         this.chatModelResolver = Objects.requireNonNull(chatModelResolver, "chatModelResolver must not be null");
         Objects.requireNonNull(adapters, "adapters must not be null");
         this.skillAdvisorResolver = Objects.requireNonNull(skillAdvisorResolver, "skillAdvisorResolver must not be null");
-        this.modelAttemptCallAdvisor = new ModelAttemptCallAdvisor(executionStateService, modelUsageExtractor, sessionUsageService);
+        this.executionStateService = Objects.requireNonNull(executionStateService, "executionStateService must not be null");
+        this.modelUsageExtractor = Objects.requireNonNull(modelUsageExtractor, "modelUsageExtractor must not be null");
+        this.sessionUsageService = Objects.requireNonNull(sessionUsageService, "sessionUsageService must not be null");
         this.chatClientBuilderFactory = Objects.requireNonNull(chatClientBuilderFactory, "chatClientBuilderFactory must not be null");
         this.adaptersByDriver = new EnumMap<>(AiDriver.class);
         for (SkillChatOptionsAdapter adapter : adapters)
@@ -94,9 +99,11 @@ public class SpringAiSkillChatClientFactory implements SkillChatClientFactory
         {
             throw new IllegalStateException("No ChatOptions adapter configured for driver " + executionConfiguration.driver());
         }
-        ChatModel chatModel = chatModelResolver.resolve(skillName, executionConfiguration);
+        ProviderConnectionRuntime runtime = chatModelResolver.resolve(skillName, executionConfiguration);
+        ChatModel chatModel = runtime.chatModel();
         ChatOptions options = adapter.createOptions(executionConfiguration);
-        List<Advisor> advisors = resolvedAdvisors(skillAdvisorResolver.resolve(definition), includeFinalResponseValidators);
+        List<Advisor> advisors = resolvedAdvisors(skillAdvisorResolver.resolve(definition), includeFinalResponseValidators,
+                new ProviderAttemptCallAdvisor(runtime, executionStateService, modelUsageExtractor, sessionUsageService));
         ChatClient.Builder builder = chatClientBuilderFactory.create(chatModel);
         builder.defaultOptions(options);
         if (!advisors.isEmpty())
@@ -116,7 +123,8 @@ public class SpringAiSkillChatClientFactory implements SkillChatClientFactory
         return delegate;
     }
 
-    private List<Advisor> resolvedAdvisors(List<Advisor> advisors, boolean includeFinalResponseValidators)
+    private List<Advisor> resolvedAdvisors(List<Advisor> advisors, boolean includeFinalResponseValidators,
+            ProviderAttemptCallAdvisor providerAttemptCallAdvisor)
     {
         List<Advisor> resolved = advisors == null ? List.of() : advisors;
         if (!includeFinalResponseValidators)
@@ -128,7 +136,7 @@ public class SpringAiSkillChatClientFactory implements SkillChatClientFactory
                     .toList();
         }
         ArrayList<Advisor> instrumented = new ArrayList<>(resolved);
-        instrumented.add(modelAttemptCallAdvisor);
+        instrumented.add(providerAttemptCallAdvisor);
         return List.copyOf(instrumented);
     }
 

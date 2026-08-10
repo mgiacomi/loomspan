@@ -310,6 +310,7 @@ class LoomspanSessionRunnerTest {
                 "maxToolInvocations", 11,
                 "maxLinterRetries", 3,
                 "maxModelCalls", 5,
+                "maxProviderAttempts", 192,
                 "maxUsageUnits", 1234));
     }
 
