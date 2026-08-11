@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityNarrative } from "./ActivityNarrative";
 import type { Activity, ActivityKind } from "../api/contracts";
 
-function makeActivity(cursor: string, kind: ActivityKind, summary: string): Activity {
+function makeActivity(
+  cursor: string,
+  kind: ActivityKind,
+  summary: string,
+  overrides?: Partial<Activity>,
+): Activity {
   return {
     instanceId: "11111111-1111-4111-8111-111111111111",
     cursor,
@@ -15,6 +20,7 @@ function makeActivity(cursor: string, kind: ActivityKind, summary: string): Acti
     executionStatus: "RUNNING",
     summary,
     details: {},
+    ...overrides,
   };
 }
 
@@ -121,6 +127,53 @@ describe("ActivityNarrative", () => {
     ];
     render(<ActivityNarrative activities={activities} isLive={true} />);
     expect(screen.queryByText(/Outcome:/)).toBeNull();
+  });
+
+  it("identifies each event by its frame route rather than the repeated session id", () => {
+    const activities = [
+      makeActivity("1", "STEP_STARTED", "Step started", {
+        route: "support.handle_billing#step-3",
+        frameId: "frame-uuid",
+        details: { stepNumber: 3 },
+      }),
+    ];
+    render(<ActivityNarrative activities={activities} isLive={true} />);
+    expect(screen.getByText("support.handle_billing#step-3")).toHaveAttribute("title", "frame-uuid");
+    expect(screen.queryByText(/session-1/)).toBeNull();
+    expect(screen.getByText("Step 3")).toBeInTheDocument();
+  });
+
+  it("renders recorded detail facts beside the kind label", () => {
+    const activities = [
+      makeActivity("1", "TOOL_CALL_COMPLETED", "Tool call completed", {
+        details: { capabilityName: "crm.lookupAccount", linkedTaskId: "task-2" },
+      }),
+    ];
+    render(<ActivityNarrative activities={activities} isLive={true} />);
+    expect(screen.getByText("crm.lookupAccount")).toBeInTheDocument();
+    expect(screen.getByText("task")).toBeInTheDocument();
+    expect(screen.getByText("task-2")).toBeInTheDocument();
+  });
+
+  it("states the elapsed time between consecutive events but not before the first", () => {
+    const activities = [
+      makeActivity("1", "TRACE_STARTED", "Execution started"),
+      makeActivity("2", "STEP_STARTED", "Step started", { timestamp: "2026-07-25T12:00:04Z" }),
+    ];
+    render(<ActivityNarrative activities={activities} isLive={true} />);
+    expect(screen.getByText("+4.0s")).toBeInTheDocument();
+    expect(screen.queryAllByText(/^\+/)).toHaveLength(1);
+  });
+
+  it("renders untrusted detail values as text only", () => {
+    const activities = [
+      makeActivity("1", "ERROR_RECORDED", "Execution error recorded", {
+        details: { message: "<img src=x onerror=alert(1)>" },
+      }),
+    ];
+    const { container } = render(<ActivityNarrative activities={activities} isLive={true} />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument();
   });
 
   it("uses role=log and aria-live for accessibility", () => {

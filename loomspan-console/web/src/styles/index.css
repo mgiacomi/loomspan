@@ -1102,8 +1102,8 @@ input,
 
 .activity-narrative-item {
   display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 0.5rem;
+  grid-template-columns: auto auto auto 1fr;
+  gap: 0.25rem 0.5rem;
   padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--bf-border);
   font-size: 0.8125rem;
@@ -1136,26 +1136,75 @@ input,
   font-family: var(--bf-mono);
 }
 
+.activity-narrative-delta {
+  color: var(--bf-muted);
+  font-size: 0.6875rem;
+  font-family: var(--bf-mono);
+  text-align: right;
+  min-width: 3.5rem;
+}
+
 .activity-narrative-kind {
   font-weight: 600;
   font-size: 0.8rem;
 }
 
+.activity-narrative-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.activity-narrative-headline {
+  color: var(--bf-text);
+  font-family: var(--bf-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
 .activity-narrative-summary {
   color: var(--bf-text);
+  overflow-wrap: anywhere;
+}
+
+.activity-narrative-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--bf-muted);
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius-lg);
+  padding: 0 0.4rem;
+  white-space: nowrap;
+}
+
+.activity-narrative-fact-label {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.62rem;
+}
+
+.activity-narrative-fact-value {
+  color: var(--bf-text);
+  font-family: var(--bf-mono);
 }
 
 .activity-narrative-outcome,
 .activity-narrative-artifact {
-  grid-column: 2 / -1;
+  grid-column: 3 / -1;
   font-size: 0.75rem;
   color: var(--bf-muted);
 }
 
 .activity-narrative-meta {
-  grid-column: 2 / -1;
+  grid-column: 3 / -1;
   font-size: 0.7rem;
   color: var(--bf-muted);
+  font-family: var(--bf-mono);
+  overflow-wrap: anywhere;
 }
 
 .activity-narrative-empty {

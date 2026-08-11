@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Activity } from "../api/contracts";
-import { presentActivity, formatTimestamp } from "./activityPresentation";
+import { presentActivity, formatTimestamp, formatDelta } from "./activityPresentation";
 
 type ActivityNarrativeProps = {
   activities: Activity[];
@@ -81,8 +81,10 @@ export function ActivityNarrative({ activities, isLive }: ActivityNarrativeProps
         {activities.length === 0 && (
           <li className="activity-narrative-empty">No activity yet.</li>
         )}
-        {activities.map((activity) => {
+        {activities.map((activity, index) => {
           const p = presentActivity(activity);
+          const previous = index === 0 ? null : activities[index - 1];
+          const delta = previous ? formatDelta(previous.timestamp, activity.timestamp) : null;
           return (
             <li
               key={activity.cursor}
@@ -91,20 +93,42 @@ export function ActivityNarrative({ activities, isLive }: ActivityNarrativeProps
               <span className="activity-narrative-time" aria-hidden="true">
                 {formatTimestamp(activity.timestamp)}
               </span>
+              <span className="activity-narrative-delta" aria-hidden="true">
+                {delta ?? ""}
+              </span>
               <span className="activity-narrative-kind">{p.label}</span>
-              {activity.summary !== p.label && (
-                <span className="activity-narrative-summary">{activity.summary}</span>
-              )}
+              <span className="activity-narrative-body">
+                {p.headline && (
+                  <span className="activity-narrative-headline">{p.headline}</span>
+                )}
+                {activity.summary !== p.label && (
+                  <span className="activity-narrative-summary">{activity.summary}</span>
+                )}
+                {p.facts.map((fact) => (
+                  <span
+                    key={fact.label}
+                    className="activity-narrative-fact"
+                    {...(fact.title ? { title: fact.title } : {})}
+                  >
+                    <span className="activity-narrative-fact-label">{fact.label}</span>
+                    <span className="activity-narrative-fact-value">{fact.value}</span>
+                  </span>
+                ))}
+              </span>
               {p.outcome && (
                 <span className="activity-narrative-outcome">Outcome: {p.outcome}</span>
               )}
               {p.artifactAvailable && (
                 <span className="activity-narrative-artifact">Artifact available</span>
               )}
-              <span className="activity-narrative-meta">
-                {activity.sessionId}
-                {activity.frameId ? ` · ${activity.frameId}` : ""}
-              </span>
+              {p.scope && (
+                <span
+                  className="activity-narrative-meta"
+                  {...(p.scopeTitle ? { title: p.scopeTitle } : {})}
+                >
+                  {p.scope}
+                </span>
+              )}
             </li>
           );
         })}
