@@ -46,7 +46,7 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderRecords(records: TraceRecord[]) {
-  render(<TraceRecords traceId="trace-1" records={records} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onRaw={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={records} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
 }
 
 beforeEach(() => {
@@ -78,6 +78,23 @@ test("reconstructs a chunked model request and presents messages by role", async
   expect(getPayloadRangeMock).toHaveBeenNthCalledWith(1, "trace-1", "payload-1", undefined);
   expect(getPayloadRangeMock).toHaveBeenNthCalledWith(2, "trace-1", "payload-1", "next");
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
+});
+
+test("presents a prepared request inline instead of exposing the generic payload action", async () => {
+  const request = JSON.stringify({
+    messages: [{ messageType: "USER", text: "Prepared model input" }],
+  });
+  getPayloadRangeMock.mockResolvedValue(range(request));
+  renderRecords([record(8, "MODEL_REQUEST_PREPARED", "prepared-payload")]);
+
+  expect(screen.queryByRole("button", { name: "Read payload" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Prepared model request for record 8" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Prepared request" }));
+
+  const detail = await screen.findByRole("region", { name: "Prepared model request for record 8" });
+  expect(within(detail).getByRole("heading", { name: "user" })).toBeVisible();
+  expect(detail).toHaveTextContent("Prepared model input");
+  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "prepared-payload", undefined);
 });
 
 test("extracts and pretty prints JSON content from an inline model response", async () => {

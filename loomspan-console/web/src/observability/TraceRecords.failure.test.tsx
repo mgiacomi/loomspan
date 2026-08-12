@@ -35,10 +35,32 @@ function record(sequence: number, type: string): TraceRecord {
 
 test("highlights the exact failure record and provides a view-error action", () => {
   const selectFailure = vi.fn();
-  render(<TraceRecords records={[record(14, "MODEL_ATTEMPT_FAILED"), record(15, "ERROR_RECORDED")]} attempts={[]} retries={[]} failures={[failure]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} selectedFailureId="failure-15" onSelectRecord={vi.fn()} onSelectFailure={selectFailure} onRaw={vi.fn()} onPayload={vi.fn()} />);
+  render(
+    <TraceRecords
+      records={[
+        record(14, "MODEL_ATTEMPT_FAILED"),
+        record(15, "ERROR_RECORDED"),
+      ]}
+      attempts={[]}
+      retries={[]}
+      failures={[failure]}
+      validations={[]}
+      gaps={[]}
+      uncertainties={[]}
+      payloads={[]}
+      selectedFailureId="failure-15"
+      onSelectRecord={vi.fn()}
+      onSelectFailure={selectFailure}
+      onPayload={vi.fn()}
+    />,
+  );
 
-  const errorRow = screen.getByRole("button", { name: "15: ERROR_RECORDED" }).closest("tr");
-  const attemptRow = screen.getByRole("button", { name: "14: MODEL_ATTEMPT_FAILED" }).closest("tr");
+  const errorRow = screen
+    .getByRole("button", { name: "15: ERROR_RECORDED" })
+    .closest("tr");
+  const attemptRow = screen
+    .getByRole("button", { name: "14: MODEL_ATTEMPT_FAILED" })
+    .closest("tr");
   expect(errorRow).toHaveClass("trace-record-error");
   expect(attemptRow).not.toHaveClass("trace-record-error");
 

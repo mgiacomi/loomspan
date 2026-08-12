@@ -3,7 +3,6 @@ import { Link, useSearchParams } from "react-router";
 import {
   BrowserAPIError,
   getPayloadRange,
-  getRawRecordRange,
   getTraceAnalysisSummary,
   getTraceAttempts,
   getTraceFailures,
@@ -81,7 +80,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   const [usageFrames, setUsageFrames] = useState<TraceAnalysisPage<TraceFrame>>();
   const [registeredSkills, setRegisteredSkills] = useState<Set<string>>();
   const [range, setRange] = useState<TraceRange>();
-  const [rangeRequest, setRangeRequest] = useState<{ payloadId?: string; recordSequence?: number }>();
+  const [rangeRequest, setRangeRequest] = useState<{ payloadId: string }>();
   const [error, setError] = useState<string>();
   const [scopeMismatch, setScopeMismatch] = useState(false);
   const [pending, setPending] = useState<Set<string>>(() => new Set());
@@ -301,14 +300,6 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
       return loadAncestry(frame).then(() => select({ frameId: frame.frameId, failureId: frame.failureIds?.[0] }));
     }).catch((value) => reportError(value, true)).finally(() => end("related-frame"));
   };
-  const readRaw = (record: TraceRecord, cursor?: string) => {
-    if (pending.has("range")) return;
-    begin("range");
-    void getRawRecordRange(traceId, record.sequence, cursor).then(verifyScope).then((result) => {
-      setRangeRequest({ recordSequence: record.sequence });
-      setRange(result);
-    }).catch((value) => reportError(value, false)).finally(() => end("range"));
-  };
   const readPayload = (payloadId: string, cursor?: string) => {
     if (pending.has("range")) return;
     begin("range");
@@ -319,8 +310,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   };
   const nextRange = () => {
     if (!range?.hasMore || !range.nextCursor) return;
-    if (rangeRequest?.payloadId) readPayload(rangeRequest.payloadId, range.nextCursor);
-    else if (rangeRequest?.recordSequence) readRaw({ sequence: rangeRequest.recordSequence } as TraceRecord, range.nextCursor);
+    if (rangeRequest) readPayload(rangeRequest.payloadId, range.nextCursor);
   };
   const search = () => {
     if (!searchText || pending.has("search")) return;
@@ -398,7 +388,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
         {state.view === "records" && <>
           <form onSubmit={(event) => { event.preventDefault(); search(); }}><label>Literal search <input value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label><button type="submit" disabled={!searchText || pending.has("search")}>Search</button></form>
           {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p><ol>{searchResults.items.map((match) => <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> · {match.searchedField} bytes {match.matchOffset}–{match.matchOffset + match.matchLength}</li>)}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => loadMore("search-page", searchResults, (cursor) => searchTraceEvidence(traceId, searchText, cursor), setSearchResults)}>Load more matches</button>}</section>}
-          <TraceRecords traceId={traceId} records={records?.items ?? []} attempts={attempts?.items ?? []} retries={retries?.items ?? []} failures={failures?.items ?? []} validations={validations?.items ?? []} gaps={gaps?.items ?? []} uncertainties={uncertainties?.items ?? []} payloads={payloads?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onRaw={readRaw} onPayload={readPayload} />
+          <TraceRecords traceId={traceId} records={records?.items ?? []} attempts={attempts?.items ?? []} retries={retries?.items ?? []} failures={failures?.items ?? []} validations={validations?.items ?? []} gaps={gaps?.items ?? []} uncertainties={uncertainties?.items ?? []} payloads={payloads?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onPayload={readPayload} />
           <div className="trace-continuations" role="group" aria-label="Additional evidence pages">
             {records?.hasMore && <button type="button" disabled={pending.has("records")} onClick={() => loadMore("records", records, (cursor) => getTraceRecords(traceId, cursor), setRecords)}>Load more records</button>}
             {factContinuation("attempts", "attempts", attempts, (cursor) => getTraceAttempts(traceId, cursor), setAttempts)}

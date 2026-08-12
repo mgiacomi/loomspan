@@ -521,8 +521,102 @@ input,
   padding: 0.35rem 0.2rem;
 }
 
-.trace-model-expanded {
+.trace-model-expanded,
+.trace-raw-expanded,
+.trace-step-expanded {
   padding: 0.35rem 0.2rem;
+}
+
+.trace-step-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: 0.5rem;
+}
+
+.trace-step-facts > div {
+  min-inline-size: 8rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius-md);
+  background: var(--bf-sunken);
+}
+
+.trace-step-facts dt {
+  color: var(--bf-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.trace-step-facts dd {
+  margin: 0.2rem 0 0;
+  font-weight: 650;
+}
+
+.trace-step-note {
+  color: var(--bf-muted);
+}
+
+.trace-step-rejected {
+  margin-block: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--bf-danger) 55%, var(--bf-border));
+  border-left: 0.25rem solid var(--bf-danger);
+  border-radius: var(--bf-radius-md);
+  background: color-mix(in srgb, var(--bf-danger) 7%, var(--bf-surface));
+}
+
+.trace-step-rejected .trace-step-facts > div {
+  border-color: color-mix(in srgb, var(--bf-danger) 25%, var(--bf-border));
+}
+
+.trace-action-rejection > p:first-child {
+  color: var(--bf-danger);
+}
+
+.trace-validation-issues ul {
+  display: grid;
+  gap: 0.4rem;
+  padding-inline-start: 1.25rem;
+}
+
+.trace-action-error {
+  color: var(--bf-danger);
+}
+
+.trace-evidence-sources ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  list-style: none;
+}
+
+.trace-evidence-sources li {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius);
+  background: var(--bf-sunken);
+}
+
+.trace-completion-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin-block: 0.75rem;
+}
+
+.trace-completion-tables table {
+  align-self: start;
+}
+
+.trace-completion-warning {
+  padding: 0.5rem 0.65rem;
+  border-left: 0.2rem solid var(--bf-danger);
+  background: color-mix(in srgb, var(--bf-danger) 7%, var(--bf-surface));
+  color: var(--bf-danger);
 }
 
 .trace-model-messages {

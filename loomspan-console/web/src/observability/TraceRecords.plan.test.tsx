@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { getRawRecordRange, getTraceRecords } from "../api/client";
+import { getPayloadRange, getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRecord, TraceRange } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
@@ -8,6 +8,7 @@ vi.mock("../api/client", () => ({ getPayloadRange: vi.fn(), getRawRecordRange: v
 
 const getRawRecordRangeMock = vi.mocked(getRawRecordRange);
 const getTraceRecordsMock = vi.mocked(getTraceRecords);
+const getPayloadRangeMock = vi.mocked(getPayloadRange);
 const record: TraceRecord = {
   sequence: 7,
   type: "PLAN_CREATED",
@@ -38,14 +39,15 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
   };
 }
 
-function renderPlanRecord() {
-  render(<TraceRecords traceId="trace-1" records={[record]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onRaw={vi.fn()} onPayload={vi.fn()} />);
+function renderPlanRecord(value = record) {
+  render(<TraceRecords traceId="trace-1" records={[value]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
 }
 
 beforeEach(() => {
   getRawRecordRangeMock.mockReset();
   getTraceRecordsMock.mockReset();
+  getPayloadRangeMock.mockReset();
 });
 
 test("loads every raw-record range and pretty prints only the plan data", async () => {
@@ -65,14 +67,17 @@ test("loads every raw-record range and pretty prints only the plan data", async 
   expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 7, "next");
 });
 
-test("decodes a JSON string stored in the plan data field", async () => {
+test("reconstructs a chunked plan payload using the current trace contract", async () => {
   const plan = { planId: "plan-2", tasks: [] };
-  getRawRecordRangeMock.mockResolvedValue(range(JSON.stringify({ data: JSON.stringify(plan) })));
+  const raw = JSON.stringify(plan);
+  getPayloadRangeMock.mockResolvedValue(range(raw));
 
-  renderPlanRecord();
+  renderPlanRecord({ ...record, payloadId: "payload-plan", isEnvelope: true });
 
   const output = await screen.findByText((_, element) => element?.tagName === "PRE");
   expect(output).toHaveTextContent(JSON.stringify(plan, null, 2), { normalizeWhitespace: false });
+  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "payload-plan", undefined);
+  expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 });
 
 test("reports malformed plan records without displaying a truncated fallback", async () => {
@@ -112,7 +117,7 @@ test("summarizes a plan update against the latest earlier snapshot with the same
     return Promise.resolve(range(JSON.stringify({ data: plan })));
   });
 
-  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onRaw={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "View changes" }));
 
   const changes = await screen.findByRole("region", { name: "Plan changes" });
