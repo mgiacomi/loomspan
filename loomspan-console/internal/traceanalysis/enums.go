@@ -23,7 +23,6 @@ const (
 	RecordPlanValidationFailed     TraceRecordType = "PLAN_VALIDATION_FAILED"
 	RecordPlanRetryRequested       TraceRecordType = "PLAN_RETRY_REQUESTED"
 	RecordPlanQualityWarning       TraceRecordType = "PLAN_QUALITY_WARNING"
-	RecordToolCallRequested        TraceRecordType = "TOOL_CALL_REQUESTED"
 	RecordToolCallStarted          TraceRecordType = "TOOL_CALL_STARTED"
 	RecordToolCallCompleted        TraceRecordType = "TOOL_CALL_COMPLETED"
 	RecordToolCallFailed           TraceRecordType = "TOOL_CALL_FAILED"
@@ -51,7 +50,7 @@ func knownRecordType(value string) (TraceRecordType, bool) {
 		RecordPayloadChunkAppended, RecordModelRequestPrepared, RecordModelRequestSent,
 		RecordAdvisorRequestMutation, RecordModelResponseReceived, RecordModelAttemptFailed, RecordAdvisorResponseMutation,
 		RecordModelThoughtCaptured, RecordPlanCreated, RecordPlanUpdated, RecordPlanValidationFailed,
-		RecordPlanRetryRequested, RecordPlanQualityWarning, RecordToolCallRequested, RecordToolCallStarted,
+		RecordPlanRetryRequested, RecordPlanQualityWarning, RecordToolCallStarted,
 		RecordToolCallCompleted, RecordToolCallFailed, RecordEvidenceRecorded, RecordEvidenceValidationFailed,
 		RecordEvidenceValidationPassed, RecordLinterRecorded, RecordStructuredOutputRecorded, RecordStepStarted,
 		RecordStepActionProposed, RecordStepActionValidated, RecordStepActionRejected, RecordStepCompleted,

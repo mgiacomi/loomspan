@@ -64,7 +64,7 @@ class ExecutionJournalProjectionContractTest {
                         plan),
                 record(
                         2,
-                        TraceRecordType.TOOL_CALL_REQUESTED,
+                        TraceRecordType.TOOL_CALL_STARTED,
                         "tool-frame",
                         "deploy.service",
                         Map.of("capabilityName", "deploy.service", "linkedTaskId", "task-1"),

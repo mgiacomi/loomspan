@@ -118,9 +118,10 @@ class ToolCallbackFactoryTest {
 
         assertThat(linkedResult).isEqualTo("\"child:hello\"");
         verify(planningService).markToolCompleted(eq(session), eq("task-1"), eq(capability.name()), eq("child:hello"));
-        org.mockito.InOrder inOrder = inOrder(stateService);
+        org.mockito.InOrder inOrder = inOrder(stateService, router);
         inOrder.verify(stateService).openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any());
         inOrder.verify(stateService).logToolCall(eq(session), any());
+        inOrder.verify(router).execute(eq(capability), any(), eq(session), eq(null));
         inOrder.verify(stateService).logToolResult(eq(session), any());
         inOrder.verify(stateService).closeFrame(eq(session), eq(toolFrame), any());
 

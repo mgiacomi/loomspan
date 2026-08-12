@@ -225,6 +225,18 @@ describe("presentActivity", () => {
     expect(p.headline).toBeNull();
     expect(p.facts).toEqual([]);
   });
+
+  it("presents a tool start without promoting arguments into live content", () => {
+    const p = presentActivity(makeActivity("TOOL_CALL_STARTED", {
+      capabilityName: "crm.lookupAccount",
+      linkedTaskId: "task-2",
+      arguments: { password: "live-secret-must-not-render" },
+    }));
+
+    expect(p.headline).toBe("crm.lookupAccount");
+    expect(p.facts).toContainEqual({ label: "task", value: "task-2" });
+    expect(JSON.stringify(p)).not.toContain("live-secret-must-not-render");
+  });
 });
 
 describe("formatTimestamp", () => {

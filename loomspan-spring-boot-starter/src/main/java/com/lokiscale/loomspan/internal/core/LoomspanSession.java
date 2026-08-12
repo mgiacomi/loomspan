@@ -310,7 +310,7 @@ public final class LoomspanSession
                     metadata.put("attemptId", attemptLink.attemptId());
                     metadata.put("retrySequenceId", attemptLink.retrySequenceId());
                 }
-                appendTraceRecord(TraceRecordType.ERROR_RECORDED, Map.copyOf(metadata),
+                appendTraceRecord(TraceRecordType.ERROR_RECORDED, immutableMetadata(metadata),
                         Collections.unmodifiableMap(new java.util.LinkedHashMap<>(payload)));
             }
             catch (RuntimeException | Error recordingFailure)
@@ -997,7 +997,7 @@ public final class LoomspanSession
 
     public void appendTraceRecord(TraceRecordType type, Map<String, Object> metadata, Object payload)
     {
-        appendTrace(type, metadata == null ? Map.of() : Map.copyOf(metadata), payload);
+        appendTrace(type, immutableMetadata(metadata), payload);
     }
 
     public void appendTraceRecord(TraceRecordType type, ExecutionFrame frame, Map<String, Object> metadata, Object payload)
@@ -1012,7 +1012,7 @@ public final class LoomspanSession
                 return;
             }
             ExecutionTraceHandle handle = requireExecutionTraceHandle();
-            handle.append(type, frame, frame.traceFrameType(), metadata == null ? Map.of() : Map.copyOf(metadata), payload);
+            handle.append(type, frame, frame.traceFrameType(), immutableMetadata(metadata), payload);
         }
         catch (IOException ex)
         {
@@ -1038,11 +1038,11 @@ public final class LoomspanSession
             TraceFrameType frameType = activeFrame == null ? null : activeFrame.traceFrameType();
             if (activeFrame == null)
             {
-                handle.append(type, metadata == null ? Map.of() : Map.copyOf(metadata), payload);
+                handle.append(type, immutableMetadata(metadata), payload);
             }
             else
             {
-                handle.append(type, activeFrame, frameType, metadata == null ? Map.of() : Map.copyOf(metadata), payload);
+                handle.append(type, activeFrame, frameType, immutableMetadata(metadata), payload);
             }
         }
         catch (IOException ex)
@@ -1053,6 +1053,19 @@ public final class LoomspanSession
         {
             lock.unlock();
         }
+    }
+
+    private static Map<String, Object> immutableMetadata(Map<String, Object> metadata)
+    {
+        if (metadata == null || metadata.isEmpty())
+        {
+            return Map.of();
+        }
+        java.util.LinkedHashMap<String, Object> copy = new java.util.LinkedHashMap<>();
+        metadata.forEach((key, value) -> copy.put(
+                Objects.requireNonNull(key, "metadata key must not be null"),
+                Objects.requireNonNull(value, "metadata value must not be null")));
+        return Collections.unmodifiableMap(copy);
     }
 
     private static String requireNonBlank(String value, String fieldName)

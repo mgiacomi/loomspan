@@ -60,7 +60,7 @@ Do not load every document by default. Start with the routing entry most relevan
 | Attachments and virtual files | Not yet documented | Requires separate source verification |
 | Model selection and connections | Initial, source-verified | Framework model aliases, named connections, drivers, thinking levels, migration, and diagnostics |
 | Execution limits and quotas | Foundational | Trace guidance covers model-attempt and usage quota effects plus run-start diagnostic comparison; complete limit configuration remains undocumented |
-| Traces and debugging | Source-verified | Physical attempts, retry sequences, usage precision/reconciliation, terminal failures, run-start limit comparison, exact registered-name/YAML navigation, and current-run limitations |
+| Traces and debugging | Source-verified | Physical attempts, retry sequences, canonical tool start/terminal interpretation, deliberate tool-input inspection, usage precision/reconciliation, terminal failures, run-start limit comparison, exact registered-name/YAML navigation, and current-run limitations |
 | Testing skill trees | Not yet documented | The design checklist gives initial review prompts only |
 
 ## Normative Language

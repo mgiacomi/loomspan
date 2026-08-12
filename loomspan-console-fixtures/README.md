@@ -2,7 +2,7 @@
 
 This directory is the current-release Java-to-Go semantic contract for execution traces. The trace format itself is an ephemeral diagnostic format: these fixtures describe the current checkout and do not promise that older trace files remain readable.
 
-`traces/` contains sixteen valid traces and twenty-six deliberately invalid artifacts. `expected/` contains only semantic results needed by Console analysis: identity, outcome, terminal failure, the run-start configured-limit snapshot when present, physical attempts and retry usage, usage completeness, validation-to-attempt links, root/frame hierarchy facts, inclusive/self duration availability, direct/descendant/inclusive and unframed attributed usage, terminal usage, the derived unattributed remainder, payload descriptors, gaps, uncertainties, or one invalidity category. The corpus includes nested and repeated frames, incomplete and overlapping duration cases, chunked text and JSON payloads, independently reported component totals, and minimal chunk/frame/failure/attempt/usage/structural-limit mutations. It intentionally contains no UI model, MCP model, or diagnosis.
+`traces/` contains eighteen valid traces and twenty-six deliberately invalid artifacts. `expected/` contains only semantic results needed by Console analysis: identity, outcome, terminal failure, the run-start configured-limit snapshot when present, physical attempts and retry usage, usage completeness, validation-to-attempt links, root/frame hierarchy facts, inclusive/self duration availability, direct/descendant/inclusive and unframed attributed usage, terminal usage, the derived unattributed remainder, payload descriptors, gaps, uncertainties, or one invalidity category. The corpus includes planned-success and unplanned-failure tool lifecycles, nested and repeated frames, incomplete and overlapping duration cases, chunked text and JSON payloads, independently reported component totals, and minimal chunk/frame/failure/attempt/usage/structural-limit mutations. It intentionally contains no UI model, MCP model, or diagnosis.
 
 Representative diagnostic matrix:
 
@@ -13,6 +13,7 @@ Representative diagnostic matrix:
 | Expensive execution | `nested-frame-usage`, `unattributed-usage`, `incomplete-frame-duration` | `WF-UE-*`; direct/descendant/inclusive usage without double counting |
 | Unfamiliar skill path | `repeated-skill-invocations`, `nested-frame-usage` | `WF-SP-*`; invocation identity and exact recorded skill names |
 | Live to completed inspection | `single-attempt-success` | `WF-SE-*`; configured limits and terminal facts |
+| Tool lifecycle | `planned-tool-success`, `unplanned-tool-failure` | One canonical pre-invocation start, planned/unplanned linkage, explicit completion/failure, frame identity, and terminal tool usage |
 | Deep/page continuation | Go's deterministic 20,000-frame calculation and browser pages over 100 rows | finite continuations; no semantic hierarchy cap |
 | Large evidence range | `makeLargeChunkedPayloadArtifact` in `web/e2e/artifact-storage.spec.ts` | multi-megabyte content read in deliberate 64-KiB ranges |
 | Structural limits | named invalid line/depth/usage/chunk/frame cases | exact bounded parser rejection |

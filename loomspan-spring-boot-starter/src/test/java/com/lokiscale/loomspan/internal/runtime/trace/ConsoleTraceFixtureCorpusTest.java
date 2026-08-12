@@ -13,6 +13,8 @@ import com.lokiscale.loomspan.internal.core.TraceOutcome;
 import com.lokiscale.loomspan.internal.core.TracePersistencePolicy;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
 import com.lokiscale.loomspan.internal.core.TestLoomspanSessions;
+import com.lokiscale.loomspan.internal.core.TaskExecutionEvent;
+import com.lokiscale.loomspan.internal.core.ToolTraceContext;
 import com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.attachment.RenderedMissionInput;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
@@ -76,6 +78,8 @@ class ConsoleTraceFixtureCorpusTest
             "chunked-json-payload",
             "nested-frame-usage",
             "repeated-skill-invocations",
+            "planned-tool-success",
+            "unplanned-tool-failure",
             "incomplete-frame-duration",
             "overlapping-frame-duration");
     private static final Map<String, String> INVALID = Map.ofEntries(
@@ -450,6 +454,55 @@ class ConsoleTraceFixtureCorpusTest
     }
 
     @Test
+    @Order(4)
+    void toolLifecycleFixturesContainOneCanonicalStartAndTerminalRecord() throws Exception
+    {
+        assertToolLifecycleFixture("planned-tool-success", "TOOL_CALL_COMPLETED", false, "task-lookup");
+        assertToolLifecycleFixture("unplanned-tool-failure", "TOOL_CALL_FAILED", true, null);
+    }
+
+    private static void assertToolLifecycleFixture(
+            String name,
+            String terminalType,
+            boolean unplanned,
+            String linkedTaskId) throws Exception
+    {
+        List<JsonNode> records = parseLines(fixtureRoot().resolve("traces").resolve(name + ".ndjson"));
+        List<JsonNode> starts = records.stream()
+                .filter(node -> "TOOL_CALL_STARTED".equals(node.path("recordType").asText()))
+                .toList();
+        List<JsonNode> terminals = records.stream()
+                .filter(node -> terminalType.equals(node.path("recordType").asText()))
+                .toList();
+
+        assertThat(starts).singleElement().satisfies(start ->
+        {
+            assertThat(start.path("frameId").asText()).isEqualTo("tool");
+            assertThat(start.path("data").path("eventId").asText()).isEqualTo("event-" + name);
+            assertThat(start.path("data").path("details").path("arguments").path("customerId").asText())
+                    .isEqualTo("CUST-1001");
+            assertThat(start.path("metadata").path("unplanned").asBoolean(false)).isEqualTo(unplanned);
+            if (linkedTaskId == null)
+            {
+                assertThat(start.path("metadata").has("linkedTaskId")).isFalse();
+                assertThat(start.path("data").path("note").asText()).isEqualTo("No unique ready task matched this tool call");
+            }
+            else
+            {
+                assertThat(start.path("metadata").path("linkedTaskId").asText()).isEqualTo(linkedTaskId);
+            }
+        });
+        assertThat(terminals).singleElement().satisfies(terminal ->
+        {
+            assertThat(terminal.path("frameId").asText()).isEqualTo("tool");
+            assertThat(terminal.path("sequence").asLong()).isGreaterThan(starts.getFirst().path("sequence").asLong());
+        });
+        assertThat(records.getLast().at("/metadata/sessionUsageSnapshot/toolInvocations").asInt()).isEqualTo(1);
+        assertThat(records).noneMatch(node -> "TOOL_CALL_COMPLETED".equals(node.path("recordType").asText())
+                && terminalType.equals("TOOL_CALL_FAILED"));
+    }
+
+    @Test
     @Order(5)
     void invalidFixturesHaveOneNamedExpectedClassification() throws Exception
     {
@@ -628,6 +681,12 @@ class ConsoleTraceFixtureCorpusTest
                 appendFrame(handle, TraceRecordType.FRAME_CLOSED, rootFrame, CLOCK.instant().plusSeconds(7));
                 attributed = terminal = new Usage(5, 3);
             }
+            case "planned-tool-success" -> executeToolLifecycleFixture(session, handle, false);
+            case "unplanned-tool-failure" ->
+            {
+                terminalFailureId = executeToolLifecycleFixture(session, handle, true);
+                outcome = "FAILED";
+            }
             case "incomplete-frame-duration" ->
             {
                 ExecutionFrame rootFrame = frame("root", null, TraceFrameType.ROOT_MISSION, "root.skill");
@@ -651,18 +710,83 @@ class ConsoleTraceFixtureCorpusTest
             default -> throw new IllegalArgumentException(name);
         }
 
+        int toolInvocations = name.equals("planned-tool-success") || name.equals("unplanned-tool-failure") ? 1 : 0;
+        SessionUsageSnapshot usageSnapshot = new SessionUsageSnapshot(
+                0, toolInvocations, 0, 0, 0,
+                terminal.promptUnits(), terminal.completionUnits(), terminal.totalUnits(),
+                0, 0, 0);
         Map<String, Object> completionDetails = new LinkedHashMap<>();
         completionDetails.put("outcome", outcome);
-        completionDetails.put("sessionUsageSnapshot", terminal.asMap());
+        completionDetails.put("sessionUsageSnapshot", toolInvocations == 1 ? usageSnapshot.toTraceMap() : terminal.asMap());
         session.finalizeTrace(new TraceCompletion(
                 TraceOutcome.valueOf(outcome),
-                new SessionUsageSnapshot(
-                        0, 0, 0, 0, 0,
-                        terminal.promptUnits(), terminal.completionUnits(), terminal.totalUnits(),
-                        0, 0, 0),
+                usageSnapshot,
                 terminalFailureId,
                 completionDetails));
         writeExpected(root, name, validExpected(name, outcome, terminalFailureId, attributed, terminal));
+    }
+
+    private static String executeToolLifecycleFixture(
+            LoomspanSession session,
+            DefaultExecutionTraceHandle handle,
+            boolean fail) throws IOException
+    {
+        String name = fail ? "unplanned-tool-failure" : "planned-tool-success";
+        ExecutionFrame root = frame("root", null, TraceFrameType.ROOT_MISSION, "handleBilling");
+        ExecutionFrame step = frame("step", "root", TraceFrameType.STEP_EXECUTION, "handleBilling#step-1");
+        ExecutionFrame tool = frame("tool", "step", TraceFrameType.TOOL_INVOCATION, "lookupCustomer");
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, root, CLOCK.instant());
+        session.pushFrame(root);
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, step, CLOCK.instant().plusSeconds(1));
+        session.pushFrame(step);
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, tool, CLOCK.instant().plusSeconds(2));
+        session.pushFrame(tool);
+
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK);
+        TaskExecutionEvent event = new TaskExecutionEvent(
+                "event-" + name,
+                "lookupCustomer",
+                fail ? null : "task-lookup",
+                ordered("arguments", ordered("customerId", "CUST-1001")),
+                fail ? "No unique ready task matched this tool call" : null);
+        if (fail)
+        {
+            stateService.logUnplannedToolCall(session, event);
+            IllegalStateException failure = fixtureFailure("customer lookup failed");
+            stateService.logToolFailure(session, new ToolTraceContext("lookupCustomer", null, true), ordered(
+                    "arguments", ordered("customerId", "CUST-1001"),
+                    "failure", ordered("message", failure.getMessage())));
+            String failureId = stateService.recordFailure(session, failure, ordered(
+                    "tool", "lookupCustomer",
+                    "message", failure.getMessage()));
+            closeFixtureToolFrames(session, handle, root, step, tool);
+            return failureId;
+        }
+
+        stateService.logToolCall(session, event);
+        stateService.logToolResult(session, new TaskExecutionEvent(
+                "event-" + name,
+                "lookupCustomer",
+                "task-lookup",
+                ordered("result", "customer-active"),
+                null));
+        closeFixtureToolFrames(session, handle, root, step, tool);
+        return null;
+    }
+
+    private static void closeFixtureToolFrames(
+            LoomspanSession session,
+            DefaultExecutionTraceHandle handle,
+            ExecutionFrame root,
+            ExecutionFrame step,
+            ExecutionFrame tool) throws IOException
+    {
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, tool, CLOCK.instant().plusSeconds(3));
+        session.popFrame();
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, step, CLOCK.instant().plusSeconds(3));
+        session.popFrame();
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, root, CLOCK.instant().plusSeconds(4));
+        session.popFrame();
     }
 
     private static void appendAttempt(
@@ -907,6 +1031,7 @@ class ConsoleTraceFixtureCorpusTest
             case "runtime-terminal-abort" -> "failure-abort";
             case "validation-exhaustion" -> "failure-validation";
             case "nonterminal-error-then-success" -> "failure-recovered";
+            case "unplanned-tool-failure" -> "failure-tool";
             default -> throw new IllegalStateException("Unexpected fixture failure for " + name);
         };
     }
@@ -970,7 +1095,7 @@ class ConsoleTraceFixtureCorpusTest
                     expectedAttempt(name, "retry-outer", "attempt-outer-1", 1),
                     expectedAttempt(name, "retry-inner", "attempt-inner-1", 1),
                     expectedAttempt(name, "retry-inner", "attempt-inner-2", 2));
-            case "incomplete-frame-duration", "overlapping-frame-duration" -> List.of();
+            case "incomplete-frame-duration", "overlapping-frame-duration", "planned-tool-success", "unplanned-tool-failure" -> List.of();
             case "missing-response-usage" -> List.of(expectedAttempt(name, "retry-1", "attempt-1", 1));
             case "nested-frame-usage" -> List.of(
                     expectedAttempt(name, "retry-framed", "attempt-framed", 1),
@@ -1070,6 +1195,10 @@ class ConsoleTraceFixtureCorpusTest
                     expectedFrame("root", null, "ROOT_MISSION", "root.skill", 8000, null, Usage.ZERO, Usage.ZERO, Usage.ZERO),
                     expectedFrame("child-1", "root", "SKILL_EXECUTION", "root.first", 4000, 4000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
                     expectedFrame("child-2", "root", "SKILL_EXECUTION", "root.second", 4000, 4000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
+            case "planned-tool-success", "unplanned-tool-failure" -> List.of(
+                    expectedFrame("root", null, "ROOT_MISSION", "handleBilling", 4000, 2000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
+                    expectedFrame("step", "root", "STEP_EXECUTION", "handleBilling#step-1", 2000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
+                    expectedFrame("tool", "step", "TOOL_INVOCATION", "lookupCustomer", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
             default -> List.of();
         };
     }

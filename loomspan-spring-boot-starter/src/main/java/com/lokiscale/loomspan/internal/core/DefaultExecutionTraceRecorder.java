@@ -7,6 +7,7 @@ import com.lokiscale.loomspan.internal.outputschema.OutputSchemaOutcomeStatus;
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageRecord;
 
 import java.time.Clock;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -82,12 +83,6 @@ public final class DefaultExecutionTraceRecorder implements ExecutionTraceRecord
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("planId", plan.planId());
         recordOnPlanFrame(session, TraceRecordType.PLAN_UPDATED, metadata, plan);
-    }
-
-    @Override
-    public void recordToolRequested(LoomspanSession session, ExecutionFrame frame, ToolTraceContext context, Object payload)
-    {
-        recordAgainstFrame(session, frame, TraceRecordType.TOOL_CALL_REQUESTED, context.metadata(), payload);
     }
 
     @Override
@@ -202,7 +197,12 @@ public final class DefaultExecutionTraceRecorder implements ExecutionTraceRecord
             safeMetadata.putAll(metadata);
         }
         safeMetadata.putIfAbsent("recordedAt", clock.instant().toString());
-        return Map.copyOf(safeMetadata);
+        safeMetadata.forEach((key, value) ->
+        {
+            Objects.requireNonNull(key, "metadata key must not be null");
+            Objects.requireNonNull(value, "metadata value must not be null");
+        });
+        return Collections.unmodifiableMap(safeMetadata);
     }
 
     private String requireNonBlank(String value, String fieldName)

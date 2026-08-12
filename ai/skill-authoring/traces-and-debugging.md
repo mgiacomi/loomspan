@@ -49,6 +49,27 @@ zero denominator has an undefined proportion, and an absent snapshot is
 unavailable; neither produces a percentage. These comparisons are not monetary
 cost, excess, correctness, importance, cause, or action recommendations.
 
+## Tool-call lifecycle
+
+`TOOL_CALL_STARTED` is the authoritative pre-invocation fact. Loomspan writes
+exactly one start after plan linkage and the `TOOL_INVOCATION` frame are
+established and immediately before capability execution. The record owns the
+event ID, capability name, arguments, optional note, and either a linked task ID
+for planned execution or `metadata.unplanned: true` with no linked task for
+unplanned execution. Unplanned means no unique ready plan task was linked; it
+does not mean the invocation was invalid or failed.
+
+`TOOL_CALL_COMPLETED` and `TOOL_CALL_FAILED` are the authoritative terminal tool
+facts. A start without either terminal fact has an unknown outcome. Authors MUST
+NOT infer success or failure from record adjacency, frame closure, or the mere
+presence of a start.
+
+Console live activity exposes a bounded tool-start summary without arguments.
+In a finalized trace, **Tool input** deliberately retrieves the complete start
+record and renders its arguments as inert text, with a mechanically resolved
+task title when the owning skill and plan history are available. A missing title
+does not invalidate the recorded task ID.
+
 ## Terminal outcome and failures
 
 The final trace record carries one outcome: `SUCCEEDED`, `FAILED`, or `ABORTED`, plus the authoritative terminal session-usage snapshot. A failed or aborted completion has a `terminalFailureId` that links to the corresponding `ERROR_RECORDED` fact. Success has no terminal failure ID. Earlier nonterminal errors can coexist with a successful outcome.
@@ -71,11 +92,14 @@ the current client integration loses them before Loomspan observes a response.
 
 ### Sensitivity and limitations
 
-Exception messages, causes, suppressed exceptions, and stack text are
+Exception messages, causes, suppressed exceptions, stack text, and tool
+arguments are
 application diagnostic content and may contain sensitive values. Loomspan does
-not secret-scan or redact this content. Access traces only through the trusted,
-authenticated local-console boundary and do not treat serialized trace formats
-as durable or cross-version application contracts.
+not secret-scan or redact this content. Tool input is loaded only after an
+explicit finalized-trace action and rendered as text; it is not promoted into
+live activity. Access traces only through the trusted, authenticated
+local-console boundary and do not treat serialized trace formats as durable or
+cross-version application contracts.
 
 ## Debugging procedure
 
@@ -85,21 +109,25 @@ as durable or cross-version application contracts.
 4. Follow validator mutation facts back to the exact attempt.
 5. Compare attributed response usage with terminal usage; treat a positive remainder as unattributed and a negative remainder as contradictory.
 6. Inspect linked error facts and frame relationships, keeping recovered errors separate from the terminal cause.
-7. Navigate from the selected failure to its originating frame, review the
+7. For a tool invocation, inspect its single `TOOL_CALL_STARTED` fact and then
+   its explicit completed or failed terminal fact. Treat a missing terminal as
+   unknown; select **Tool input** only when argument inspection is necessary.
+8. Navigate from the selected failure to its originating frame, review the
    descriptor and truncation state, then deliberately load the stack diagnostic.
-8. For limit comparison, use the finalized usage and the run-start snapshot;
+9. For limit comparison, use the finalized usage and the run-start snapshot;
    preserve unavailable and zero-denominator distinctions.
-9. For a selected frame, use its exact recorded skill names. Console links a
+10. For a selected frame, use its exact recorded skill names. Console links a
    name only when it exactly matches the current target's registered catalog,
    and displays the application-provided YAML unchanged. `sourcePath` is
    descriptive text, not a local workspace locator or provenance claim.
-10. Reproduce with the same checkout before treating a serialized-field difference as a runtime defect.
+11. Reproduce with the same checkout before treating a serialized-field difference as a runtime defect.
 
 ## Implementation and test anchors
 
 - [`ProviderAttemptCallAdvisor.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/chat/ProviderAttemptCallAdvisor.java) owns the final pre-provider attempt boundary.
 - [`ModelTraceContext.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/ModelTraceContext.java) owns retry-sequence and attempt identity.
 - [`TraceCompletion.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceCompletion.java) and [`TraceOutcome.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceOutcome.java) define terminal semantics.
+- [`DefaultToolCallbackFactory.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/runtime/tool/DefaultToolCallbackFactory.java) owns the pre-capability boundary, and `ExecutionStateServiceTest` protects canonical planned and unplanned start payloads.
 - [`ModelAttemptCallAdvisorIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/chat/ModelAttemptCallAdvisorIntegrationTest.java) protects retry cardinality, failure behavior, usage, and quota enforcement.
 - [`LoomspanSessionRunnerTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/LoomspanSessionRunnerTest.java) and [`ExecutionCoordinatorTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/runtime/ExecutionCoordinatorTest.java) protect terminal failure linkage.
 - `LoomspanSessionTest`, Go `failures.go`/diagnostic query tests, the runtime
@@ -109,7 +137,10 @@ as durable or cross-version application contracts.
 - `ObservabilityRestIntegrationTest`, Go browser fallback tests, and the `Traces`/`TraceDetail` component tests protect list/detail propagation, installed-copy restoration, and plain-text presentation.
 - [`loomspan-console-fixtures`](../../loomspan-console-fixtures/README.md) is the executable cross-language semantic corpus.
 - `ConsoleTraceFixtureCorpusTest` and Go `fixture_corpus_test.go` protect the
-  optional complete run-start snapshot and malformed-object rejection.
+  planned-success and unplanned-failure tool lifecycle, the optional complete
+  run-start snapshot, and malformed-object rejection.
+- `TraceRecords.toolInput.test.tsx` and `activityPresentation.test.ts` protect
+  deliberate inert input inspection and input-free live presentation.
 - `TraceUsage` and `TraceExplorer` component tests protect arithmetic-only
   presentation and exact registered-name navigation without interpreting YAML
   or `sourcePath`.

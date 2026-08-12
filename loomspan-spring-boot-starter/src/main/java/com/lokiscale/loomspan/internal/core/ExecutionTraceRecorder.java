@@ -28,8 +28,6 @@ public interface ExecutionTraceRecorder
 
     void recordPlanUpdated(LoomspanSession session, ExecutionPlan plan);
 
-    void recordToolRequested(LoomspanSession session, ExecutionFrame frame, ToolTraceContext context, Object payload);
-
     void recordToolStarted(LoomspanSession session, ExecutionFrame frame, ToolTraceContext context, Object payload);
 
     void recordToolCompleted(LoomspanSession session, ExecutionFrame frame, ToolTraceContext context, Object payload);

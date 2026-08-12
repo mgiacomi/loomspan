@@ -153,7 +153,7 @@ class ExecutionStateServiceTest {
     }
 
     @Test
-    void recordsRuntimeTraceEventsAgainstTheActiveFrameAndIncludesRequestedAndRootMissionTyping() throws Exception {
+    void recordsRuntimeTraceEventsAgainstTheActiveFrameAndIncludesCanonicalToolStartAndRootMissionTyping() throws Exception {
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-trace", "test.entry", 3);
 
@@ -182,10 +182,6 @@ class ExecutionStateServiceTest {
                 .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED)
                 .findFirst()
                 .orElseThrow();
-        TraceRecord toolRequested = records.stream()
-                .filter(record -> record.recordType() == TraceRecordType.TOOL_CALL_REQUESTED)
-                .findFirst()
-                .orElseThrow();
         TraceRecord toolStarted = records.stream()
                 .filter(record -> record.recordType() == TraceRecordType.TOOL_CALL_STARTED)
                 .findFirst()
@@ -200,11 +196,63 @@ class ExecutionStateServiceTest {
         assertThat(frameOpened.frameType()).isEqualTo(TraceFrameType.ROOT_MISSION);
         assertThat(modelRequest.frameId()).isEqualTo(frame.frameId());
         assertThat(modelRequest.route()).isEqualTo("rootVisibleSkill#model");
-        assertThat(toolRequested.frameId()).isEqualTo(frame.frameId());
-        assertThat(toolRequested.recordType()).isEqualTo(TraceRecordType.TOOL_CALL_REQUESTED);
         assertThat(toolStarted.frameId()).isEqualTo(frame.frameId());
         assertThat(toolStarted.recordType()).isEqualTo(TraceRecordType.TOOL_CALL_STARTED);
         assertThat(frameClosed.frameId()).isEqualTo(frame.frameId());
+    }
+
+    @Test
+    void recordsOneCanonicalStartForPlannedToolCall() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-canonical-tool-start", "test.entry", 3);
+
+        stateService.openMissionFrame(session, "rootVisibleSkill", Map.of());
+        stateService.logToolCall(session, TaskExecutionEvent.linked(
+                "allowedVisibleSkill",
+                "task-1",
+                Map.of("arguments", Map.of("value", "hello")),
+                "Invoke the planned capability."));
+
+        List<TraceRecord> toolRecords = readRecords(session).stream()
+                .filter(record -> record.recordType().name().startsWith("TOOL_CALL_"))
+                .toList();
+
+        assertThat(toolRecords).singleElement().satisfies(record -> {
+            assertThat(record.recordType()).isEqualTo(TraceRecordType.TOOL_CALL_STARTED);
+            assertThat(record.data().path("eventId").asText()).isNotBlank();
+            assertThat(record.data().path("capabilityName").asText()).isEqualTo("allowedVisibleSkill");
+            assertThat(record.data().path("linkedTaskId").asText()).isEqualTo("task-1");
+            assertThat(record.data().path("details").path("arguments").path("value").asText()).isEqualTo("hello");
+            assertThat(record.data().path("note").asText()).isEqualTo("Invoke the planned capability.");
+            assertThat(record.metadata().containsKey("unplanned")).isFalse();
+        });
+    }
+
+    @Test
+    void recordsOneCanonicalStartForUnplannedToolCall() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-unplanned-tool-start", "test.entry", 3);
+
+        stateService.openMissionFrame(session, "rootVisibleSkill", Map.of());
+        stateService.logUnplannedToolCall(session, new TaskExecutionEvent(
+                "event-unplanned",
+                "allowedVisibleSkill",
+                null,
+                Map.of("arguments", Map.of("value", "hello")),
+                "No unique ready task matched this tool call"));
+
+        assertThat(readRecords(session).stream()
+                .filter(record -> record.recordType().name().startsWith("TOOL_CALL_")))
+                .singleElement().satisfies(record -> {
+                    assertThat(record.recordType()).isEqualTo(TraceRecordType.TOOL_CALL_STARTED);
+                    assertThat(record.data().path("eventId").asText()).isEqualTo("event-unplanned");
+                    assertThat(record.data().path("linkedTaskId").isNull()).isTrue();
+                    assertThat(record.data().path("details").path("arguments").path("value").asText()).isEqualTo("hello");
+                    assertThat(record.data().path("note").asText()).isEqualTo("No unique ready task matched this tool call");
+                    assertThat(record.metadata()).containsEntry("unplanned", true).doesNotContainKey("linkedTaskId");
+                });
     }
 
     @Test
@@ -270,10 +318,6 @@ class ExecutionStateServiceTest {
 
             @Override
             public void recordPlanUpdated(LoomspanSession session, ExecutionPlan plan) {
-            }
-
-            @Override
-            public void recordToolRequested(LoomspanSession session, ExecutionFrame frame, com.lokiscale.loomspan.internal.core.ToolTraceContext context, Object payload) {
             }
 
             @Override

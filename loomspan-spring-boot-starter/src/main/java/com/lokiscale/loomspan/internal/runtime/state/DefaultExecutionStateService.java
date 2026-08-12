@@ -289,7 +289,6 @@ public class DefaultExecutionStateService implements ExecutionStateService
         TaskExecutionEvent safeEvent = Objects.requireNonNull(event, "event must not be null");
         ExecutionFrame frame = requireActiveFrame(session);
         ToolTraceContext context = toolContext(safeEvent, false);
-        traceRecorder.recordToolRequested(session, frame, context, safeEvent);
         traceRecorder.recordToolStarted(session, frame, context, safeEvent);
     }
 
@@ -300,7 +299,6 @@ public class DefaultExecutionStateService implements ExecutionStateService
         TaskExecutionEvent safeEvent = Objects.requireNonNull(event, "event must not be null");
         ExecutionFrame frame = requireActiveFrame(session);
         ToolTraceContext context = toolContext(safeEvent, true);
-        traceRecorder.recordToolRequested(session, frame, context, safeEvent);
         traceRecorder.recordToolStarted(session, frame, context, safeEvent);
     }
 

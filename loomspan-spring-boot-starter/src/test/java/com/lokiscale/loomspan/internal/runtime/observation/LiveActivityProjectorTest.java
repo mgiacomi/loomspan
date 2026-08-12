@@ -211,6 +211,27 @@ class LiveActivityProjectorTest
     }
 
     @Test
+    void toolStartActivityExcludesArgumentsAndCountsOnce()
+    {
+        LiveActivityProjector projector = new LiveActivityProjector();
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
+        LiveActivityProjector.Projection projection = projector.project(state, record(
+                TraceRecordType.TOOL_CALL_STARTED,
+                1,
+                TraceFrameType.TOOL_INVOCATION,
+                Map.of("capabilityName", "lookupCustomer", "linkedTaskId", "task-1"),
+                TextNode.valueOf("{\"details\":{\"arguments\":{\"password\":\"must-not-render\"}}}")));
+
+        assertThat(projection.snapshot().usage().toolInvocations()).isEqualTo(1);
+        assertThat(projection.activity().summary()).isEqualTo("Tool call started");
+        assertThat(projection.activity().details())
+                .containsEntry("capabilityName", "lookupCustomer")
+                .containsEntry("linkedTaskId", "task-1")
+                .doesNotContainKey("arguments");
+        assertThat(projection.activity().toString()).doesNotContain("must-not-render", "password");
+    }
+
+    @Test
     void activityDtoEnforcesTextDetailAndEnvelopeBounds()
     {
         java.util.LinkedHashMap<String, Object> thirtyTwo = new java.util.LinkedHashMap<>();

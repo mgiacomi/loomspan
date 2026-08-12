@@ -54,6 +54,16 @@ type ToolResultDetail = {
   note?: string;
   result: string;
 };
+type ToolInputDetail = {
+  kind: "tool-input";
+  capabilityName: string;
+  taskId?: string;
+  taskTitle?: string;
+  unplanned: boolean;
+  eventId: string;
+  note?: string;
+  arguments: string;
+};
 type StructuredOutputIssue = { path: string; message: string; canonicalField?: string };
 type StructuredOutputDetail = {
   kind: "structured-output";
@@ -112,7 +122,7 @@ type CompletionDetail = {
   terminalFailureId?: string;
   usage: CompletionUsage;
 };
-type RecordDetail = ToolResultDetail | StructuredOutputDetail | StepCompletedDetail | EvidenceDetail | CompletionDetail;
+type RecordDetail = ToolInputDetail | ToolResultDetail | StructuredOutputDetail | StepCompletedDetail | EvidenceDetail | CompletionDetail;
 type RecordDetailCacheEntry = { loading: boolean; error?: string; detail?: RecordDetail };
 
 function decodeBytes(range: TraceRange): Uint8Array {
@@ -493,6 +503,78 @@ async function readToolResultDetail(traceId: string, record: TraceRecord): Promi
   };
 }
 
+async function findOwningSkill(traceId: string, record: TraceRecord): Promise<string | undefined> {
+  if (!record.parentFrameId || record.sequence <= 1) return undefined;
+  let cursor: string | undefined;
+  do {
+    const page = await getTraceRecords(traceId, cursor, {
+      types: ["STEP_STARTED"],
+      frameId: record.parentFrameId,
+      maxSequence: record.sequence - 1,
+    });
+    const step = [...page.items].sort((left, right) => right.sequence - left.sequence)[0];
+    if (step) return parseStepRoute(step.route).skillName;
+    if (!page.hasMore) break;
+    if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Owning step continuation was invalid.");
+    cursor = page.nextCursor;
+  } while (true);
+
+  cursor = undefined;
+  do {
+    const page = await getTraceRecords(traceId, cursor, {
+      types: ["FRAME_OPENED"],
+      frameId: record.parentFrameId,
+      maxSequence: record.sequence - 1,
+    });
+    const parent = [...page.items].sort((left, right) => right.sequence - left.sequence)[0];
+    if (parent) {
+      if (parent.frameType === "STEP_EXECUTION") return parseStepRoute(parent.route).skillName;
+      if (parent.frameType === "MODEL_CALL") {
+        const match = /^(.*)#(?:mission-model|planning-model|step-\d+-model)$/.exec(parent.route);
+        if (match?.[1]) return match[1];
+      }
+      if ((parent.frameType === "ROOT_MISSION" || parent.frameType === "SKILL_EXECUTION") && parent.route.length > 0) {
+        return parent.route;
+      }
+      return undefined;
+    }
+    if (!page.hasMore) break;
+    if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Owning frame continuation was invalid.");
+    cursor = page.nextCursor;
+  } while (true);
+  return undefined;
+}
+
+async function readToolInputDetail(traceId: string, record: TraceRecord): Promise<ToolInputDetail> {
+  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence), "Tool input record");
+  const capabilityName = optionalNonemptyString(metadata.capabilityName) ?? optionalNonemptyString(data.capabilityName);
+  const taskId = optionalNonemptyString(metadata.linkedTaskId) ?? optionalNonemptyString(data.linkedTaskId);
+  const eventId = optionalNonemptyString(data.eventId);
+  if (!capabilityName || !eventId) throw new Error("Tool input record contained invalid identifying facts.");
+  if (metadata.unplanned !== undefined && metadata.unplanned !== true) {
+    throw new Error("Tool input record contained an invalid unplanned marker.");
+  }
+  const unplanned = metadata.unplanned === true;
+  if (unplanned && taskId) throw new Error("Unplanned tool input unexpectedly identified a plan task.");
+  if (!unplanned && !taskId) throw new Error("Planned tool input did not identify a plan task.");
+  if (!data.details || typeof data.details !== "object" || Array.isArray(data.details)) {
+    throw new Error("Tool input record did not contain input details.");
+  }
+  const details = data.details as Record<string, unknown>;
+  if (!("arguments" in details)) throw new Error("Tool input details did not contain arguments.");
+  const owningSkill = taskId ? await findOwningSkill(traceId, record) : undefined;
+  return {
+    kind: "tool-input",
+    capabilityName,
+    taskId,
+    taskTitle: taskId && owningSkill ? await findTaskTitle(traceId, record.sequence, owningSkill, taskId) : undefined,
+    unplanned,
+    eventId,
+    note: optionalNonemptyString(data.note),
+    arguments: prettyValue(details.arguments),
+  };
+}
+
 function parseStructuredOutputDetail(rawRecord: string): StructuredOutputDetail {
   const { metadata, data } = recordParts(rawRecord, "Structured output record");
   const skillName = optionalNonemptyString(data.skillName) ?? optionalNonemptyString(metadata.skillName);
@@ -717,6 +799,20 @@ function StepActionDetailView({ detail }: { detail: StepActionDetail }) {
 }
 
 function RecordDetailView({ detail, onOpenRelated, onSelectFailure }: { detail: RecordDetail; onOpenRelated: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void }) {
+  if (detail.kind === "tool-input") return <>
+    <dl className="trace-step-facts">
+      <div><dt>Tool</dt><dd>{detail.capabilityName}</dd></div>
+      <div><dt>Execution</dt><dd>{detail.unplanned ? "Unplanned" : "Planned"}</dd></div>
+      {detail.taskTitle && <div><dt>Task</dt><dd>{detail.taskTitle}</dd></div>}
+      {detail.taskId && <div><dt>Task ID</dt><dd>{detail.taskId}</dd></div>}
+      <div><dt>Event ID</dt><dd>{detail.eventId}</dd></div>
+    </dl>
+    {detail.unplanned && <p className="trace-step-note">No plan task was linked to this invocation.</p>}
+    {detail.note && <p><strong>Note:</strong> {detail.note}</p>}
+    <h5>Arguments</h5>
+    <pre>{detail.arguments}</pre>
+  </>;
+
   if (detail.kind === "tool-result") return <>
     <dl className="trace-step-facts">
       <div><dt>Tool</dt><dd>{detail.capabilityName}</dd></div>
@@ -994,8 +1090,10 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
     const existing = recordDetailCache[key];
     if (existing?.detail || existing?.loading) return;
     setRecordDetailCache((previous) => ({ ...previous, [key]: { loading: true } }));
-    const request = record.type === "TOOL_CALL_COMPLETED"
-      ? readToolResultDetail(traceId, record)
+    const request = record.type === "TOOL_CALL_STARTED"
+      ? readToolInputDetail(traceId, record)
+      : record.type === "TOOL_CALL_COMPLETED"
+        ? readToolResultDetail(traceId, record)
       : record.type === "STRUCTURED_OUTPUT_RECORDED"
         ? readCompleteRecord(traceId, record.sequence).then(parseStructuredOutputDetail)
         : record.type === "EVIDENCE_RECORDED"
@@ -1030,13 +1128,14 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
       const isModelResponse = record.type === "MODEL_RESPONSE_RECEIVED";
       const isModelRecord = isModelRequest || isModelResponse;
       const isStepStarted = record.type === "STEP_STARTED";
+      const isToolInput = record.type === "TOOL_CALL_STARTED";
       const isToolResult = record.type === "TOOL_CALL_COMPLETED";
       const isStructuredOutput = record.type === "STRUCTURED_OUTPUT_RECORDED";
       const isStepCompleted = record.type === "STEP_COMPLETED";
       const isEvidence = record.type === "EVIDENCE_RECORDED";
       const isCompletion = record.type === "TRACE_COMPLETED";
-      const hasRecordDetail = isToolResult || isStructuredOutput || isStepCompleted || isEvidence || isCompletion;
-      const recordDetailLabel = isToolResult ? "Tool result" : isStructuredOutput ? "Validation details" : isEvidence ? "Evidence details" : isCompletion ? "Completion details" : "Step result";
+      const hasRecordDetail = isToolInput || isToolResult || isStructuredOutput || isStepCompleted || isEvidence || isCompletion;
+      const recordDetailLabel = isToolInput ? "Tool input" : isToolResult ? "Tool result" : isStructuredOutput ? "Validation details" : isEvidence ? "Evidence details" : isCompletion ? "Completion details" : "Step result";
       const stepActionKind: StepActionKind | undefined = record.type === "STEP_ACTION_PROPOSED" ? "proposed"
         : record.type === "STEP_ACTION_VALIDATED" ? "validated"
           : record.type === "STEP_ACTION_REJECTED" ? "rejected"

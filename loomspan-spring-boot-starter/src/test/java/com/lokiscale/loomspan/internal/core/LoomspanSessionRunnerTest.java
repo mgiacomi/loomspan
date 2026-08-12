@@ -225,7 +225,7 @@ class LoomspanSessionRunnerTest {
             Future<String> first = executor.submit(() -> sessionRunner.callWithNewSession("test.entry", session -> {
                 ExecutionPlan plan = plan("plan-first");
                 appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:00Z"), Map.of("planId", plan.planId()), plan);
-                appendRecord(session, TraceRecordType.TOOL_CALL_REQUESTED, Instant.parse("2026-03-15T12:00:01Z"), Map.of(), Map.of("route", "tool.one"));
+                appendRecord(session, TraceRecordType.TOOL_CALL_STARTED, Instant.parse("2026-03-15T12:00:01Z"), Map.of(), Map.of("route", "tool.one"));
                 return session.getSessionId()
                         + ":"
                         + session.getJournalSnapshot().size()

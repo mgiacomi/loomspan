@@ -747,6 +747,13 @@ Records presents canonical records in sequence order. It supports filtering by s
 
 Records not consumed by Go semantic calculations remain available as opaque diagnostic JSON under the current-release trace agreement. Their presence does not cause the browser to invent a typed interpretation.
 
+`TOOL_CALL_STARTED` has one explicit **Tool input** action in finalized traces.
+The action retrieves the complete record only when selected and presents the
+capability, planned or unplanned linkage, recorded task ID and mechanically
+available title, event ID, optional note, and inertly rendered arguments. The
+start does not establish an outcome; completion and failure remain separate
+terminal tool records, and missing terminal evidence remains unknown.
+
 ### Progressive detail
 
 Trace information uses three disclosure layers:

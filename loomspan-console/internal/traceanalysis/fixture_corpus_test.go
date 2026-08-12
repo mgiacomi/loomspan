@@ -138,6 +138,71 @@ func TestFixtureCorpusMatchesJavaExpectedSemantics(t *testing.T) {
 	}
 }
 
+func TestToolLifecycleFixturesExposeOneCanonicalStartAndTerminalRecord(t *testing.T) {
+	root := fixtureRoot(t)
+	cases := []struct {
+		name         string
+		terminalType string
+		outcome      string
+	}{
+		{name: "planned-tool-success", terminalType: string(RecordToolCallCompleted), outcome: "SUCCEEDED"},
+		{name: "unplanned-tool-failure", terminalType: string(RecordToolCallFailed), outcome: "FAILED"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(root, "traces", tc.name+".ndjson"))
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			sink := &fakeSink{}
+			_, domain := New().Process(artifact.ProcessRequest{
+				Context: context.Background(),
+				Metadata: artifact.TraceMetadata{
+					TraceID: "trace-" + tc.name, SessionID: "session-" + tc.name, Outcome: tc.outcome,
+				},
+				Raw: bytesReader(raw), Sink: sink,
+			})
+			if domain != nil {
+				t.Fatalf("process fixture: %v", domain)
+			}
+
+			lines := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+			index := sink.components[artifact.ComponentName(ComponentRecordIndex)]
+			if got, want := len(index)/recordIndexRowWidth, len(lines); got != want {
+				t.Fatalf("record index reachability: got %d rows, want %d", got, want)
+			}
+
+			var starts, terminals []map[string]any
+			for position, line := range lines {
+				row := readRecordIndexRow(index[position*recordIndexRowWidth : (position+1)*recordIndexRowWidth])
+				var record map[string]any
+				if err := json.Unmarshal(line, &record); err != nil {
+					t.Fatalf("parse indexed record %d: %v", position, err)
+				}
+				if row.Sequence != int64(record["sequence"].(float64)) {
+					t.Fatalf("indexed sequence %d did not match record", row.Sequence)
+				}
+				switch record["recordType"] {
+				case string(RecordToolCallStarted):
+					starts = append(starts, record)
+				case tc.terminalType:
+					terminals = append(terminals, record)
+				}
+			}
+			if len(starts) != 1 || len(terminals) != 1 {
+				t.Fatalf("got %d starts and %d %s records", len(starts), len(terminals), tc.terminalType)
+			}
+			if starts[0]["frameId"] != terminals[0]["frameId"] {
+				t.Fatalf("start and terminal frame identity differed")
+			}
+			if starts[0]["sequence"].(float64) >= terminals[0]["sequence"].(float64) {
+				t.Fatalf("terminal did not follow start")
+			}
+		})
+	}
+}
+
 // buildAnalysisResultFromSink reads the manifest and every fact index from the
 // fake sink and assembles a complete analysisResult for comparison against the
 // committed expected file.

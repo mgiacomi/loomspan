@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +36,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class LoomspanSessionTest {
+
+    @Test
+    void rejectsNullTraceMetadataValues() {
+        LoomspanSession session = TestLoomspanSessions.withId("null-trace-metadata", "test.entry", 3);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("capabilityName", "lookupCustomer");
+        metadata.put("linkedTaskId", null);
+
+        assertThatThrownBy(() -> session.appendTraceRecord(TraceRecordType.TOOL_CALL_STARTED, metadata, Map.of()))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("metadata value");
+    }
 
     @Test
     void journalProjectionFailureUsesCanonicalDiagnosticRecorder() throws Exception {
@@ -292,7 +305,7 @@ class LoomspanSessionTest {
         appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:00Z"), Map.of("planId", plan.planId()), plan);
         appendRecord(
                 session,
-                TraceRecordType.TOOL_CALL_REQUESTED,
+                TraceRecordType.TOOL_CALL_STARTED,
                 Instant.parse("2026-03-15T12:00:01Z"),
                 Map.of(),
                 Map.of("route", "tool.run", "arguments", Map.of("id", 42)));
@@ -320,7 +333,7 @@ class LoomspanSessionTest {
         appendRecord(session, TraceRecordType.PLAN_CREATED, Instant.parse("2026-03-15T12:00:00Z"), Map.of("planId", plan.planId()), plan);
         appendRecord(
                 session,
-                TraceRecordType.TOOL_CALL_REQUESTED,
+                TraceRecordType.TOOL_CALL_STARTED,
                 Instant.parse("2026-03-15T12:00:01Z"),
                 Map.of("capabilityName", "tool.run", "linkedTaskId", "task-1"),
                 TaskExecutionEvent.linked("tool.run", "task-1", Map.of("arguments", Map.of("id", 42)), null));
