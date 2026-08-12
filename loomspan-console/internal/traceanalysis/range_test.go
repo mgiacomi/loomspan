@@ -102,7 +102,7 @@ func TestServiceReadRawRecordRange(t *testing.T) {
 		Source:         RangeSourceRawRecord,
 		RecordSequence: 1,
 		Start:          0,
-		MaxBytes:       100,
+		MaxBytes:       maxRangeBytes,
 	})
 	if domain != nil {
 		t.Fatalf("ReadRawRecordRange failed: %v", domain)
@@ -115,6 +115,16 @@ func TestServiceReadRawRecordRange(t *testing.T) {
 	}
 	if len(result.Content) == 0 {
 		t.Fatal("expected non-empty content")
+	}
+	want := minimalValidTrace[:strings.IndexByte(minimalValidTrace, '\n')]
+	if got := string(result.Content); got != want {
+		t.Fatalf("raw record crossed its physical boundary:\ngot:  %q\nwant: %q", got, want)
+	}
+	if result.ActualEnd != result.TotalLength {
+		t.Fatalf("expected complete record ending at %d, got %d", result.TotalLength, result.ActualEnd)
+	}
+	if result.HasMore {
+		t.Fatal("expected no continuation after the complete record")
 	}
 }
 

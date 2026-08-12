@@ -239,7 +239,8 @@ func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifac
 }
 
 // resolveRangeBounds resolves the start offset and max bytes for a range
-// request, applying defaults and clamping to maxRangeBytes. Cursor validation
+// request, applying defaults and clamping to both maxRangeBytes and the
+// remaining bytes in the selected source. Cursor validation
 // (op, scope, fingerprint) is handled by the caller before this function is
 // reached: the public Read*Range methods call prepareCursor before lease
 // acquisition and validateCursorFingerprint after, following the required
@@ -262,6 +263,10 @@ func resolveRangeBounds(scopeID target.ScopeID, req RangeRequest, totalLength in
 	}
 	if start > totalLength {
 		start = totalLength
+	}
+	remaining := totalLength - start
+	if int64(maxBytes) > remaining {
+		maxBytes = int(remaining)
 	}
 	return start, maxBytes, nil
 }
