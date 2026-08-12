@@ -8,7 +8,7 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const pom = fs.readFileSync(path.resolve(currentDirectory, "../../..", "pom.xml"), "utf8");
 const expectedVersion = pom.match(/<project[\s\S]*?<version>([^<]+)<\/version>/)?.[1];
 
-test("embedded shell serves root, deep link, version, theme, and assets", async ({ page, request, consoleProcess }) => {
+test("embedded shell serves root, deep link, runtime version, theme, and assets", async ({ page, request, consoleProcess }) => {
   const forbidden: string[] = [];
   page.on("request", (current) => {
     if (current.url().includes("/_loomspan/observability/")) forbidden.push(current.url());
@@ -18,7 +18,7 @@ test("embedded shell serves root, deep link, version, theme, and assets", async 
   await expect(page.getByRole("heading", { name: "loomspan Console" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Instance Overview", exact: true })).toBeVisible();
   await expectNoSeriousAccessibilityViolations(page);
-  await expect(page.getByTestId("build-version")).toHaveText(expectedVersion ?? "");
+  await expect(page.getByTestId("console-version")).toHaveText(expectedVersion ?? "");
   expect(entryResponse?.headers()["cache-control"]).toBe("no-store");
 
   const scriptSource = await page.locator('script[type="module"]').getAttribute("src");

@@ -81,13 +81,13 @@ export function TraceFailureDiagnostic({ traceId, failure, scopeGeneration = 0, 
       setError("Diagnostic could not be copied.");
     }
   };
-  return <section aria-label="Failure diagnostics">
+  return <section className="failure-diagnostics" aria-label="Failure diagnostics">
     <h4>{failure.terminal ? "Terminal failure" : "Recovered failure"}</h4>
     {failure.exceptionType && <p><code>{failure.exceptionType}</code>{failure.contextSummary && ` - ${failure.contextSummary}`}</p>}
-    {diagnostics.length === 0 ? <p>No diagnostic text was recorded.</p> : <ul>{diagnostics.map((descriptor) => <li key={descriptor.ordinal}>
+    {diagnostics.length === 0 ? <p>No diagnostic text was recorded.</p> : <ul className="failure-diagnostic-list">{diagnostics.map((descriptor) => <li key={descriptor.ordinal}>
       <span>{descriptor.kind === "JAVA_STACK_TRACE" ? "Java stack trace" : `Text diagnostic (${descriptor.kind})`} / {descriptor.contentType} / {descriptor.decodedBytes} bytes</span>
       {descriptor.truncated && <strong> / truncated</strong>}
-      {" "}<button type="button" disabled={loading} onClick={() => void load(descriptor.ordinal)}>{loading && selected === descriptor.ordinal ? "Loading diagnostic..." : `Load diagnostic ${descriptor.ordinal + 1}`}</button>
+      {" "}<button className="failure-diagnostic-action" type="button" disabled={loading} onClick={() => void load(descriptor.ordinal)}>{loading && selected === descriptor.ordinal ? "Loading diagnostic..." : `Load diagnostic ${descriptor.ordinal + 1}`}</button>
     </li>)}</ul>}
     {error && <p role="alert">{error}</p>}
     {status && <p role="status">{status}</p>}

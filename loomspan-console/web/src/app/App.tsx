@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { NavLink, Outlet } from "react-router";
-import type { BuildMetadata } from "./metadata";
 import { ThemeSelect } from "./ThemeSelect";
 import { PairingPage } from "../security/PairingPage";
 import { useBrowserSession } from "../security/BrowserSessionProvider";
@@ -9,7 +8,7 @@ import { ObservabilityProvider, useObservability } from "../observability/Observ
 import { ActivityProvider } from "../activity/ActivityProvider";
 import type { InstanceStatus } from "../api/contracts";
 
-export function App({ metadata }: { metadata: BuildMetadata }) {
+export function App() {
   const session = useBrowserSession();
   return (
     <div className="app-frame">
@@ -58,9 +57,9 @@ export function App({ metadata }: { metadata: BuildMetadata }) {
         ) : (
           <span />
         )}
-        <span className="build-meta">
-          Build <code data-testid="build-version">{metadata.version}</code>
-        </span>
+        {session.status === "paired" ? <span className="build-meta">
+          Console <code data-testid="console-version">{session.bootstrap.consoleVersion}</code>
+        </span> : <span />}
       </footer>
     </div>
   );

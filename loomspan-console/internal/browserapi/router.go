@@ -11,6 +11,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 )
@@ -256,11 +257,12 @@ func (router *Router) bootstrap(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]any{
-		"processId":     router.options.ProcessID,
-		"workspacePath": router.options.Workspace,
-		"tabId":         result.TabID,
-		"csrfToken":     result.CSRF,
-		"target":        targetResponse(router.targetSnapshot()),
+		"processId":      router.options.ProcessID,
+		"consoleVersion": release.ProductVersion(),
+		"workspacePath":  router.options.Workspace,
+		"tabId":          result.TabID,
+		"csrfToken":      result.CSRF,
+		"target":         targetResponse(router.targetSnapshot()),
 	})
 }
 

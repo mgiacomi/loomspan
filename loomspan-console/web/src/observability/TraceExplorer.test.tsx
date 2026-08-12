@@ -241,6 +241,7 @@ test("failure focus selects the recorded terminal failure and never loads raw pa
   api.getTraceFailures.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "recovered", terminal: false, sequence: 3, timestampMillis: 3, recordType: "ERROR_RECORDED", frameId: "", route: "", attemptId: "", retrySequenceId: "", validationStatus: "" }], hasMore: true, nextCursor: "failure-next" }).mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "terminal-1", terminal: true, sequence: 119, timestampMillis: 119, recordType: "ERROR_RECORDED", frameId: "f-1", route: "hello", attemptId: "a-1", retrySequenceId: "r-1", validationStatus: "exhausted" }], hasMore: false, nextCursor: null });
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Terminal failure evidence" })).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Trace failure details" })).toHaveClass("trace-failure-panel");
   await screen.findByText("ERROR_RECORDED sequence 119");
   await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=f-1"));
   expect(screen.getByText(/does not identify root cause/)).toBeInTheDocument();
@@ -248,6 +249,17 @@ test("failure focus selects the recorded terminal failure and never loads raw pa
   expect(api.getRawRecordRange).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Show in hierarchy" }));
   await vi.waitFor(() => expect(screen.getByRole("button", { name: /SKILL: hello/ })).toHaveFocus());
+});
+
+test("view error from the exact failure record focuses the failure panel", async () => {
+  api.getTraceAnalysisSummary.mockResolvedValueOnce({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "FAILED", terminalFailureId: "terminal-1", recordCount: 15, frameCount: 1, attemptCount: 1, retryCount: 1, validationCount: 0, failureCount: 1, payloadCount: 1, gapCount: 0, uncertaintyCount: 0, rootFrameIds: ["f-1"], usageComplete: false, configuredLimits: null });
+  api.getTraceRecords.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ sequence: 15, type: "ERROR_RECORDED", frameId: "f-1", route: "hello", timestampMillis: 15, representation: "LOGICAL", payloadId: "p-1" }], hasMore: false, nextCursor: null });
+  api.getTraceFailures.mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "terminal-1", terminal: true, sequence: 15, timestampMillis: 15, recordType: "ERROR_RECORDED", frameId: "f-1", route: "hello", attemptId: "a-1", retrySequenceId: "r-1", validationStatus: "" }], hasMore: false, nextCursor: null });
+  render(<MemoryRouter initialEntries={["/?view=records"]}><TraceExplorer traceId="trace-1" /></MemoryRouter>);
+
+  fireEvent.click(await screen.findByRole("button", { name: "View error" }));
+
+  expect(screen.getByRole("region", { name: "Trace failure details" })).toHaveFocus();
 });
 
 test("selected frames link only exact current registered skill names", async () => {

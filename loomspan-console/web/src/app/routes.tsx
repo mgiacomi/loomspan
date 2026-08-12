@@ -9,13 +9,12 @@ import { ActiveExecutionDetailView } from "../observability/ActiveExecutionDetai
 import { Traces } from "../observability/Traces";
 import { TraceDetailView } from "../observability/TraceDetail";
 import { TraceStorage } from "../observability/TraceStorage";
-import { buildMetadata, type BuildMetadata } from "./metadata";
 
-function definitions(metadata: BuildMetadata) {
+function definitions() {
   return [
     {
       path: "/",
-      element: <App metadata={metadata} />,
+      element: <App />,
       children: [
         { index: true, element: <ObservabilityOverview /> },
         { path: "target", element: <Overview /> },
@@ -33,9 +32,9 @@ function definitions(metadata: BuildMetadata) {
 }
 
 export function browserRouter() {
-  return createBrowserRouter(definitions(buildMetadata));
+  return createBrowserRouter(definitions());
 }
 
-export function memoryRouter(path: string, metadata: BuildMetadata) {
-  return createMemoryRouter(definitions(metadata), { initialEntries: [path] });
+export function memoryRouter(path: string) {
+  return createMemoryRouter(definitions(), { initialEntries: [path] });
 }

@@ -37,7 +37,7 @@ func (realRunner) run(current phase, context pipelineContext) error {
 	case phaseCleanAssets:
 		return cleanGeneratedAssets(context.paths)
 	case phaseViteBuild:
-		return runCommand(context.paths.web, []string{"VITE_LOOMSPAN_VERSION=" + context.productVersion}, "npm", "run", "build:web")
+		return runCommand(context.paths.web, nil, "npm", "run", "build:web")
 	case phaseGenerateManifest:
 		return generateManifest(context.paths.generated, context.productVersion)
 	case phaseVerifyManifest:

@@ -16,7 +16,9 @@ beforeEach(() => {
 test("loads a selected diagnostic deliberately and keeps text inert", async () => {
   render(<TraceFailureDiagnostic traceId="trace-1" failure={failure} />);
   expect(api.getTraceFailureDiagnostic).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Load diagnostic 1" }));
+  const loadButton = screen.getByRole("button", { name: "Load diagnostic 1" });
+  expect(loadButton).toHaveClass("failure-diagnostic-action");
+  fireEvent.click(loadButton);
   expect(await screen.findByText(/<script>x<\/script>/)).toBeInTheDocument();
   expect(document.querySelector("script")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Disable wrapping" }));

@@ -14,17 +14,18 @@ import (
 )
 
 type fixtureBootstrap struct {
-	ProcessID     string    `json:"processId"`
-	WorkspacePath string    `json:"workspacePath"`
-	TabID         string    `json:"tabId"`
-	CSRFToken     string    `json:"csrfToken"`
-	Target        targetDTO `json:"target"`
+	ProcessID      string    `json:"processId"`
+	ConsoleVersion string    `json:"consoleVersion"`
+	WorkspacePath  string    `json:"workspacePath"`
+	TabID          string    `json:"tabId"`
+	CSRFToken      string    `json:"csrfToken"`
+	Target         targetDTO `json:"target"`
 }
 
 func TestBrowserTargetFixtureCorpusMatchesCommittedInventoryByteForByte(t *testing.T) {
 	observed := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
 	scope := "11111111-1111-4111-8111-111111111111"
-	base := fixtureBootstrap{ProcessID: "process-1", WorkspacePath: `C:\workspace`, TabID: "tab-1", CSRFToken: "csrf-1"}
+	base := fixtureBootstrap{ProcessID: "process-1", ConsoleVersion: "0.1.0-SNAPSHOT", WorkspacePath: `C:\workspace`, TabID: "tab-1", CSRFToken: "csrf-1"}
 	noTarget := base
 	noTarget.Target = targetDTO{Status: consolecore.NoTargetStatus(observed)}
 	required := base

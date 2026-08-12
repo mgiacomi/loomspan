@@ -517,6 +517,58 @@ input,
   line-height: 1.5;
 }
 
+.trace-failure-panel {
+  margin-block: 0.875rem 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--bf-danger) 65%, var(--bf-border));
+  border-left: 0.3rem solid var(--bf-danger);
+  border-radius: var(--bf-radius-lg);
+  background: color-mix(in srgb, var(--bf-danger) 8%, var(--bf-surface));
+}
+
+.failure-focus > h4 {
+  margin-top: 0;
+  color: var(--bf-danger);
+}
+
+.trace-failure-panel .status-grid div {
+  border-color: color-mix(in srgb, var(--bf-danger) 25%, var(--bf-border));
+  background: color-mix(in srgb, var(--bf-danger) 4%, var(--bf-sunken));
+}
+
+.failure-diagnostics {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--bf-danger) 35%, var(--bf-border));
+}
+
+.failure-diagnostics > h4 {
+  margin-top: 0;
+  color: var(--bf-danger);
+}
+
+.failure-diagnostic-list {
+  padding-left: 1.25rem;
+}
+
+.failure-diagnostic-list li {
+  margin-block: 0.5rem;
+}
+
+.failure-diagnostic-action,
+.trace-error-action {
+  border-color: var(--bf-danger);
+  background: var(--bf-danger);
+  color: var(--bf-surface);
+}
+
+.failure-diagnostic-action:hover:not(:disabled),
+.trace-error-action:hover:not(:disabled) {
+  border-color: var(--bf-danger);
+  background: color-mix(in srgb, var(--bf-danger) 82%, var(--bf-text));
+  color: var(--bf-surface);
+}
+
 .trace-explorer [role="tree"] {
   list-style: none;
   padding: 0;
@@ -581,6 +633,15 @@ input,
   text-align: start;
 }
 
+.trace-table-region tr.trace-record-error > td {
+  border-bottom-color: color-mix(in srgb, var(--bf-danger) 35%, var(--bf-border));
+  background: color-mix(in srgb, var(--bf-danger) 9%, var(--bf-surface));
+}
+
+.trace-table-region tr.trace-record-error > td:first-child {
+  border-left: 0.25rem solid var(--bf-danger);
+}
+
 .trace-table-region tr:last-child td,
 .trace-explorer table tr:last-child td {
   border-bottom: 0;
@@ -614,6 +675,17 @@ input,
   .trace-explorer [role="treeitem"][aria-selected="true"],
   .trace-explorer tr[aria-current="true"],
   .trace-timeline-row[aria-current="true"] { outline-color: Highlight; }
+  .trace-failure-panel,
+  .trace-table-region tr.trace-record-error > td {
+    border-color: CanvasText;
+  }
+  .failure-diagnostic-action,
+  .trace-error-action {
+    border-color: Highlight;
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
 }
 
 .observability-nav {

@@ -17,11 +17,6 @@ const generatedDirectory = path.resolve(
 
 export function createViteConfig(input: ConfigInput): UserConfig {
   const production = input.command === "build";
-  const version = input.environment.VITE_LOOMSPAN_VERSION;
-  if (production && (!version || version.includes("${") || version === "development")) {
-    throw new Error("VITE_LOOMSPAN_VERSION must be the exact resolved Loomspan product version");
-  }
-
   const config: UserConfig = {
     plugins: [react(), tailwindcss()],
     build: {

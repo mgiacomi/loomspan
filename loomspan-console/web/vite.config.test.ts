@@ -2,15 +2,8 @@ import { describe, expect, test } from "vitest";
 import { createViteConfig, validateLoopbackOrigin } from "./vite.config";
 
 describe("Vite configuration", () => {
-  test("production config requires exact Loomspan version", () => {
-    expect(() => createViteConfig({ command: "build", mode: "production", environment: {} })).toThrow(
-      "VITE_LOOMSPAN_VERSION",
-    );
-    const config = createViteConfig({
-      command: "build",
-      mode: "production",
-      environment: { VITE_LOOMSPAN_VERSION: "0.1.0-SNAPSHOT" },
-    });
+  test("production config emits embedded assets without frontend version injection", () => {
+    const config = createViteConfig({ command: "build", mode: "production", environment: {} });
     expect(config.build?.target).toBe("baseline-widely-available");
     expect(config.build?.manifest).toBe(true);
     expect(config.server).toBeUndefined();

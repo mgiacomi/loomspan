@@ -71,6 +71,7 @@ export type ErrorEnvelope = {
 
 export type BootstrapResponse = {
   processId: string;
+  consoleVersion: string;
   workspacePath: string;
   tabId: string;
   csrfToken: string;

@@ -354,10 +354,15 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     tabs?.[nextIndex]?.focus();
   };
   const [failureFocusRequest, setFailureFocusRequest] = useState<{ view: TraceExplorerView; token: number }>();
+  const [failurePanelFocusRequest, setFailurePanelFocusRequest] = useState(0);
   const showFailureView = useCallback((view: TraceExplorerView) => {
     setFailureFocusRequest((current) => ({ view, token: (current?.token ?? 0) + 1 }));
     select({ view, failureId: effectiveFailureId });
   }, [effectiveFailureId, select]);
+  const viewFailure = useCallback((failureId: string) => {
+    select({ failureId });
+    setFailurePanelFocusRequest((request) => request + 1);
+  }, [select]);
   useEffect(() => {
     if (!failureFocusRequest || failureFocusRequest.view !== state.view) return;
     const frameButton = state.view === "hierarchy" && state.frameId
@@ -367,14 +372,22 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     (frameButton ?? document.getElementById(`trace-panel-${state.view}`))?.focus();
     setFailureFocusRequest(undefined);
   }, [failureFocusRequest, frames, state.frameId, state.view]);
+  useEffect(() => {
+    if (failurePanelFocusRequest === 0) return;
+    document.getElementById("trace-failure-panel")?.focus();
+    setFailurePanelFocusRequest(0);
+  }, [failurePanelFocusRequest, selectedFailure]);
+  const hasFailurePanel = Boolean(((summary?.outcome === "FAILED" || summary?.outcome === "ABORTED") && summary.terminalFailureId) || selectedFailure);
 
   return <section className="trace-explorer" aria-labelledby="trace-explorer-title">
     <h3 id="trace-explorer-title">Trace explorer</h3>
     <div aria-live="polite" aria-atomic="true">{error && <p className="target-error" role="alert">{error}</p>}</div>
     {!summary ? <p role="status">Loading trace evidence…</p> : <>
       <p>{summary.outcome} · {summary.frameCount} frames · {summary.recordCount} records{!summary.usageComplete && " · usage incomplete"}</p>
-      <TraceFailureFocus summary={summary} failure={selectedFailure} frame={selectedFrame} onView={showFailureView} />
-      <TraceFailureDiagnostic traceId={traceId} failure={selectedFailure} scopeGeneration={scopeGeneration} verifyScope={verifyScope} />
+      {hasFailurePanel && <section id="trace-failure-panel" className="trace-failure-panel" aria-label="Trace failure details" tabIndex={-1}>
+        <TraceFailureFocus summary={summary} failure={selectedFailure} frame={selectedFrame} onView={showFailureView} />
+        <TraceFailureDiagnostic traceId={traceId} failure={selectedFailure} scopeGeneration={scopeGeneration} verifyScope={verifyScope} />
+      </section>}
       {breadcrumbs.length > 0 && <nav aria-label="Selected frame breadcrumbs">{breadcrumbs.map((frame, index) => <span key={frame.frameId}>{index > 0 && " / "}<button type="button" onClick={() => selectFrame(frame.frameId)}>{frame.route || frame.frameId}</button></span>)}</nav>}
       {selectedFrame && <section aria-labelledby="selected-frame-skills"><h4 id="selected-frame-skills">Recorded skill names</h4>{(selectedFrame.skillNames?.length ?? 0) === 0 ? <p>No recorded skill name is associated with this frame.</p> : <ul>{selectedFrame.skillNames.map((name) => <li key={name}>{registeredSkills?.has(name) ? <Link to={scopeBoundPath(`/skills/${encodeURIComponent(name)}`, currentScopeID)}>{name}</Link> : <><code>{name}</code> <span>not in current registered catalog</span></>}</li>)}</ul>}</section>}
       <div role="tablist" aria-label="Trace evidence views">{views.map((view, index) => <button id={`trace-tab-${view}`} aria-controls={`trace-panel-${view}`} key={view} type="button" role="tab" tabIndex={state.view === view ? 0 : -1} aria-selected={state.view === view} onKeyDown={(event) => handleTabKey(event, index)} onClick={() => select({ view })}>{view[0].toUpperCase() + view.slice(1)}</button>)}</div>
@@ -385,7 +398,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
         {state.view === "records" && <>
           <form onSubmit={(event) => { event.preventDefault(); search(); }}><label>Literal search <input value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label><button type="submit" disabled={!searchText || pending.has("search")}>Search</button></form>
           {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p><ol>{searchResults.items.map((match) => <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> · {match.searchedField} bytes {match.matchOffset}–{match.matchOffset + match.matchLength}</li>)}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => loadMore("search-page", searchResults, (cursor) => searchTraceEvidence(traceId, searchText, cursor), setSearchResults)}>Load more matches</button>}</section>}
-          <TraceRecords records={records?.items ?? []} attempts={attempts?.items ?? []} retries={retries?.items ?? []} failures={failures?.items ?? []} validations={validations?.items ?? []} gaps={gaps?.items ?? []} uncertainties={uncertainties?.items ?? []} payloads={payloads?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={(failureId) => select({ failureId })} onRelatedFrame={selectRelatedFrame} onRaw={readRaw} onPayload={readPayload} />
+          <TraceRecords traceId={traceId} records={records?.items ?? []} attempts={attempts?.items ?? []} retries={retries?.items ?? []} failures={failures?.items ?? []} validations={validations?.items ?? []} gaps={gaps?.items ?? []} uncertainties={uncertainties?.items ?? []} payloads={payloads?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onRaw={readRaw} onPayload={readPayload} />
           <div className="trace-continuations" role="group" aria-label="Additional evidence pages">
             {records?.hasMore && <button type="button" disabled={pending.has("records")} onClick={() => loadMore("records", records, (cursor) => getTraceRecords(traceId, cursor), setRecords)}>Load more records</button>}
             {factContinuation("attempts", "attempts", attempts, (cursor) => getTraceAttempts(traceId, cursor), setAttempts)}

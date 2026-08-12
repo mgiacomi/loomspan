@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/browserauth"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 )
 
 func TestPairingBootstrapAndProtectedPairingLink(t *testing.T) {
@@ -41,11 +42,15 @@ func TestPairingBootstrapAndProtectedPairingLink(t *testing.T) {
 		t.Fatalf("bootstrap=%d %s", bootstrap.Code, bootstrap.Body.String())
 	}
 	var state struct {
-		TabID string `json:"tabId"`
-		CSRF  string `json:"csrfToken"`
+		ConsoleVersion string `json:"consoleVersion"`
+		TabID          string `json:"tabId"`
+		CSRF           string `json:"csrfToken"`
 	}
 	if err := json.Unmarshal(bootstrap.Body.Bytes(), &state); err != nil {
 		t.Fatal(err)
+	}
+	if state.ConsoleVersion != release.ProductVersion() {
+		t.Fatalf("consoleVersion=%q", state.ConsoleVersion)
 	}
 	linkRequest := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7943/api/console/v1/pairing/link", strings.NewReader(`{}`))
 	linkRequest.Host = "127.0.0.1:7943"
