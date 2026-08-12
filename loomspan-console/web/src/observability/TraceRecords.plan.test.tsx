@@ -1,12 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { getRawRecordRange } from "../api/client";
+import { getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRecord, TraceRange } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
-vi.mock("../api/client", () => ({ getRawRecordRange: vi.fn() }));
+vi.mock("../api/client", () => ({ getRawRecordRange: vi.fn(), getTraceRecords: vi.fn() }));
 
 const getRawRecordRangeMock = vi.mocked(getRawRecordRange);
+const getTraceRecordsMock = vi.mocked(getTraceRecords);
 const record: TraceRecord = {
   sequence: 7,
   type: "PLAN_CREATED",
@@ -42,7 +43,10 @@ function renderPlanRecord() {
   fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
 }
 
-beforeEach(() => getRawRecordRangeMock.mockReset());
+beforeEach(() => {
+  getRawRecordRangeMock.mockReset();
+  getTraceRecordsMock.mockReset();
+});
 
 test("loads every raw-record range and pretty prints only the plan data", async () => {
   const plan = { planId: "plan-1", tasks: [{ taskId: "task-1", title: "Friendly title" }] };
@@ -78,4 +82,51 @@ test("reports malformed plan records without displaying a truncated fallback", a
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Plan could not be displayed");
   expect(screen.queryByText("{not-json")).toBeNull();
+});
+
+test("summarizes a plan update against the latest earlier snapshot with the same plan ID", async () => {
+  const updatedRecord = { ...record, sequence: 41, type: "PLAN_UPDATED" };
+  const previousRecord = { ...record, sequence: 26 };
+  const interleavedRecord = { ...record, sequence: 35 };
+  const previousPlan = {
+    planId: "plan-1",
+    capabilityName: "resolveSupportCase",
+    status: "VALID",
+    activeTaskId: null,
+    tasks: [{ taskId: "task-understand", title: "Understand intent", intent: "Extract support intent from the customer message.", status: "PENDING", note: null }],
+  };
+  const currentPlan = {
+    ...previousPlan,
+    activeTaskId: "task-understand",
+    tasks: [{ taskId: "task-understand", title: "Understand intent", status: "IN_PROGRESS", note: "Starting tool understandIntent" }],
+  };
+  const nestedPlan = { planId: "nested-plan", tasks: [] };
+  getTraceRecordsMock.mockResolvedValue({
+    targetScopeId: "scope-1",
+    items: [previousRecord, interleavedRecord],
+    hasMore: false,
+    nextCursor: null,
+  });
+  getRawRecordRangeMock.mockImplementation((_traceId, sequence) => {
+    const plan = sequence === 41 ? currentPlan : sequence === 35 ? nestedPlan : previousPlan;
+    return Promise.resolve(range(JSON.stringify({ data: plan })));
+  });
+
+  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onRaw={vi.fn()} onPayload={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "View changes" }));
+
+  const changes = await screen.findByRole("region", { name: "Plan changes" });
+  expect(changes).toHaveTextContent("Changes since record 26");
+  expect(changes).toHaveTextContent(/Active task:.*None.*Understand intent/);
+  expect(changes).toHaveTextContent("Extract support intent from the customer message.");
+  expect(changes).toHaveTextContent(/Status:.*Pending.*In progress/);
+  expect(changes).toHaveTextContent(/Note:.*None.*Starting tool understandIntent/);
+  expect(getTraceRecordsMock).toHaveBeenCalledWith("trace-1", undefined, {
+    types: ["PLAN_CREATED", "PLAN_UPDATED"],
+    maxSequence: 40,
+  });
+  expect(getRawRecordRangeMock.mock.calls.map((call) => call[1])).toEqual([41, 35, 26]);
+
+  fireEvent.click(screen.getByRole("tab", { name: "Full plan" }));
+  expect(screen.getByRole("tabpanel")).toHaveTextContent(JSON.stringify(currentPlan, null, 2), { normalizeWhitespace: false });
 });

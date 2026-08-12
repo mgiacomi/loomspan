@@ -1,12 +1,25 @@
 import { Fragment, useState } from "react";
-import { getRawRecordRange } from "../api/client";
+import type { KeyboardEvent } from "react";
+import { getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRange } from "../api/contracts";
 import type { TraceAttempt, TraceFailure, TraceGap, TracePayload, TraceRecord, TraceRetry, TraceUncertainty, TraceValidation } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
+import { comparePlans, toPlanSnapshot } from "./planComparison";
+import type { PlanComparison, PlanSnapshot } from "./planComparison";
 
 type Props = { traceId?: string; records: TraceRecord[]; attempts: TraceAttempt[]; retries: TraceRetry[]; failures: TraceFailure[]; validations: TraceValidation[]; gaps: TraceGap[]; uncertainties: TraceUncertainty[]; payloads: TracePayload[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onRaw: (record: TraceRecord) => void; onPayload: (payloadId: string) => void };
 
-type PlanCacheEntry = { loading: boolean; error?: string; json?: string };
+type PlanCacheEntry = {
+  loading: boolean;
+  error?: string;
+  json?: string;
+  snapshot?: PlanSnapshot;
+  comparisonLoading?: boolean;
+  comparisonError?: string;
+  comparisonReady?: boolean;
+  comparison?: PlanComparison;
+  previousSequence?: number;
+};
 
 function decodeBytes(range: TraceRange): Uint8Array {
   if (range.encoding === "BASE64") {
@@ -43,7 +56,7 @@ async function readCompleteRecord(traceId: string, sequence: number): Promise<st
   return new TextDecoder("utf-8", { fatal: true }).decode(joinBytes(parts)).trim();
 }
 
-function parsePlanJson(rawRecord: string): string {
+function parsePlanRecord(rawRecord: string): PlanSnapshot {
   const record: unknown = JSON.parse(rawRecord);
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     throw new Error("Plan record did not contain a JSON object.");
@@ -56,13 +69,61 @@ function parsePlanJson(rawRecord: string): string {
   if (plan === undefined || plan === null) {
     throw new Error("Plan record did not contain plan data.");
   }
-  return JSON.stringify(plan, null, 2);
+  return toPlanSnapshot(plan);
+}
+
+async function findPreviousPlan(traceId: string, sequence: number, planId: string): Promise<{ sequence: number; snapshot: PlanSnapshot } | undefined> {
+  if (sequence <= 1) return undefined;
+  const candidates: TraceRecord[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await getTraceRecords(traceId, cursor, {
+      types: ["PLAN_CREATED", "PLAN_UPDATED"],
+      maxSequence: sequence - 1,
+    });
+    candidates.push(...page.items);
+    if (!page.hasMore) break;
+    if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Plan history continuation was invalid.");
+    cursor = page.nextCursor;
+  } while (true);
+
+  candidates.sort((left, right) => right.sequence - left.sequence);
+  for (const candidate of candidates) {
+    const rawRecord = await readCompleteRecord(traceId, candidate.sequence);
+    let snapshot: PlanSnapshot;
+    try {
+      snapshot = parsePlanRecord(rawRecord);
+    } catch {
+      continue;
+    }
+    if (snapshot.planId === planId) return { sequence: candidate.sequence, snapshot };
+  }
+  return undefined;
+}
+
+function PlanChanges({ comparison, previousSequence }: { comparison: PlanComparison; previousSequence: number }) {
+  const hasChanges = comparison.plan.length > 0 || comparison.tasks.length > 0;
+  return <section className="trace-plan-changes" aria-label="Plan changes">
+    <p className="trace-plan-comparison-source">Changes since record {previousSequence}</p>
+    {!hasChanges && <p>No task or plan-state changes were detected. Check Full plan for other fields.</p>}
+    {comparison.plan.length > 0 && <div>
+      <h5>Plan</h5>
+      <ul>{comparison.plan.map((change) => <li key={change.label}><strong>{change.label}:</strong> {change.before} <span aria-label="changed to">{"\u2192"}</span> {change.after}</li>)}</ul>
+    </div>}
+    {comparison.tasks.map((task) => <div className="trace-plan-task-change" key={task.taskId}>
+      <h5>{task.intent}</h5>
+      {task.kind === "added" && <p>Task added</p>}
+      {task.kind === "removed" && <p>Task removed</p>}
+      {task.fields.length > 0 && <ul>{task.fields.map((change) => <li key={change.label}><strong>{change.label}:</strong> {change.before} <span aria-label="changed to">{"\u2192"}</span> {change.after}</li>)}</ul>}
+    </div>)}
+  </section>;
 }
 
 export function TraceRecords({ traceId, records, attempts, retries, failures, validations, gaps, uncertainties, payloads, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onRaw, onPayload }: Props) {
   const related = onRelatedFrame ?? (() => undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cache, setCache] = useState<Record<string, PlanCacheEntry>>({});
+  const [planView, setPlanView] = useState<"changes" | "full">("full");
 
   const handleTogglePlan = (record: TraceRecord) => {
     const seq = record.sequence;
@@ -71,15 +132,31 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
       setExpanded(null);
       return;
     }
+    const isUpdate = record.type === "PLAN_UPDATED";
+    setPlanView(isUpdate ? "changes" : "full");
     setExpanded(key);
     if (!traceId) return;
     const existing = cache[key];
     if (existing?.json || existing?.loading) return;
     setCache((prev) => ({ ...prev, [key]: { loading: true } }));
     void readCompleteRecord(traceId, seq)
-      .then((rawRecord) => {
-        const json = parsePlanJson(rawRecord);
-        setCache((prev) => ({ ...prev, [key]: { loading: false, json } }));
+      .then(async (rawRecord) => {
+        const snapshot = parsePlanRecord(rawRecord);
+        const json = JSON.stringify(snapshot.value, null, 2);
+        setCache((prev) => ({ ...prev, [key]: { loading: false, json, snapshot, comparisonLoading: isUpdate } }));
+        if (!isUpdate) return;
+        if (!snapshot.planId) {
+          setCache((prev) => ({ ...prev, [key]: { ...prev[key], comparisonLoading: false, comparisonError: "The plan update did not contain a plan ID." } }));
+          return;
+        }
+        try {
+          const previous = await findPreviousPlan(traceId, seq, snapshot.planId);
+          const comparison = previous ? comparePlans(previous.snapshot, snapshot) : undefined;
+          setCache((prev) => ({ ...prev, [key]: { ...prev[key], comparisonLoading: false, comparisonReady: true, comparison, previousSequence: previous?.sequence } }));
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "The previous plan version could not be loaded.";
+          setCache((prev) => ({ ...prev, [key]: { ...prev[key], comparisonLoading: false, comparisonError: message } }));
+        }
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? `Plan could not be displayed: ${err.message}` : "Plan could not be displayed.";
@@ -90,6 +167,8 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
   return <div aria-label="Trace records">
     <h4>Records</h4><div className="trace-table-region" role="region" aria-label="Record list" tabIndex={0}><table><thead><tr><th>Sequence</th><th>Type</th><th>Frame</th><th>Timestamp</th><th>Actions</th></tr></thead><tbody>{records.map((record) => {
       const isPlanCreated = record.type === "PLAN_CREATED";
+      const isPlanUpdated = record.type === "PLAN_UPDATED";
+      const isPlanRecord = isPlanCreated || isPlanUpdated;
       const key = `${traceId}:${record.sequence}`;
       const isExpanded = expanded === key;
       const entry = cache[key];
@@ -105,21 +184,49 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
               <button type="button" onClick={() => onRaw(record)}>Read raw record</button>
               {record.payloadId && <button type="button" onClick={() => onPayload(record.payloadId)}>Read payload</button>}
               {linkedFailure && <button className="trace-error-action" type="button" aria-pressed={selectedFailureId === linkedFailure.failureId} onClick={() => onSelectFailure(linkedFailure.failureId)}>View error</button>}
-              {isPlanCreated && traceId && (
+              {isPlanRecord && traceId && (
                 <button type="button" aria-expanded={isExpanded} aria-controls={`plan-detail-${record.sequence}`} onClick={() => handleTogglePlan(record)}>
-                  {isExpanded ? "Hide Plan" : "Show Plan"}
+                  {isExpanded ? (isPlanUpdated ? "Hide changes" : "Hide Plan") : (isPlanUpdated ? "View changes" : "Show Plan")}
                 </button>
               )}
             </td>
           </tr>
-          {isPlanCreated && isExpanded && (
+          {isPlanRecord && isExpanded && (
             <tr key={`${record.sequence}-plan`}>
               <td colSpan={5}>
-                <div id={`plan-detail-${record.sequence}`} className="trace-plan-expanded" role="region" aria-label={`Plan for record ${record.sequence}`}>
+                <div id={`plan-detail-${record.sequence}`} className="trace-plan-expanded" role="region" aria-label={`${isPlanUpdated ? "Plan update" : "Plan"} for record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
                   {traceId && entry?.loading && <p role="status">Loading plan…</p>}
                   {entry?.error && <p role="alert">{entry.error}</p>}
-                  {entry?.json && <pre style={{ maxBlockSize: "32rem", overflow: "auto" }}>{entry.json}</pre>}
+                  {entry?.json && isPlanUpdated && <>
+                    <div role="tablist" aria-label={`Plan record ${record.sequence} views`}>
+                      {(["changes", "full"] as const).map((view) => <button
+                        id={`plan-${record.sequence}-tab-${view}`}
+                        aria-controls={`plan-${record.sequence}-panel-${view}`}
+                        aria-selected={planView === view}
+                        key={view}
+                        onClick={() => setPlanView(view)}
+                        onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                          event.preventDefault();
+                          const next = event.key === "ArrowLeft" || event.key === "Home" ? "changes" : "full";
+                          setPlanView(next);
+                          document.getElementById(`plan-${record.sequence}-tab-${next}`)?.focus();
+                        }}
+                        role="tab"
+                        tabIndex={planView === view ? 0 : -1}
+                        type="button"
+                      >{view === "changes" ? "Changes" : "Full plan"}</button>)}
+                    </div>
+                    {planView === "changes" && <div id={`plan-${record.sequence}-panel-changes`} aria-labelledby={`plan-${record.sequence}-tab-changes`} role="tabpanel">
+                      {entry.comparisonLoading && <p role="status">Finding the previous plan versionâ€¦</p>}
+                      {entry.comparisonError && <p role="alert">Changes could not be determined: {entry.comparisonError}</p>}
+                      {entry.comparisonReady && entry.comparison && entry.previousSequence !== undefined && <PlanChanges comparison={entry.comparison} previousSequence={entry.previousSequence} />}
+                      {entry.comparisonReady && !entry.comparison && <p>The earlier version of this plan is not available in the trace.</p>}
+                    </div>}
+                    {planView === "full" && <div id={`plan-${record.sequence}-panel-full`} aria-labelledby={`plan-${record.sequence}-tab-full`} role="tabpanel"><pre>{entry.json}</pre></div>}
+                  </>}
+                  {entry?.json && isPlanCreated && <pre>{entry.json}</pre>}
                 </div>
               </td>
             </tr>

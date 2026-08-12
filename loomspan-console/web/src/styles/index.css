@@ -517,6 +517,28 @@ input,
   line-height: 1.5;
 }
 
+.trace-plan-expanded {
+  padding: 0.35rem 0.2rem;
+}
+
+.trace-plan-comparison-source {
+  color: var(--bf-muted);
+  font-size: 0.75rem;
+}
+
+.trace-plan-changes h5 {
+  margin-block: 0.8rem 0.2rem;
+}
+
+.trace-plan-changes ul {
+  margin-block: 0.25rem;
+}
+
+.trace-plan-task-change {
+  border-inline-start: 0.2rem solid var(--bf-border-strong);
+  padding-inline-start: 0.75rem;
+}
+
 .trace-failure-panel {
   margin-block: 0.875rem 1.25rem;
   padding: 0.85rem 1rem;
