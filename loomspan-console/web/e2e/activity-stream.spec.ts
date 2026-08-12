@@ -76,8 +76,8 @@ test("paired developer sees live activity stream after connecting", async ({
   await page.getByLabel("Application key").fill("E2E_APPLICATION_KEY_12345678901234567890");
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByRole("heading", { name: "Instance Overview" })).toBeFocused();
-  await expect(page.getByText("REACHABLE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Current target and live context" })).toContainText("ConnectionREACHABLE");
   await page.goto(`${consoleProcess.origin}/`);
   await expect(page.getByRole("heading", { name: "Live Activity" })).toBeVisible();
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution completed" }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution completed", { exact: true })).toBeVisible({ timeout: 10_000 });
 });

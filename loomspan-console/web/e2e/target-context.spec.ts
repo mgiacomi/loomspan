@@ -159,12 +159,13 @@ test("paired developer connects and refreshes independent target status", async 
   await page.getByLabel("Application key").fill("E2E_APPLICATION_KEY_12345678901234567890");
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByRole("heading", { name: "Instance Overview" })).toBeFocused();
-  await expect(page.getByText("REACHABLE", { exact: true })).toBeVisible();
-  await expect(page.getByText("COMPATIBLE", { exact: true })).toBeVisible();
-  await expect(page.getByText("11111111-1111-4111-8111-111111111111", { exact: true })).toBeVisible();
+  const targetContext = page.getByRole("complementary", { name: "Current target and live context" });
+  await expect(targetContext).toContainText("ConnectionREACHABLE");
+  await expect(targetContext).toContainText("CompatibilityCOMPATIBLE");
+  await expect(targetContext).toContainText("11111111-1111-4111-8111-111111111111");
   await expect(page.getByText(/Unencrypted/)).toBeVisible();
   await page.reload();
-  await expect(page.getByText("REACHABLE", { exact: true })).toBeVisible();
+  await expect(targetContext).toContainText("ConnectionREACHABLE");
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto(`${consoleProcess.origin}/traces`);
   await expect(page.getByRole("heading", { name: "Trace Catalog" })).toBeVisible();
@@ -210,7 +211,7 @@ test("WF-TC-ART-01 target rotation clears local storage and stale handle is not 
   // ID) and redirect to /. The old scope's artifacts are cleared.
   targetApplication.setState({ instanceId: "22222222-2222-4222-8222-222222222222" });
   await page.goto(`${consoleProcess.origin}/`);
-  await expect(page.getByText("22222222-2222-4222-8222-222222222222", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("complementary", { name: "Current target and live context" })).toContainText("22222222-2222-4222-8222-222222222222", { timeout: 15_000 });
 
   // Trace Storage must be empty in the new scope (TARGET_CHANGED cleared it).
   await navigateToTraceStorage(page, consoleProcess);
@@ -247,7 +248,7 @@ test("WF-TC-ART-02 acquisition after target rotation installs a fresh copy in th
   // automatically and redirect to /.
   targetApplication.setState({ instanceId: "22222222-2222-4222-8222-222222222222" });
   await page.goto(`${consoleProcess.origin}/`);
-  await expect(page.getByText("22222222-2222-4222-8222-222222222222", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("complementary", { name: "Current target and live context" })).toContainText("22222222-2222-4222-8222-222222222222", { timeout: 15_000 });
 
   // Trace Storage must be empty after rotation.
   await navigateToTraceStorage(page, consoleProcess);

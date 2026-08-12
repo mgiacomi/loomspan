@@ -254,15 +254,15 @@ test("WF-SLOW-EXECUTION (WF-SE) preserves selection while live activity advances
   await page.getByRole("link", { name: "session-1" }).click();
   await expect(page.getByRole("heading", { name: "Active Execution Detail" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Live activity" })).toBeVisible();
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Step completed" })).toBeVisible();
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Step completed", { exact: true })).toBeVisible();
 
   targetApp.pushEvent(
     'id: 3\nevent: activity\ndata: {"instanceId":"11111111-1111-4111-8111-111111111111","cursor":"3","sessionId":"session-1","traceId":"trace-1","canonicalSequence":3,"timestamp":"2026-07-27T00:00:02Z","kind":"STEP_STARTED","executionStatus":"RUNNING","summary":"New step started","details":{}}\n\n',
   );
   await expect(page.locator(".activity-narrative-summary", { hasText: "New step started" })).toBeVisible({ timeout: 10_000 });
   await expect(page).toHaveURL(/\/active-executions\/session-1/);
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible();
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible();
 });
 
 test("WF-SE terminal and observation-ended transitions remain in place", async ({
@@ -280,12 +280,12 @@ test("WF-SE terminal and observation-ended transitions remain in place", async (
   await page.goto(`${consoleProcess.origin}/active-executions`);
   await page.getByRole("link", { name: "session-1" }).click();
   await expect(page.getByRole("heading", { name: "Live activity" })).toBeVisible();
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   targetApp.pushEvent(
     'id: 10\nevent: activity\ndata: {"instanceId":"11111111-1111-4111-8111-111111111111","cursor":"10","sessionId":"session-1","traceId":"trace-1","canonicalSequence":10,"timestamp":"2026-07-27T00:00:10Z","kind":"TRACE_COMPLETED","executionStatus":"COMPLETED","summary":"Execution completed","details":{"outcome":"succeeded","applicationTraceAvailability":"AVAILABLE"}}\n\n',
   );
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution completed" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution completed", { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/Outcome:/)).toBeVisible();
   await expect(page).toHaveURL(/\/active-executions\/session-1/);
   await expect(page.getByRole("link", { name: "Inspect trace" })).toBeVisible();
@@ -304,7 +304,7 @@ test("WF-SE same-instance transient disconnect reconnects without discarding con
   await expect(page.getByRole("heading", { name: "Instance Overview" })).toBeFocused();
   await page.goto(`${consoleProcess.origin}/active-executions`);
   await page.getByRole("link", { name: "session-1" }).click();
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   const connectionCount = targetApp.activityConnectionCount();
   targetApp.closeActivity();
@@ -313,7 +313,7 @@ test("WF-SE same-instance transient disconnect reconnects without discarding con
     'id: 4\nevent: activity\ndata: {"instanceId":"11111111-1111-4111-8111-111111111111","cursor":"4","sessionId":"session-1","traceId":"trace-1","canonicalSequence":4,"timestamp":"2026-07-27T00:00:04Z","kind":"STEP_COMPLETED","executionStatus":"RUNNING","summary":"Step observed after reconnect","details":{}}\n\n',
   );
   await expect(page.getByText("Step observed after reconnect", { exact: true })).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible();
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/active-executions\/session-1/);
 });
 
@@ -330,7 +330,7 @@ test("WF-SE target change discards prior live state", async ({
   await expect(page.getByRole("heading", { name: "Instance Overview" })).toBeFocused();
 
   await page.goto(`${consoleProcess.origin}/`);
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   targetApp.setState({
     instanceId: "22222222-2222-4222-8222-222222222222",
@@ -343,7 +343,7 @@ test("WF-SE target change discards prior live state", async ({
 
   await page.goto(`${consoleProcess.origin}/target`);
   await expect(page.getByRole("heading", { name: "Instance Overview" })).toBeFocused();
-  await expect(page.getByText("22222222-2222-4222-8222-222222222222", { exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Current target and live context" })).toContainText("22222222-2222-4222-8222-222222222222");
 
   await page.goto(`${consoleProcess.origin}/`);
   await expect(page.getByText("New execution after restart", { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -372,12 +372,12 @@ test("WF-SE-ART completed execution requires deliberate acquisition before appea
   await page.goto(`${consoleProcess.origin}/active-executions`);
   await page.getByRole("link", { name: "session-1" }).click();
   await expect(page.getByRole("heading", { name: "Live activity" })).toBeVisible();
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution started" }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution started", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   targetApp.pushEvent(
     'id: 10\nevent: activity\ndata: {"instanceId":"11111111-1111-4111-8111-111111111111","cursor":"10","sessionId":"session-1","traceId":"trace-1","canonicalSequence":10,"timestamp":"2026-07-27T00:00:10Z","kind":"TRACE_COMPLETED","executionStatus":"COMPLETED","summary":"Execution completed","details":{"outcome":"succeeded","applicationTraceAvailability":"AVAILABLE"}}\n\n',
   );
-  await expect(page.locator(".activity-narrative-summary", { hasText: "Execution completed" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution completed", { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole("link", { name: "Inspect trace" })).toBeVisible();
 
   // Follow the "Inspect trace" link (which includes the targetScopeId

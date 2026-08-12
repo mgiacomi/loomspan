@@ -63,8 +63,8 @@ function makeLargeChunkedPayloadArtifact(): Buffer {
   const records: Array<Record<string, unknown>> = [
     { ...common, sequence: 1, recordType: "TRACE_STARTED", metadata: { tracePath: "generated/large-chunked-payload.ndjson" }, data: { sessionId } },
     { ...common, sequence: 2, recordType: "TRACE_CAPTURE_POLICY_RECORDED", metadata: { persistencePolicy: "ALWAYS" }, data: null },
-    { ...common, sequence: 3, recordType: "MODEL_REQUEST_PREPARED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1 }, data: { messages: ["user"] } },
-    { ...common, sequence: 4, recordType: "MODEL_REQUEST_SENT", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, payloadId: "payload-large", chunkCount, payloadChunked: true, contentType: "application/json" }, data: null },
+    { ...common, sequence: 3, recordType: "MODEL_REQUEST_PREPARED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1 }, data: { messages: ["user"] } },
+    { ...common, sequence: 4, recordType: "MODEL_REQUEST_SENT", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, payloadId: "payload-large", chunkCount, payloadChunked: true, contentType: "application/json" }, data: null },
   ];
   for (let index = 0; index < chunkCount; index++) {
     const prefix = index === 0 ? '{"content":"' : "";
@@ -72,7 +72,7 @@ function makeLargeChunkedPayloadArtifact(): Buffer {
     records.push({ ...common, sequence: 5 + index, recordType: "PAYLOAD_CHUNK_APPENDED", metadata: { payloadId: "payload-large", chunkIndex: index, chunkCount, contentType: "application/json" }, data: prefix + "x".repeat(chunkBytes) + suffix });
   }
   records.push(
-    { ...common, sequence: 5 + chunkCount, recordType: "MODEL_RESPONSE_RECEIVED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, usage: { promptUnits: 2, completionUnits: 1, totalUnits: 3, precision: "EXACT" } }, data: { content: "done" } },
+    { ...common, sequence: 5 + chunkCount, recordType: "MODEL_RESPONSE_RECEIVED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, usage: { promptUnits: 2, completionUnits: 1, totalUnits: 3, precision: "EXACT" } }, data: { content: "done" } },
     { ...common, sequence: 6 + chunkCount, recordType: "TRACE_COMPLETED", metadata: { outcome: "SUCCEEDED", sessionUsageSnapshot: { promptUnits: 2, completionUnits: 1, totalUnits: 3 }, errored: false, persistencePolicy: "ALWAYS" }, data: null },
   );
   return Buffer.from(records.map((record) => JSON.stringify(record)).join("\n") + "\n");
@@ -370,9 +370,9 @@ test("WF-AS-01E acquired trace opens bounded explorer evidence without exposing 
   await page.getByRole("tab", { name: "Records" }).click();
   await expect(page.getByRole("heading", { name: "Records" })).toBeVisible();
   await page.getByRole("button", { name: "Read raw record" }).first().click();
-  const evidence = page.getByRole("region", { name: "Evidence content" });
-  await expect(evidence).toBeVisible();
-  await expect(evidence.getByRole("link")).toHaveCount(0);
+  const rawRecord = page.getByRole("region", { name: "Raw record 1" });
+  await expect(rawRecord).toBeVisible();
+  await expect(rawRecord.getByRole("link")).toHaveCount(0);
 });
 
 test("WF-EXPENSIVE-EXECUTION explores returned hierarchy timeline and frame usage", async ({ page, consoleProcess, targetApp }) => {
@@ -441,9 +441,10 @@ test("WF-FAILED-EXECUTION explores failure and inert supporting records", async 
   await failure.click();
   await expect(page).toHaveURL(/failureId=failure-terminal/);
   await page.getByRole("button", { name: "Read raw record" }).last().click();
-  const evidence = page.getByRole("region", { name: "Evidence content" });
-  await expect(evidence).toContainText("Text bytes");
-  await expect(evidence.getByRole("link")).toHaveCount(0);
+  const rawRecord = page.getByRole("region", { name: /^Raw record / });
+  await expect(rawRecord).toContainText("TRACE_COMPLETED");
+  await expect(rawRecord).toContainText("failure-terminal");
+  await expect(rawRecord.getByRole("link")).toHaveCount(0);
   await expectNoSeriousAccessibilityViolations(page);
 });
 
@@ -451,7 +452,7 @@ test("chunked payload inspection is deliberate and incomplete timing stays expli
   await connectToTarget(page, consoleProcess, targetApp.origin);
   await acquireAndOpenExplorer(page, consoleProcess, "trace-chunked-json-payload");
   await page.getByRole("tab", { name: "Records" }).click();
-  await page.getByRole("button", { name: "Read payload" }).click();
+  await page.getByRole("button", { name: "payload-1", exact: true }).click();
   await expect(page.getByRole("region", { name: "Evidence content" })).toContainText("application/json");
   await navigateToTraceDetail(page, consoleProcess, "trace-incomplete-frame-duration");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
@@ -463,7 +464,7 @@ test("multi-megabyte payload remains bounded and continuable", async ({ page, co
   await connectToTarget(page, consoleProcess, targetApp.origin);
   await acquireAndOpenExplorer(page, consoleProcess, "trace-large-chunked-payload");
   await page.getByRole("tab", { name: "Records" }).click();
-  await page.getByRole("button", { name: "Read payload" }).click();
+  await page.getByRole("button", { name: "payload-large", exact: true }).click();
   const evidence = page.getByRole("region", { name: "Evidence content" });
   await expect(evidence).toContainText("Text bytes 0–65536");
   await evidence.getByRole("button", { name: "Read next range" }).click();
@@ -605,7 +606,7 @@ test("WF-AS-05 target rotation clears local storage and stale scope is unavailab
   targetApp.setState({ instanceId: "22222222-2222-4222-8222-222222222222" });
   // Wait for the auto-reconnection to complete (the new instance ID appears).
   await page.goto(`${consoleProcess.origin}/`);
-  await expect(page.getByText("22222222-2222-4222-8222-222222222222", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("complementary", { name: "Current target and live context" })).toContainText("22222222-2222-4222-8222-222222222222", { timeout: 15_000 });
 
   // Trace Storage must be empty in the new scope.
   await navigateToTraceStorage(page, consoleProcess);
