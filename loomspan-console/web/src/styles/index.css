@@ -521,6 +521,29 @@ input,
   padding: 0.35rem 0.2rem;
 }
 
+.trace-model-expanded {
+  padding: 0.35rem 0.2rem;
+}
+
+.trace-model-messages {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.trace-model-message {
+  border-inline-start: 0.2rem solid var(--bf-border-strong);
+  padding-inline-start: 0.75rem;
+}
+
+.trace-model-message h5 {
+  margin-block: 0.25rem;
+  text-transform: capitalize;
+}
+
+.trace-model-message pre {
+  white-space: pre-wrap;
+}
+
 .trace-plan-comparison-source {
   color: var(--bf-muted);
   font-size: 0.75rem;

@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { getRawRecordRange, getTraceRecords } from "../api/client";
+import { getPayloadRange, getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRange } from "../api/contracts";
 import type { TraceAttempt, TraceFailure, TraceGap, TracePayload, TraceRecord, TraceRetry, TraceUncertainty, TraceValidation } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
@@ -21,13 +21,19 @@ type PlanCacheEntry = {
   previousSequence?: number;
 };
 
+type ModelDetail =
+  | { kind: "request"; messages: { role: string; text: string }[]; fallback?: string }
+  | { kind: "response"; content: string };
+
+type ModelCacheEntry = { loading: boolean; error?: string; detail?: ModelDetail };
+
 function decodeBytes(range: TraceRange): Uint8Array {
   if (range.encoding === "BASE64") {
     try {
       const binary = atob(range.content);
       return Uint8Array.from(binary, (character) => character.charCodeAt(0));
     } catch {
-      throw new Error("Plan record contained invalid base64 data.");
+      throw new Error("Content contained invalid base64 data.");
     }
   }
   return new TextEncoder().encode(range.content);
@@ -50,10 +56,95 @@ async function readCompleteRecord(traceId: string, sequence: number): Promise<st
     const range = await getRawRecordRange(traceId, sequence, cursor);
     parts.push(decodeBytes(range));
     if (!range.hasMore) break;
-    if (!range.nextCursor || range.nextCursor === cursor) throw new Error("Plan record continuation was invalid.");
+    if (!range.nextCursor || range.nextCursor === cursor) throw new Error("Content continuation was invalid.");
     cursor = range.nextCursor;
   } while (true);
   return new TextDecoder("utf-8", { fatal: true }).decode(joinBytes(parts)).trim();
+}
+
+async function readCompletePayload(traceId: string, payloadId: string): Promise<string> {
+  const parts: Uint8Array[] = [];
+  let cursor: string | undefined;
+  do {
+    const range = await getPayloadRange(traceId, payloadId, cursor);
+    parts.push(decodeBytes(range));
+    if (!range.hasMore) break;
+    if (!range.nextCursor || range.nextCursor === cursor) throw new Error("Content continuation was invalid.");
+    cursor = range.nextCursor;
+  } while (true);
+  return new TextDecoder("utf-8", { fatal: true }).decode(joinBytes(parts)).trim();
+}
+
+function parseJsonObject(raw: string, label: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(raw);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} did not contain a JSON object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function recordData(rawRecord: string): unknown {
+  const envelope = parseJsonObject(rawRecord, "Model record");
+  return "data" in envelope ? envelope.data : envelope.Data;
+}
+
+function readableValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function parseModelDetail(kind: "request" | "response", value: unknown): ModelDetail {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      if (kind === "response") return { kind, content: String(value) };
+    }
+  }
+  if (kind === "request") {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const request = value as Record<string, unknown>;
+      if (Array.isArray(request.messages)) {
+        const messages = request.messages.map((message, index) => {
+          if (typeof message === "string") return { role: `Message ${index + 1}`, text: message };
+          if (message && typeof message === "object" && !Array.isArray(message)) {
+            const fields = message as Record<string, unknown>;
+            const role = typeof fields.messageType === "string" ? fields.messageType : typeof fields.role === "string" ? fields.role : `Message ${index + 1}`;
+            const content = "text" in fields ? fields.text : fields.content;
+            return { role, text: readableValue(content) };
+          }
+          return { role: `Message ${index + 1}`, text: readableValue(message) };
+        });
+        return { kind, messages, fallback: JSON.stringify(value, null, 2) };
+      }
+    }
+    return { kind, messages: [], fallback: JSON.stringify(value, null, 2) };
+  }
+
+  let content = value;
+  if (value && typeof value === "object" && !Array.isArray(value) && "content" in value) {
+    content = (value as Record<string, unknown>).content;
+  }
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    try {
+      return { kind, content: JSON.stringify(JSON.parse(trimmed), null, 2) };
+    } catch {
+      return { kind, content };
+    }
+  }
+  return { kind, content: JSON.stringify(content, null, 2) };
+}
+
+function ModelDetailView({ detail }: { detail: ModelDetail }) {
+  if (detail.kind === "response") return <pre>{detail.content}</pre>;
+  if (detail.messages.length === 0) return <pre>{detail.fallback}</pre>;
+  return <div className="trace-model-messages">
+    {detail.messages.map((message, index) => <section className="trace-model-message" key={`${message.role}-${index}`}>
+      <h5>{message.role.toLowerCase().replaceAll("_", " ")}</h5>
+      <pre>{message.text}</pre>
+    </section>)}
+  </div>;
 }
 
 function parsePlanRecord(rawRecord: string): PlanSnapshot {
@@ -123,6 +214,7 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
   const related = onRelatedFrame ?? (() => undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cache, setCache] = useState<Record<string, PlanCacheEntry>>({});
+  const [modelCache, setModelCache] = useState<Record<string, ModelCacheEntry>>({});
   const [planView, setPlanView] = useState<"changes" | "full">("full");
 
   const handleTogglePlan = (record: TraceRecord) => {
@@ -164,14 +256,44 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
       });
   };
 
+  const handleToggleModel = (record: TraceRecord) => {
+    const key = `${traceId}:${record.sequence}`;
+    if (expanded === key) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(key);
+    if (!traceId) return;
+    const existing = modelCache[key];
+    if (existing?.detail || existing?.loading) return;
+    const kind = record.type === "MODEL_REQUEST_SENT" ? "request" : "response";
+    setModelCache((previous) => ({ ...previous, [key]: { loading: true } }));
+    const source = record.payloadId
+      ? readCompletePayload(traceId, record.payloadId).then((raw) => parseJsonObject(raw, "Model payload"))
+      : readCompleteRecord(traceId, record.sequence).then(recordData);
+    void source
+      .then((value) => {
+        const detail = parseModelDetail(kind, value);
+        setModelCache((previous) => ({ ...previous, [key]: { loading: false, detail } }));
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? `${kind === "request" ? "Request" : "Response"} could not be displayed: ${error.message}` : `${kind === "request" ? "Request" : "Response"} could not be displayed.`;
+        setModelCache((previous) => ({ ...previous, [key]: { loading: false, error: message } }));
+      });
+  };
+
   return <div aria-label="Trace records">
     <h4>Records</h4><div className="trace-table-region" role="region" aria-label="Record list" tabIndex={0}><table><thead><tr><th>Sequence</th><th>Type</th><th>Frame</th><th>Timestamp</th><th>Actions</th></tr></thead><tbody>{records.map((record) => {
       const isPlanCreated = record.type === "PLAN_CREATED";
       const isPlanUpdated = record.type === "PLAN_UPDATED";
       const isPlanRecord = isPlanCreated || isPlanUpdated;
+      const isModelRequest = record.type === "MODEL_REQUEST_SENT";
+      const isModelResponse = record.type === "MODEL_RESPONSE_RECEIVED";
+      const isModelRecord = isModelRequest || isModelResponse;
       const key = `${traceId}:${record.sequence}`;
       const isExpanded = expanded === key;
       const entry = cache[key];
+      const modelEntry = modelCache[key];
       const linkedFailure = failures.find((failure) => failure.sequence === record.sequence);
       return (
         <Fragment key={record.sequence}>
@@ -182,11 +304,16 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
             <td>{record.timestampMillis}</td>
             <td>
               <button type="button" onClick={() => onRaw(record)}>Read raw record</button>
-              {record.payloadId && <button type="button" onClick={() => onPayload(record.payloadId)}>Read payload</button>}
+              {record.payloadId && !isModelRecord && <button type="button" onClick={() => onPayload(record.payloadId)}>Read payload</button>}
               {linkedFailure && <button className="trace-error-action" type="button" aria-pressed={selectedFailureId === linkedFailure.failureId} onClick={() => onSelectFailure(linkedFailure.failureId)}>View error</button>}
               {isPlanRecord && traceId && (
                 <button type="button" aria-expanded={isExpanded} aria-controls={`plan-detail-${record.sequence}`} onClick={() => handleTogglePlan(record)}>
                   {isExpanded ? (isPlanUpdated ? "Hide changes" : "Hide Plan") : (isPlanUpdated ? "View changes" : "Show Plan")}
+                </button>
+              )}
+              {isModelRecord && traceId && (
+                <button type="button" aria-expanded={isExpanded} aria-controls={`model-detail-${record.sequence}`} onClick={() => handleToggleModel(record)}>
+                  {isExpanded ? `Hide ${isModelRequest ? "request" : "response"}` : (isModelRequest ? "Request" : "Response")}
                 </button>
               )}
             </td>
@@ -227,6 +354,18 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
                     {planView === "full" && <div id={`plan-${record.sequence}-panel-full`} aria-labelledby={`plan-${record.sequence}-tab-full`} role="tabpanel"><pre>{entry.json}</pre></div>}
                   </>}
                   {entry?.json && isPlanCreated && <pre>{entry.json}</pre>}
+                </div>
+              </td>
+            </tr>
+          )}
+          {isModelRecord && isExpanded && (
+            <tr key={`${record.sequence}-model`}>
+              <td colSpan={5}>
+                <div id={`model-detail-${record.sequence}`} className="trace-model-expanded" role="region" aria-label={`${isModelRequest ? "Model request" : "Model response"} for record ${record.sequence}`}>
+                  {!traceId && <p role="status">Trace context unavailable.</p>}
+                  {traceId && modelEntry?.loading && <p role="status">Loading {isModelRequest ? "request" : "response"}â€¦</p>}
+                  {modelEntry?.error && <p role="alert">{modelEntry.error}</p>}
+                  {modelEntry?.detail && <ModelDetailView detail={modelEntry.detail} />}
                 </div>
               </td>
             </tr>

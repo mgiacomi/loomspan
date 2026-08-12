@@ -32,6 +32,8 @@ type Options struct {
 	DevelopmentOrigin       string
 	NoOpenBrowser           bool
 	PromptForApplicationKey bool
+	TargetAddressDefault    string
+	ApplicationKeyDefault   string
 }
 
 type Dependencies struct {
@@ -225,18 +227,20 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 				return origin + "/#/pair/" + secret
 			}
 			api, err := browserapi.New(browserapi.Options{
-				Policy:        policy,
-				Pairing:       pairing,
-				Sessions:      sessions,
-				ProcessID:     processID,
-				Workspace:     ownedWorkspace.Root,
-				PairingURL:    pairingURL,
-				PrintPairing:  printPairing,
-				Target:        targetContext,
-				Observability: observabilityService,
-				Live:          liveService,
-				Artifacts:     artifactService,
-				TraceAnalysis: traceAnalysisService,
+				Policy:                policy,
+				Pairing:               pairing,
+				Sessions:              sessions,
+				ProcessID:             processID,
+				Workspace:             ownedWorkspace.Root,
+				PairingURL:            pairingURL,
+				PrintPairing:          printPairing,
+				Target:                targetContext,
+				Observability:         observabilityService,
+				Live:                  liveService,
+				Artifacts:             artifactService,
+				TraceAnalysis:         traceAnalysisService,
+				TargetAddressDefault:  options.TargetAddressDefault,
+				ApplicationKeyDefault: options.ApplicationKeyDefault,
 			})
 			if err != nil {
 				return nil, err

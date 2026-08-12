@@ -24,7 +24,9 @@ func TestPairingBootstrapAndProtectedPairingLink(t *testing.T) {
 	router, err := New(Options{
 		Policy: policy, Pairing: pairing, Sessions: registry,
 		ProcessID: "process", Workspace: "workspace",
-		PairingURL: func(secret string) string { return "http://127.0.0.1:7943/#/pair/" + secret },
+		TargetAddressDefault:  "http://127.0.0.1:8080/context",
+		ApplicationKeyDefault: "APPLICATION_KEY_12345678901234567890",
+		PairingURL:            func(secret string) string { return "http://127.0.0.1:7943/#/pair/" + secret },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -42,15 +44,23 @@ func TestPairingBootstrapAndProtectedPairingLink(t *testing.T) {
 		t.Fatalf("bootstrap=%d %s", bootstrap.Code, bootstrap.Body.String())
 	}
 	var state struct {
-		ConsoleVersion string `json:"consoleVersion"`
-		TabID          string `json:"tabId"`
-		CSRF           string `json:"csrfToken"`
+		ConsoleVersion     string `json:"consoleVersion"`
+		TabID              string `json:"tabId"`
+		CSRF               string `json:"csrfToken"`
+		TargetFormDefaults struct {
+			Address        string `json:"address"`
+			ApplicationKey string `json:"applicationKey"`
+		} `json:"targetFormDefaults"`
 	}
 	if err := json.Unmarshal(bootstrap.Body.Bytes(), &state); err != nil {
 		t.Fatal(err)
 	}
 	if state.ConsoleVersion != release.ProductVersion() {
 		t.Fatalf("consoleVersion=%q", state.ConsoleVersion)
+	}
+	if state.TargetFormDefaults.Address != "http://127.0.0.1:8080/context" ||
+		state.TargetFormDefaults.ApplicationKey != "APPLICATION_KEY_12345678901234567890" {
+		t.Fatal("bootstrap did not contain the configured target form defaults")
 	}
 	linkRequest := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:7943/api/console/v1/pairing/link", strings.NewReader(`{}`))
 	linkRequest.Host = "127.0.0.1:7943"

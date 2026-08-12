@@ -38,7 +38,7 @@ export function App() {
       </header>
       <main className="shell-main" id="main-content">
         {session.status === "paired" ? (
-          <TargetProvider initial={session.bootstrap.target}>
+          <TargetProvider initial={session.bootstrap.target} defaults={session.bootstrap.targetFormDefaults}>
             <ObservabilityProvider>
               <ActivityProvider>
                 <ConsoleWorkspace />

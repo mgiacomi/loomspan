@@ -7,6 +7,7 @@ const bootstrap = {
   workspacePath: "workspace",
   tabId: "tab",
   csrfToken: "csrf",
+  targetFormDefaults: { address: "", applicationKey: "" },
   target: {
     unencrypted: false,
     status: {

@@ -51,6 +51,7 @@ const BrowserSessionContext = createContext<BrowserSessionContextValue>({
     workspacePath: "test-workspace",
     tabId: "test-tab",
     csrfToken: "test-token",
+    targetFormDefaults: { address: "", applicationKey: "" },
     target: {
       unencrypted: false,
       status: {

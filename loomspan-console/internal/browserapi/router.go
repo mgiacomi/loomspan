@@ -49,18 +49,20 @@ type TraceAnalysisService interface {
 }
 
 type Options struct {
-	Policy        Policy
-	Pairing       *browserauth.Pairing
-	Sessions      *browserauth.Registry
-	ProcessID     string
-	Workspace     string
-	PairingURL    func(string) string
-	PrintPairing  func(string) error
-	Target        *target.Context
-	Observability *observability.Service
-	Live          *live.Service
-	Artifacts     ArtifactService
-	TraceAnalysis TraceAnalysisService
+	Policy                Policy
+	Pairing               *browserauth.Pairing
+	Sessions              *browserauth.Registry
+	ProcessID             string
+	Workspace             string
+	PairingURL            func(string) string
+	PrintPairing          func(string) error
+	Target                *target.Context
+	Observability         *observability.Service
+	Live                  *live.Service
+	Artifacts             ArtifactService
+	TraceAnalysis         TraceAnalysisService
+	TargetAddressDefault  string
+	ApplicationKeyDefault string
 }
 
 type Router struct {
@@ -263,6 +265,10 @@ func (router *Router) bootstrap(response http.ResponseWriter, request *http.Requ
 		"tabId":          result.TabID,
 		"csrfToken":      result.CSRF,
 		"target":         targetResponse(router.targetSnapshot()),
+		"targetFormDefaults": map[string]string{
+			"address":        router.options.TargetAddressDefault,
+			"applicationKey": router.options.ApplicationKeyDefault,
+		},
 	})
 }
 

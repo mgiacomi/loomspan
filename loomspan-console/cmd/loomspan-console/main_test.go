@@ -81,6 +81,7 @@ func TestVersionFlagPrintsInjectedProductVersion(t *testing.T) {
 
 func TestRunPassesCLIOverridesToService(t *testing.T) {
 	var options console.Options
+	applicationKey := "APPLICATION_KEY_12345678901234567890"
 	err := run(context.Background(), []string{
 		"--config", "profile.yaml",
 		"--work-dir", "work",
@@ -88,12 +89,19 @@ func TestRunPassesCLIOverridesToService(t *testing.T) {
 		"--development-origin", "http://127.0.0.1:5173",
 		"--no-open-browser",
 		"--prompt-for-application-key",
+		"--target-address", "http://127.0.0.1:8080/context",
 	}, &bytes.Buffer{}, runtimeDependencies{
 		version: "0.1.0-SNAPSHOT",
 		verify:  func() error { return nil },
 		serve: func(_ context.Context, received console.Options) error {
 			options = received
 			return nil
+		},
+		lookupEnv: func(name string) string {
+			if name != "LOOMSPAN_OBSERVABILITY_API_KEY" {
+				t.Fatalf("unexpected environment lookup %q", name)
+			}
+			return applicationKey
 		},
 	})
 	if err != nil {
@@ -102,8 +110,37 @@ func TestRunPassesCLIOverridesToService(t *testing.T) {
 	if options.ConfigPath != "profile.yaml" || options.WorkDirectory != "work" ||
 		options.ListenOverride != "127.0.0.1:0" ||
 		options.DevelopmentOrigin != "http://127.0.0.1:5173" ||
+		options.TargetAddressDefault != "http://127.0.0.1:8080/context" ||
+		options.ApplicationKeyDefault != applicationKey ||
 		!options.NoOpenBrowser || !options.PromptForApplicationKey {
 		t.Fatalf("options=%#v", options)
+	}
+}
+
+func TestRunRejectsInvalidTargetFormDefaultsBeforeService(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		key       string
+	}{
+		{name: "address", arguments: []string{"--target-address", "localhost:8080"}},
+		{name: "application key", key: "too-short"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			served := false
+			err := run(context.Background(), test.arguments, &bytes.Buffer{}, runtimeDependencies{
+				version: "0.1.0-SNAPSHOT",
+				verify:  func() error { return nil },
+				serve: func(context.Context, console.Options) error {
+					served = true
+					return nil
+				},
+				lookupEnv: func(string) string { return test.key },
+			})
+			if err == nil || served {
+				t.Fatalf("error=%v served=%v", err, served)
+			}
+		})
 	}
 }
 

@@ -16,6 +16,7 @@ type TargetContextValue = {
   target: TargetResponse;
   error?: BrowserAPIError;
   scopeGeneration: number;
+  defaults: { address: string; applicationKey: string };
   connect(address: string, key: string): Promise<void>;
   credential(key: string): Promise<void>;
   recheck(): Promise<void>;
@@ -26,9 +27,11 @@ const TargetContext = createContext<TargetContextValue | undefined>(undefined);
 
 export function TargetProvider({
   initial,
+  defaults = { address: "", applicationKey: "" },
   children,
 }: {
   initial: TargetResponse;
+  defaults?: { address: string; applicationKey: string };
   children: ReactNode;
 }) {
   const session = useBrowserSession();
@@ -95,13 +98,14 @@ export function TargetProvider({
       target: state.target,
       error: state.error,
       scopeGeneration: state.generation,
+      defaults,
       connect: (address, key) =>
         perform(() => session.connectTarget(address, key)),
       credential: (key) => perform(() => session.supplyTargetCredential(key)),
       recheck: () => perform(session.recheckTarget),
       refresh: () => perform(session.readTargetStatus),
     }),
-    [perform, session, state.error, state.target],
+    [defaults, perform, session, state.error, state.target],
   );
 
   return (

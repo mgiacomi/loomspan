@@ -81,7 +81,8 @@ The executable accepts:
 loomspan-console --version
 loomspan-console [--config FILE] [--work-dir DIRECTORY]
   [--listen 127.0.0.1:7943] [--development-origin http://127.0.0.1:5173]
-  [--no-open-browser] [--prompt-for-application-key]
+  [--target-address http://127.0.0.1:8080] [--no-open-browser]
+  [--prompt-for-application-key]
 ```
 
 `--version` validates the release and embedded assets without creating files or
@@ -95,6 +96,12 @@ attempt. A pairing URL is still printed. `--prompt-for-application-key`
 requires a configured YAML target and reads its application key from an
 interactive terminal without echo. The Boolean flag, not the key, is visible
 in shell history and the process command line.
+
+`--target-address` prefills the Target screen without selecting, probing, or
+connecting to the application. When `LOOMSPAN_OBSERVABILITY_API_KEY` is set,
+its value prefills the Application key field after the browser is paired. These
+defaults leave connection under explicit user control: the user must still
+select **Connect**. Both defaults are process-only and are never persisted.
 
 The schema-version 1 configuration is strict and restart-only:
 
@@ -137,9 +144,10 @@ ignore environment proxy variables, never follow redirects, and have bounded
 headers and bodies. HTTP targets are allowed but the Overview persistently
 warns that the key and observability data cross the network without encryption.
 
-The application key exists only in process memory and is forgotten at Console
-shutdown. It can be entered in a paired browser or through the protected
-terminal prompt; both paths use the same credential provider and selected-target
+The application key exists only in Console and paired-browser memory and is
+forgotten at Console shutdown. It can be entered in a paired browser, supplied
+through `LOOMSPAN_OBSERVABILITY_API_KEY`, or read through the protected
+terminal prompt; all paths use the same credential provider and selected-target
 lifecycle. Selecting another target, replacing an existing key, or observing a
 changed application instance resets the opaque target scope and discards
 target-derived browser state. Supplying the first key for a configured
@@ -211,6 +219,7 @@ origin permission:
 
 ```text
 go run ./internal/buildtool build
+./build/loomspan-console --target-address http://127.0.0.1:8081
 ./build/loomspan-console --listen 127.0.0.1:7943 --development-origin http://127.0.0.1:5173
 ```
 

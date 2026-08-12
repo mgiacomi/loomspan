@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/browserapi"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/browseropen"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/config"
@@ -19,9 +20,10 @@ import (
 )
 
 type runtimeDependencies struct {
-	version string
-	verify  func() error
-	serve   func(context.Context, console.Options) error
+	version   string
+	verify    func() error
+	serve     func(context.Context, console.Options) error
+	lookupEnv func(string) string
 }
 
 func main() {
@@ -46,6 +48,7 @@ func main() {
 				},
 			})
 		},
+		lookupEnv: os.Getenv,
 	}
 	context, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -62,6 +65,7 @@ func run(context context.Context, arguments []string, output io.Writer, dependen
 	configPath := flags.String("config", "", "exact Console configuration file")
 	workDirectory := flags.String("work-dir", "", "exact managed Console work directory")
 	address := flags.String("listen", "", "process-only explicit loopback listener override")
+	targetAddress := flags.String("target-address", "", "prefill the browser target address without connecting")
 	developmentOrigin := flags.String("development-origin", "", "additional exact loopback Vite origin")
 	noOpenBrowser := flags.Bool("no-open-browser", false, "do not open the default browser")
 	promptApplicationKey := flags.Bool("prompt-for-application-key", false, "prompt without echo for the selected target application key")
@@ -94,6 +98,20 @@ func run(context context.Context, arguments []string, output io.Writer, dependen
 			return fmt.Errorf("--development-origin: %w", err)
 		}
 	}
+	if *targetAddress != "" {
+		if _, err := applicationclient.NormalizeAddress(*targetAddress); err != nil {
+			return fmt.Errorf("--target-address: %w", err)
+		}
+	}
+	applicationKey := ""
+	if dependencies.lookupEnv != nil {
+		applicationKey = dependencies.lookupEnv("LOOMSPAN_OBSERVABILITY_API_KEY")
+	}
+	if applicationKey != "" {
+		if err := applicationclient.ValidateCredential([]byte(applicationKey)); err != nil {
+			return fmt.Errorf("LOOMSPAN_OBSERVABILITY_API_KEY: %w", err)
+		}
+	}
 	return dependencies.serve(context, console.Options{
 		ConfigPath:              *configPath,
 		WorkDirectory:           *workDirectory,
@@ -101,5 +119,7 @@ func run(context context.Context, arguments []string, output io.Writer, dependen
 		DevelopmentOrigin:       *developmentOrigin,
 		NoOpenBrowser:           *noOpenBrowser,
 		PromptForApplicationKey: *promptApplicationKey,
+		TargetAddressDefault:    *targetAddress,
+		ApplicationKeyDefault:   applicationKey,
 	})
 }

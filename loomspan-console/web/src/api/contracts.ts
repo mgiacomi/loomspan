@@ -76,6 +76,10 @@ export type BootstrapResponse = {
   tabId: string;
   csrfToken: string;
   target: TargetResponse;
+  targetFormDefaults: {
+    address: string;
+    applicationKey: string;
+  };
 };
 
 export type PairingLinkResponse = {

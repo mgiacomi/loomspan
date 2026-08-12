@@ -4,7 +4,7 @@ import { getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRecord, TraceRange } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
-vi.mock("../api/client", () => ({ getRawRecordRange: vi.fn(), getTraceRecords: vi.fn() }));
+vi.mock("../api/client", () => ({ getPayloadRange: vi.fn(), getRawRecordRange: vi.fn(), getTraceRecords: vi.fn() }));
 
 const getRawRecordRangeMock = vi.mocked(getRawRecordRange);
 const getTraceRecordsMock = vi.mocked(getTraceRecords);
