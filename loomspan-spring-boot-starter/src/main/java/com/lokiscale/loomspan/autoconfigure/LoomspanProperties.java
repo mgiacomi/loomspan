@@ -173,10 +173,6 @@ public class LoomspanProperties implements InitializingBean
         {
             throw invalid(path + ".openai", "is only supported for driver OPENAI");
         }
-        if (connection.getAnthropic() != null && driver != AiDriver.ANTHROPIC)
-        {
-            throw invalid(path + ".anthropic", "is only supported for driver ANTHROPIC");
-        }
         if (connection.getGemini() != null && driver != AiDriver.GEMINI)
         {
             throw invalid(path + ".gemini", "is only supported for driver GEMINI");
@@ -215,9 +211,9 @@ public class LoomspanProperties implements InitializingBean
 
     private void validateHeaders(String path, ConnectionProperties connection, AiDriver driver)
     {
-        if (!connection.getHeaders().isEmpty() && driver != AiDriver.OPENAI)
+        if (!connection.getHeaders().isEmpty() && driver != AiDriver.OPENAI && driver != AiDriver.ANTHROPIC)
         {
-            throw invalid(path + ".headers", "is only supported for driver OPENAI");
+            throw invalid(path + ".headers", "is only supported for drivers OPENAI and ANTHROPIC");
         }
         for (Map.Entry<String, String> header : connection.getHeaders().entrySet())
         {
@@ -405,7 +401,6 @@ public class LoomspanProperties implements InitializingBean
         private String apiKey;
         private Map<String, String> headers = new LinkedHashMap<>();
         @Valid private OpenAiOptions openai;
-        @Valid private AnthropicOptions anthropic;
         @Valid private GeminiOptions gemini;
         @Valid private ProviderRetryProperties providerRetry = new ProviderRetryProperties();
 
@@ -422,8 +417,6 @@ public class LoomspanProperties implements InitializingBean
         }
         public OpenAiOptions getOpenai() { return openai; }
         public void setOpenai(OpenAiOptions openai) { this.openai = openai; }
-        public AnthropicOptions getAnthropic() { return anthropic; }
-        public void setAnthropic(AnthropicOptions anthropic) { this.anthropic = anthropic; }
         public GeminiOptions getGemini() { return gemini; }
         public void setGemini(GeminiOptions gemini) { this.gemini = gemini; }
         public ProviderRetryProperties getProviderRetry() { return providerRetry; }
@@ -445,13 +438,10 @@ public class LoomspanProperties implements InitializingBean
         @NotNull private OpenAiCompatibilityProfile compatibilityProfile = OpenAiCompatibilityProfile.STANDARD;
         private String organizationId;
         private String projectId;
-        private String chatCompletionsPath;
         public String getOrganizationId() { return organizationId; }
         public void setOrganizationId(String organizationId) { this.organizationId = organizationId; }
         public String getProjectId() { return projectId; }
         public void setProjectId(String projectId) { this.projectId = projectId; }
-        public String getChatCompletionsPath() { return chatCompletionsPath; }
-        public void setChatCompletionsPath(String path) { chatCompletionsPath = path; }
         public OpenAiCompatibilityProfile getCompatibilityProfile() { return compatibilityProfile; }
         public void setCompatibilityProfile(OpenAiCompatibilityProfile value)
         {
@@ -487,19 +477,6 @@ public class LoomspanProperties implements InitializingBean
         public double getJitter() { return jitter; }
         public void setJitter(double value) { jitter = value; }
         public int effectiveMaxAttempts() { return enabled ? maxAttempts : 1; }
-    }
-
-    public static class AnthropicOptions
-    {
-        private String completionsPath;
-        private String version;
-        private String betaVersion;
-        public String getCompletionsPath() { return completionsPath; }
-        public void setCompletionsPath(String value) { completionsPath = value; }
-        public String getVersion() { return version; }
-        public void setVersion(String value) { version = value; }
-        public String getBetaVersion() { return betaVersion; }
-        public void setBetaVersion(String value) { betaVersion = value; }
     }
 
     public static class GeminiOptions

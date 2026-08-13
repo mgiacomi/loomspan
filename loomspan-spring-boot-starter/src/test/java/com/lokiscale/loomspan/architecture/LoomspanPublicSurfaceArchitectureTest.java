@@ -31,13 +31,16 @@ class LoomspanPublicSurfaceArchitectureTest
             "com.lokiscale.loomspan.api.SkillExecutionView",
             "com.lokiscale.loomspan.api.SkillExecutionEvent",
             "com.lokiscale.loomspan.api.SkillMethod",
+            "com.lokiscale.loomspan.api.SkillParam",
             "com.lokiscale.loomspan.api.SkillException",
             "com.lokiscale.loomspan.api.SkillInputValidationException",
             "com.lokiscale.loomspan.api.SkillInputValidationIssue");
 
     private static final Set<String> FRAMEWORK_INTEGRATION_TYPES = Set.of(
             "com.lokiscale.loomspan.autoconfigure.LoomspanAutoConfiguration",
+            "com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration",
             "com.lokiscale.loomspan.autoconfigure.LoomspanObservabilityWebAutoConfiguration",
+            "com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration",
             "com.lokiscale.loomspan.autoconfigure.LoomspanProperties",
             "com.lokiscale.loomspan.autoconfigure.ExecutionTraceProperties",
             "com.lokiscale.loomspan.autoconfigure.AiDriver");
@@ -75,14 +78,24 @@ class LoomspanPublicSurfaceArchitectureTest
             Map.entry("com.lokiscale.loomspan.internal.provider.ProviderRetryOutcome", "Public only for typed internal provider attempt trace outcomes."),
             Map.entry("com.lokiscale.loomspan.internal.provider.ProviderRetryPolicy", "Public only to carry immutable provider retry policy between internal configuration and execution packages."),
             Map.entry("com.lokiscale.loomspan.internal.provider.RetryDelaySource", "Public only for typed internal retry delay trace metadata."),
-            Map.entry("com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration", "Public only as the single version-scoped Spring AI 1.1 integration boundary used by internal auto-configuration."),
+            Map.entry("com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration", "Public only as the official Spring AI integration boundary used by internal auto-configuration."),
+            Map.entry("com.lokiscale.loomspan.internal.springai.SpringAiChatOptionsContributor", "Public only for framework-owned Spring AI client assembly."),
+            Map.entry("com.lokiscale.loomspan.internal.springai.SpringAiModelInteraction", "Public only to adapt Spring AI behind the neutral model boundary."),
+            Map.entry("com.lokiscale.loomspan.internal.springai.SpringAiModelInteractionFactory", "Public only for framework-owned Spring AI composition."),
+            Map.entry("com.lokiscale.loomspan.internal.model.ModelInteraction", "Public only as the neutral internal model boundary."),
+            Map.entry("com.lokiscale.loomspan.internal.model.ModelInteractionFactory", "Public only as the neutral internal model factory boundary."),
+            Map.entry("com.lokiscale.loomspan.internal.model.ModelInteractionMode", "Public only to select neutral internal interaction assembly."),
+            Map.entry("com.lokiscale.loomspan.internal.model.ModelInteractionRequest", "Public only to carry neutral internal model requests."),
+            Map.entry("com.lokiscale.loomspan.internal.model.ModelInteractionResult", "Public only to carry neutral internal model results."),
+            Map.entry("com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs", "Public only for framework-owned purpose-specific codec composition."),
+            Map.entry("com.lokiscale.loomspan.internal.serialization.LoomspanMethodInputSchemaGenerator", "Public only for framework-owned schema generation across internal composition packages."),
+            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.BoundCapability", "Public only as the neutral bound-capability boundary."),
+            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.CapabilityInvoker", "Public only as the neutral capability invocation boundary."),
+            Map.entry("com.lokiscale.loomspan.internal.chat.ProviderAttemptCallAdvisor", "Public only for framework-owned physical-attempt advisor assembly."),
             Map.entry("com.lokiscale.loomspan.internal.chat.DefaultSkillAdvisorResolver", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.chat.DefaultSkillChatModelResolver", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.chat.SkillAdvisorResolver", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.chat.SkillChatClientFactory", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.chat.SkillChatModelResolver", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.chat.SkillChatOptionsAdapter", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.chat.SpringAiSkillChatClientFactory", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.core.AdvisorTraceContext", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.core.AdvisorTraceFact", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.core.AdvisorTraceRecorder", "Public only for Java collaboration between distinct internal subsystem packages."),
@@ -152,9 +165,7 @@ class LoomspanPublicSurfaceArchitectureTest
             Map.entry("com.lokiscale.loomspan.internal.runtime.attachment.LoomspanAttachment", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.attachment.DefaultMissionInputMaterializer", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.attachment.MissionInputMaterializer", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.runtime.attachment.MissionUserMessageSender", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.attachment.RenderedMissionInput", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.runtime.attachment.SpringAiMissionUserMessageSender", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.LoomspanMissionTimeoutException", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.LoomspanQuotaExceededException", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine", "Public only for Java collaboration between distinct internal subsystem packages."),
@@ -184,10 +195,9 @@ class LoomspanPublicSurfaceArchitectureTest
             Map.entry("com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.state.PlanSnapshot", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.step.StepLoopMissionExecutionEngine", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.DefaultToolCallbackFactory", "Public only for Java collaboration between distinct internal subsystem packages."),
+            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.DefaultCapabilityInvoker", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.tool.DefaultToolSurfaceService", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackFactory", "Public only for Java collaboration between distinct internal subsystem packages."),
-            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackInputContracts", "Public only for Java collaboration between distinct internal subsystem packages."),
+            Map.entry("com.lokiscale.loomspan.internal.runtime.tool.CapabilityBindingFactory", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.tool.ToolSurfaceService", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle", "Public only for Java collaboration between distinct internal subsystem packages."),
             Map.entry("com.lokiscale.loomspan.internal.runtime.trace.CompletionGraceRetention", "Public only for core-owned trace retention composition across internal packages."),
@@ -256,14 +266,14 @@ class LoomspanPublicSurfaceArchitectureTest
             .collect(Collectors.toSet());
 
     @Test
-    void apiPackageContainsExactlySevenApprovedPublicTypes()
+    void apiPackageContainsExactlyEightApprovedPublicTypes()
     {
         assertThat(publicTopLevelTypesIn("com.lokiscale.loomspan.api"))
                 .containsExactlyInAnyOrderElementsOf(API_TYPES);
     }
 
     @Test
-    void autoconfigurePackageContainsExactlyFourIntegrationTypes()
+    void autoconfigurePackageContainsExactlySevenIntegrationTypes()
     {
         assertThat(publicTopLevelTypesIn("com.lokiscale.loomspan.autoconfigure"))
                 .containsExactlyInAnyOrderElementsOf(FRAMEWORK_INTEGRATION_TYPES);
@@ -363,7 +373,7 @@ class LoomspanPublicSurfaceArchitectureTest
         Set<Class<?>> forbidden = Set.of(
                 java.nio.file.Path.class,
                 org.springframework.core.io.Resource.class,
-                com.fasterxml.jackson.databind.JsonNode.class,
+                tools.jackson.databind.JsonNode.class,
                 com.lokiscale.loomspan.internal.core.TraceRecord.class,
                 Throwable.class,
                 java.util.stream.Stream.class,

@@ -1,6 +1,6 @@
 # Loomspan
 
-A Java Spring Boot–based, agentic AI framework that uses LLM‑driven skills within a Hierarchical Task Network (HTN) architecture.
+A Java 21, Spring Boot 4.1, and Spring AI 2–based agentic framework that uses LLM‑driven skills within a Hierarchical Task Network (HTN) architecture.
 
 Loomspan while still an HTN is fundamentally different from traditional HTNs. Instead of relying on rigid, rule‑based planners, Loomspan blends classical HTN structure with LLM‑powered reasoning, allowing agents to dynamically decompose missions, select skills, and orchestrate complex workflows. 
 
@@ -92,7 +92,7 @@ A connection is a concrete endpoint/account and chooses a built-in `driver`; a m
 
 Provider retries are owned by each application connection, not by YAML skills. The default is three total attempts with 500 ms initial backoff, a 2.0 multiplier, a 5 s cap, and 0.2 jitter. Set `provider-retry.enabled: false` (or `max-attempts: 1`) for one attempt. Loomspan disables the supported Spring AI clients' own application-level retries so these limits describe actual downstream calls.
 
-The `openai` driver uses the OpenAI chat-completions protocol and supports custom `base-url`, static `headers`, organization/project IDs, and a custom chat-completions path. Use it only for compatible services. A `base-url` that already ends in `/v1` is combined with `/chat/completions`; an unversioned base URL uses `/v1/chat/completions`. Set `openai.chat-completions-path` for a different route. The `ollama` driver uses Ollama's native `/api/chat` protocol. Anthropic supports its native base URL and version/path options. Gemini supports either API-key mode or Vertex AI mode (`project-id` and `location`, with optional credentials resource), but not both on one connection.
+The `openai` and `anthropic` drivers use Spring AI 2's official SDK-backed clients. Their optional `base-url` is the SDK service root: OpenAI appends `/chat/completions`, so include `/v1` in the root when the service requires it; Anthropic appends `/v1/messages`. Both accept common static `headers`; use that map for Anthropic beta or other supported custom headers. OpenAI additionally supports organization/project IDs and the explicit OpenRouter compatibility profile. The former OpenAI completion-path override and Anthropic completion-path/version/beta fields are rejected rather than aliased. The `ollama` driver uses its native `/api/chat` protocol. Gemini supports either API-key mode or Vertex AI mode (`project-id` and `location`, with optional credentials resource), but not both on one connection.
 
 Several model aliases can share one connection while choosing different provider model IDs. An OpenAI-compatible gateway is another named connection using `driver: openai`; it does not need a vendor-specific driver:
 
@@ -154,9 +154,9 @@ public class InvoiceWorkflow {
 }
 ```
 
-The supported starter API is closed to these seven types in `com.lokiscale.loomspan.api`: `SkillTemplate`, `SkillExecutionView`, `SkillExecutionEvent`, `SkillMethod`, `SkillException`, `SkillInputValidationException`, and `SkillInputValidationIssue`. `SkillTemplate` is injectable and easy to mock in application tests, but replacing its framework bean or implementing Loomspan internals is unsupported. There are currently no supported Loomspan-specific SPIs or bean overrides; other starter types are internal before 1.0.
+The supported starter Java API is closed to these eight types in `com.lokiscale.loomspan.api`: `SkillTemplate`, `SkillExecutionView`, `SkillExecutionEvent`, `SkillMethod`, `SkillParam`, `SkillException`, `SkillInputValidationException`, and `SkillInputValidationIssue`. A Java `public` modifier does not add a type to this API: everything under `com.lokiscale.loomspan.internal` is implementation detail and may change without a compatibility shim, while `com.lokiscale.loomspan.autoconfigure` contains Spring-facing integration and configuration-binding machinery rather than an application extension API. Documented configuration keys and behavior remain user-facing contracts. `SkillTemplate` is injectable and easy to mock in application tests, but replacing its framework bean or implementing Loomspan internals is unsupported. There are currently no supported Loomspan-specific SPIs or bean overrides.
 
-For integration testing, configure a real or local protocol-compatible named connection and invoke the YAML skill through `SkillTemplate`. Loomspan's supported-surface integration test follows this pattern: it supplies a local OpenAI-compatible endpoint through `loomspan.connections`, invokes an LLM-backed YAML skill through the public facade, and observes only `SkillExecutionView` values. Tests should not replace internal resolvers, coordinators, chat-client factories, registries, or virtual-file-system beans.
+For integration testing, configure a real or local protocol-compatible named connection and invoke the YAML skill through `SkillTemplate`. Loomspan's supported-surface integration test follows this pattern: it supplies a local OpenAI-compatible endpoint through `loomspan.connections`, invokes an LLM-backed YAML skill that calls a mapped `@SkillMethod`/`@SkillParam` leaf, and observes only `SkillExecutionView` values. Tests should not replace internal resolvers, coordinators, model factories, registries, or virtual-file-system beans.
 
 Successful observers receive a session ID and immutable, current-version `SkillExecutionEvent` values. These events are intended for trusted development and debugging, may contain application business data, and are not a durable or comprehensively sanitized trace contract. Invalid caller input raises `SkillInputValidationException`, authorization failures remain Spring Security `AccessDeniedException`, and other runtime failures crossing the facade become a safe `SkillException`.
 
@@ -245,6 +245,7 @@ Use `@SkillMethod` when the implementation should run deterministic Java logic. 
 
 ```java
 import com.lokiscale.loomspan.api.SkillMethod;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -254,7 +255,8 @@ import java.util.Map;
 public class ExpenseService {
 
     @SkillMethod(description = "Returns a fake list of recent expenses.")
-    public List<Map<String, Object>> getLatestExpenses() {
+    public List<Map<String, Object>> getLatestExpenses(
+            @SkillParam(description = "Optional category filter.", required = false) String category) {
         return List.of(
             Map.of("category", "Software", "amount", 120.00, "date", "2026-03-20")
         );

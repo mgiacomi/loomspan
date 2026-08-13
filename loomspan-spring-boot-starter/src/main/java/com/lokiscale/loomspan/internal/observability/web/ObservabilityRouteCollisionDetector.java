@@ -278,6 +278,12 @@ public final class ObservabilityRouteCollisionDetector
         }
 
         @Override
+        public void version(String version)
+        {
+            accept(PathResult.unconstrainedResult());
+        }
+
+        @Override
         public void header(String name, String value)
         {
             accept(PathResult.unconstrainedResult());

@@ -2,7 +2,7 @@ package com.lokiscale.loomspan.internal.autoconfigure;
 
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration;
 import org.springframework.beans.factory.DisposableBean;
 
 import java.util.LinkedHashMap;
@@ -14,7 +14,7 @@ public final class NamedAiConnectionRegistry implements DisposableBean
     private final Map<String, ProviderConnectionRuntime> connections;
 
     public NamedAiConnectionRegistry(Map<String, LoomspanProperties.ConnectionProperties> connections,
-            SpringAiV11ProviderIntegration integration)
+            SpringAiProviderIntegration integration)
     {
         Objects.requireNonNull(connections, "connections must not be null");
         Objects.requireNonNull(integration, "integration must not be null");

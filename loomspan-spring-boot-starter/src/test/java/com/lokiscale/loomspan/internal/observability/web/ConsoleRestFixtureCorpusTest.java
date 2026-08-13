@@ -1,8 +1,8 @@
 package com.lokiscale.loomspan.internal.observability.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.core.TraceOutcome;
 import com.lokiscale.loomspan.internal.core.TracePersistencePolicy;
 import com.lokiscale.loomspan.internal.observability.web.dto.ObservabilityDtos;
@@ -22,8 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ConsoleRestFixtureCorpusTest
 {
     private static final ObjectMapper JSON = JsonMapper.builder().findAndAddModules()
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-            .disable(SerializationFeature.WRITE_DURATIONS_AS_TIMESTAMPS)
+            .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .disable(DateTimeFeature.WRITE_DURATIONS_AS_TIMESTAMPS)
             .build();
     private static final Instant OBSERVED = Instant.parse("2026-07-25T12:00:00Z");
 

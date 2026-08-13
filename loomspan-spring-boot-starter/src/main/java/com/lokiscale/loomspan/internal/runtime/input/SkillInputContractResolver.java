@@ -1,14 +1,14 @@
 package com.lokiscale.loomspan.internal.runtime.input;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.core.SkillImplementationTarget;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 
-import java.io.IOException;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,7 +22,7 @@ public class SkillInputContractResolver
 
     public SkillInputContractResolver()
     {
-        this(new ObjectMapper());
+        this(com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().applicationConversion());
     }
 
     public SkillInputContractResolver(ObjectMapper objectMapper)
@@ -78,7 +78,7 @@ public class SkillInputContractResolver
         {
             return objectMapper.writeValueAsString(toJsonSchemaNode(contract.schema()));
         }
-        catch (IOException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Failed to serialize capability input schema", ex);
         }
@@ -116,7 +116,7 @@ public class SkillInputContractResolver
         {
             return fromJsonNode(objectMapper.readTree(inputSchema));
         }
-        catch (IOException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Failed to parse capability input schema", ex);
         }
@@ -129,7 +129,7 @@ public class SkillInputContractResolver
         JsonNode propertiesNode = schema.path("properties");
         if (propertiesNode.isObject())
         {
-            Iterator<Map.Entry<String, JsonNode>> fields = propertiesNode.fields();
+            Iterator<Map.Entry<String, JsonNode>> fields = propertiesNode.properties().iterator();
             while (fields.hasNext())
             {
                 Map.Entry<String, JsonNode> field = fields.next();

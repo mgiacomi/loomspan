@@ -1,9 +1,8 @@
 package com.lokiscale.loomspan.internal.runtime.trace;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.databind.node.TextNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.StringNode;
 import com.lokiscale.loomspan.internal.core.ExecutionFrame;
 import com.lokiscale.loomspan.internal.core.ExecutionTrace;
 import com.lokiscale.loomspan.internal.core.ExecutionTraceHandle;
@@ -36,10 +35,6 @@ import java.util.function.Supplier;
 
 public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 {
-    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
-            .findAndAddModules()
-            .build();
-
     private static final int DEFAULT_CHUNK_SIZE = 4096;
 
     private final String traceId;
@@ -58,6 +53,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
     private final ExecutionObservationHandle observationHandle;
     private final CompletionGraceRetention completionGraceRetention;
     private final ConfiguredLimitsSnapshot configuredLimits;
+    private final ObjectMapper objectMapper;
 
     private volatile boolean errored;
     private volatile boolean completed;
@@ -199,6 +195,31 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             @Nullable TraceRecordWriter writer,
             CompletionGraceRetention completionGraceRetention)
     {
+        this(traceId, sessionId, entrySkill, tracePath, persistencePolicy, errored, completed, clock,
+                startingSequence, initialized, idSupplier, threadName, tracePathMetadata, observationHandle,
+                configuredLimits, writer, completionGraceRetention, null);
+    }
+
+    private DefaultExecutionTraceHandle(
+            String traceId,
+            String sessionId,
+            String entrySkill,
+            Path tracePath,
+            TracePersistencePolicy persistencePolicy,
+            boolean errored,
+            boolean completed,
+            Clock clock,
+            long startingSequence,
+            boolean initialized,
+            Supplier<String> idSupplier,
+            @Nullable String threadName,
+            @Nullable String tracePathMetadata,
+            ExecutionObservationHandle observationHandle,
+            @Nullable ConfiguredLimitsSnapshot configuredLimits,
+            @Nullable TraceRecordWriter writer,
+            CompletionGraceRetention completionGraceRetention,
+            @Nullable ObjectMapper canonicalTraceMapper)
+    {
         this.traceId = requireNonBlank(traceId, "traceId");
         this.sessionId = requireNonBlank(sessionId, "sessionId");
         this.entrySkill = requireNonBlank(entrySkill, "entrySkill");
@@ -207,8 +228,11 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
         this.errored = errored;
         this.completed = completed;
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
-        this.writer = writer == null ? new NdjsonTraceRecordWriter(this.tracePath) : writer;
-        this.reader = new NdjsonExecutionTraceReader();
+        this.objectMapper = canonicalTraceMapper == null
+                ? com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().canonicalTrace()
+                : canonicalTraceMapper;
+        this.writer = writer == null ? new NdjsonTraceRecordWriter(this.tracePath, this.objectMapper) : writer;
+        this.reader = new NdjsonExecutionTraceReader(this.objectMapper);
         this.sequence = new AtomicLong(startingSequence);
         this.initialized = new AtomicBoolean(initialized);
         this.idSupplier = Objects.requireNonNull(idSupplier, "idSupplier must not be null");
@@ -231,6 +255,25 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
         this(newTraceId(), sessionId, entrySkill, null, persistencePolicy, false, false, clock, 0L, false,
                 DefaultExecutionTraceHandle::newTraceId, null, null, observationHandle, null, null,
                 completionGraceRetention);
+        resetTraceFile();
+        initialize();
+    }
+
+    public DefaultExecutionTraceHandle(
+            String sessionId,
+            String entrySkill,
+            TracePersistencePolicy persistencePolicy,
+            Clock clock,
+            ExecutionObservationHandle observationHandle,
+            CompletionGraceRetention completionGraceRetention,
+            ConfiguredLimitsSnapshot configuredLimits,
+            ObjectMapper canonicalTraceMapper)
+    {
+        this(newTraceId(), sessionId, entrySkill, null, persistencePolicy, false, false, clock, 0L, false,
+                DefaultExecutionTraceHandle::newTraceId, null, null, observationHandle,
+                Objects.requireNonNull(configuredLimits, "configuredLimits must not be null"), null,
+                completionGraceRetention, Objects.requireNonNull(canonicalTraceMapper,
+                        "canonicalTraceMapper must not be null"));
         resetTraceFile();
         initialize();
     }
@@ -418,7 +461,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 
         if (jsonData != null)
         {
-            String serialized = jsonData.isTextual() ? jsonData.asText() : OBJECT_MAPPER.writeValueAsString(jsonData);
+            String serialized = jsonData.isTextual() ? jsonData.asText() : objectMapper.writeValueAsString(jsonData);
             if (serialized.length() > DEFAULT_CHUNK_SIZE)
             {
                 String payloadId = requireNonBlank(idSupplier.get(), "payloadId");
@@ -504,7 +547,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
                     frameType,
                     route,
                     metadata,
-                    TextNode.valueOf(serialized.substring(start, end)));
+                    StringNode.valueOf(serialized.substring(start, end)));
 
             writer.append(chunk);
         }
@@ -563,7 +606,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
         {
             return jsonNode.deepCopy();
         }
-        return OBJECT_MAPPER.valueToTree(data);
+        return objectMapper.valueToTree(data);
     }
 
     private boolean shouldDeleteAfterCompletion()

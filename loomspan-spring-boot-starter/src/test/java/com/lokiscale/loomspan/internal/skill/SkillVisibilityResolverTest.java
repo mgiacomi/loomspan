@@ -1,8 +1,9 @@
 package com.lokiscale.loomspan.internal.skill;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.dataformat.yaml.YAMLFactory;
+import tools.jackson.dataformat.yaml.YAMLMapper;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.internal.core.LoomspanSession;
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
@@ -134,8 +135,9 @@ class SkillVisibilityResolverTest {
         LoomspanProperties.Skills skills = new LoomspanProperties.Skills();
         skills.setLocations(List.of(location));
 
-        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        ObjectMapper mapper = YAMLMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .build();
         return new YamlSkillCatalog(models, skills, new PathMatchingResourcePatternResolver(), mapper);
     }
 

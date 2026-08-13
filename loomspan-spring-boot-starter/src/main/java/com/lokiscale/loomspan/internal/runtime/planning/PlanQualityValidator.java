@@ -2,8 +2,7 @@ package com.lokiscale.loomspan.internal.runtime.planning;
 
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.core.PlanTask;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,14 +24,13 @@ class PlanQualityValidator
     private static final Set<String> LOOKUP_KEYWORDS = Set.of(
             "lookup", "look", "find", "search", "query", "match", "compare", "retrieve", "fetch", "check");
 
-    public PlanQualityValidationResult validate(ExecutionPlan plan, List<ToolCallback> visibleTools)
+    public PlanQualityValidationResult validate(ExecutionPlan plan, List<BoundCapability> visibleTools)
     {
         Objects.requireNonNull(plan, "plan must not be null");
 
-        List<ToolCallback> safeVisibleTools = visibleTools == null ? List.of()
+        List<BoundCapability> safeVisibleTools = visibleTools == null ? List.of()
                 : visibleTools.stream()
                         .filter(Objects::nonNull)
-                        .filter(tool -> tool.getToolDefinition() != null)
                         .toList();
 
         Map<String, ToolSummary> toolSummaries = summarizeTools(safeVisibleTools);
@@ -174,17 +172,16 @@ class PlanQualityValidator
         return tasks.stream().anyMatch(task -> inferTaskRole(task) == TaskRole.REPORT);
     }
 
-    private Map<String, ToolSummary> summarizeTools(List<ToolCallback> visibleTools)
+    private Map<String, ToolSummary> summarizeTools(List<BoundCapability> visibleTools)
     {
         Map<String, ToolSummary> summaries = new LinkedHashMap<>();
-        for (ToolCallback tool : visibleTools)
+        for (BoundCapability tool : visibleTools)
         {
-            ToolDefinition definition = tool.getToolDefinition();
-            if (definition == null || definition.name() == null || definition.name().isBlank())
+            if (tool.name().isBlank())
             {
                 continue;
             }
-            summaries.put(definition.name(), ToolSummary.from(definition));
+            summaries.put(tool.name(), ToolSummary.from(tool));
         }
         return summaries;
     }
@@ -240,7 +237,7 @@ class PlanQualityValidator
     private record ToolSummary(String name, TaskRole primaryRole, boolean extraction, boolean lookup, boolean report)
     {
 
-        static ToolSummary from(ToolDefinition definition)
+        static ToolSummary from(BoundCapability definition)
         {
             String description = definition.description() == null || definition.description().isBlank()
                     ? "No description provided."

@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.internal.runtime.input;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
 

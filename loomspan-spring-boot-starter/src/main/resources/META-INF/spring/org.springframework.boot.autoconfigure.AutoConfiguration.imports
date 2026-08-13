@@ -1,2 +1,4 @@
+com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration
 com.lokiscale.loomspan.autoconfigure.LoomspanAutoConfiguration
+com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration
 com.lokiscale.loomspan.autoconfigure.LoomspanObservabilityWebAutoConfiguration

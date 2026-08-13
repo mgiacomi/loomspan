@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.skill;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import org.junit.jupiter.api.Test;

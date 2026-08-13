@@ -1,15 +1,16 @@
 package com.lokiscale.loomspan.internal.core;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.lang.Nullable;
 
 import java.util.Map;
 
 public final class MissionInputMessageFormatter
 {
-    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder().findAndAddModules().build();
+    private static final ObjectMapper OBJECT_MAPPER =
+            com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().applicationConversion();
 
     private MissionInputMessageFormatter()
     {
@@ -82,7 +83,7 @@ public final class MissionInputMessageFormatter
         {
             return OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(missionInput);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Failed to serialize canonical mission input", ex);
         }

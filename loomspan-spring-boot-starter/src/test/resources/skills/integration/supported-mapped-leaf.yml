@@ -1,0 +1,4 @@
+name: supportedMappedLeaf
+description: Mapped application leaf used by the supported-surface integration test.
+mapping:
+  target_id: supportedTargetBean#echo

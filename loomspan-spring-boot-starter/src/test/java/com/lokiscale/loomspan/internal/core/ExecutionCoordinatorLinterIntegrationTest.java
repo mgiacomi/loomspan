@@ -2,7 +2,7 @@ package com.lokiscale.loomspan.internal.core;
 
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.internal.chat.DefaultSkillAdvisorResolver;
-import com.lokiscale.loomspan.internal.chat.SkillChatClientFactory;
+import com.lokiscale.loomspan.internal.model.ModelInteractionFactory;
 import com.lokiscale.loomspan.internal.linter.LinterOutcomeStatus;
 import com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.MissionExecutionEngine;
@@ -10,9 +10,9 @@ import com.lokiscale.loomspan.internal.runtime.planning.DefaultPlanningService;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
 import com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.DefaultCapabilityInvoker;
 import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolSurfaceService;
-import com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.CapabilityBindingFactory;
 import com.lokiscale.loomspan.internal.runtime.tool.ToolSurfaceService;
 import com.lokiscale.loomspan.internal.security.DefaultAccessGuard;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
@@ -95,7 +95,8 @@ class ExecutionCoordinatorLinterIntegrationTest {
         AdvisedSequenceChatClient chatClient = new AdvisedSequenceChatClient(
                 new DefaultSkillAdvisorResolver(stateService).resolve(definition),
                 List.of("not ok", "OK: corrected"));
-        ExecutionCoordinator coordinator = coordinator(catalog, registry, ignored -> chatClient, stateService);
+        ExecutionCoordinator coordinator = coordinator(catalog, registry,
+                (ignored, mode) -> chatClient, stateService);
         LoomspanSession session = new LoomspanSession("session-1", "lintedSkill", 3);
 
         String response = coordinator.execute("lintedSkill", "Produce YAML", session, null);
@@ -122,13 +123,13 @@ class ExecutionCoordinatorLinterIntegrationTest {
 
     private static ExecutionCoordinator coordinator(StubYamlSkillCatalog catalog,
                                                     InMemoryCapabilityRegistry registry,
-                                                    SkillChatClientFactory factory,
+                                                    ModelInteractionFactory factory,
                                                     ExecutionStateService stateService) {
         PlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
         SkillVisibilityResolver visibilityResolver = (currentSkillName, session, authentication) -> List.of();
         ToolSurfaceService toolSurfaceService = new DefaultToolSurfaceService(visibilityResolver);
         RefResolver refResolver = (value, session) -> value;
-        ToolCallbackFactory toolCallbackFactory = new DefaultToolCallbackFactory(
+        CapabilityBindingFactory toolCallbackFactory = new DefaultCapabilityInvoker(
                 new CapabilityExecutionRouter(
                         refResolver,
                         new StaticListableBeanFactory().getBeanProvider(ExecutionCoordinator.class),
@@ -170,260 +171,30 @@ class ExecutionCoordinatorLinterIntegrationTest {
         }
     }
 
-    private static final class AdvisedSequenceChatClient implements ChatClient {
+    private static final class AdvisedSequenceChatClient implements com.lokiscale.loomspan.internal.model.ModelInteraction {
 
-        private final List<CallAdvisor> advisors;
         private final List<String> responses;
-        private final List<String> userMessagesSeen = new ArrayList<>();
         private final List<String> requestUserMessagesSeen = new ArrayList<>();
         private final List<String> requestSystemMessagesSeen = new ArrayList<>();
+        private final ChatClient delegate;
         private int callCount;
 
         private AdvisedSequenceChatClient(List<Advisor> advisors, List<String> responses) {
-            this.advisors = advisors.stream().filter(CallAdvisor.class::isInstance).map(CallAdvisor.class::cast).toList();
             this.responses = responses;
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt() {
-            return new RequestSpec();
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt(String content) {
-            return new RequestSpec();
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt(Prompt prompt) {
-            return new RequestSpec();
-        }
-
-        @Override
-        public Builder mutate() {
-            throw new UnsupportedOperationException();
-        }
-
-        private final class RequestSpec implements ChatClientRequestSpec {
-
-            private final List<Message> messages = new ArrayList<>();
-
-            @Override
-            public Builder mutate() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(Advisor... advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(List<Advisor> advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(Message... messages) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(List<Message> messages) {
-                return this;
-            }
-
-            @Override
-            public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolNames(String... toolNames) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec tools(Object... tools) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolContext(Map<String, Object> toolContext) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(String text) {
-                messages.add(new SystemMessage(text));
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(String text) {
-                messages.add(new UserMessage(text));
-                userMessagesSeen.add(text);
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-                return this;
-            }
-
-            @Override
-            public CallResponseSpec call() {
-                ChatClientRequest request = new ChatClientRequest(new Prompt(List.copyOf(messages)), Map.of());
-                ChatClientResponse response = new AdvisorChainImpl(advisors).nextCall(request);
-                return new ResponseSpec(response);
-            }
-
-            @Override
-            public StreamResponseSpec stream() {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        private final class AdvisorChainImpl implements CallAdvisorChain {
-
-            private final List<CallAdvisor> advisors;
-            private final int index;
-
-            private AdvisorChainImpl(List<CallAdvisor> advisors) {
-                this(advisors, 0);
-            }
-
-            private AdvisorChainImpl(List<CallAdvisor> advisors, int index) {
-                this.advisors = advisors;
-                this.index = index;
-            }
-
-            @Override
-            public ChatClientResponse nextCall(ChatClientRequest chatClientRequest) {
-                if (index < advisors.size()) {
-                    return advisors.get(index).adviseCall(chatClientRequest, new AdvisorChainImpl(advisors, index + 1));
-                }
-                requestUserMessagesSeen.add(chatClientRequest.prompt().getUserMessage().getText());
-                requestSystemMessagesSeen.add(chatClientRequest.prompt().getSystemMessage().getText());
+            org.springframework.ai.chat.model.ChatModel model = prompt -> {
+                requestUserMessagesSeen.add(prompt.getUserMessage().getText());
+                requestSystemMessagesSeen.add(prompt.getSystemMessage().getText());
                 String responseText = responses.get(Math.min(callCount, responses.size() - 1));
                 callCount++;
-                return ChatClientResponse.builder()
-                        .chatResponse(new ChatResponse(List.of(new Generation(new AssistantMessage(responseText)))))
-                        .build();
-            }
-
-            @Override
-            public List<CallAdvisor> getCallAdvisors() {
-                return advisors;
-            }
-
-            @Override
-            public CallAdvisorChain copy(CallAdvisor after) {
-                int advisorIndex = advisors.indexOf(after);
-                if (advisorIndex < 0) {
-                    throw new IllegalArgumentException("Advisor not found in chain");
-                }
-                return new AdvisorChainImpl(advisors, advisorIndex + 1);
-            }
+                return new ChatResponse(List.of(new Generation(new AssistantMessage(responseText))));
+            };
+            this.delegate = ChatClient.builder(model).defaultAdvisors(advisors).build();
         }
 
-        private record ResponseSpec(ChatClientResponse response) implements CallResponseSpec {
-
-            @Override
-            public <T> T entity(ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public ChatClientResponse chatClientResponse() {
-                return response;
-            }
-
-            @Override
-            public ChatResponse chatResponse() {
-                return response.chatResponse();
-            }
-
-            @Override
-            public String content() {
-                return response.chatResponse().getResult().getOutput().getText();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<ChatResponse, T> responseEntity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<ChatResponse, T> responseEntity(ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<ChatResponse, T> responseEntity(
-                    org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
+        @Override
+        public com.lokiscale.loomspan.internal.model.ModelInteractionResult call(
+                com.lokiscale.loomspan.internal.model.ModelInteractionRequest request) {
+            return new com.lokiscale.loomspan.internal.springai.SpringAiModelInteraction(delegate).call(request);
         }
     }
 }

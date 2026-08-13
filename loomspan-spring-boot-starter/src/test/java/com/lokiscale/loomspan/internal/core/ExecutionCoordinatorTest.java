@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.internal.core;
 
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
-import com.lokiscale.loomspan.internal.chat.SkillChatClientFactory;
+import com.lokiscale.loomspan.internal.model.ModelInteractionFactory;
 import com.lokiscale.loomspan.internal.runtime.LoomspanMissionTimeoutException;
 import com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.MissionExecutionEngine;
@@ -9,9 +9,9 @@ import com.lokiscale.loomspan.internal.runtime.planning.DefaultPlanningService;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
 import com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.DefaultCapabilityInvoker;
 import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolSurfaceService;
-import com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.CapabilityBindingFactory;
 import com.lokiscale.loomspan.internal.runtime.tool.ToolSurfaceService;
 import com.lokiscale.loomspan.internal.security.AccessGuard;
 import com.lokiscale.loomspan.internal.security.DefaultAccessGuard;
@@ -26,7 +26,6 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.lang.Nullable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -104,7 +103,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(childMetadata),
-                new RecordingSkillChatClientFactory(chatClient),
+                new RecordingModelInteractionFactory(chatClient),
                 (value, session) -> value,
                 null,
                 true);
@@ -177,7 +176,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(childMetadata),
-                new RecordingSkillChatClientFactory(chatClient),
+                new RecordingModelInteractionFactory(chatClient),
                 (value, session) -> value,
                 null,
                 true);
@@ -244,7 +243,7 @@ class ExecutionCoordinatorTest {
                         List.of(toolTask("task-1", "Use allowedVisibleSkill", "allowedVisibleSkill", false))),
                 "mission complete",
                 "{\"value\":\"ref://artifacts/input.txt\"}");
-        RecordingSkillChatClientFactory factory = new RecordingSkillChatClientFactory(chatClient);
+        RecordingModelInteractionFactory factory = new RecordingModelInteractionFactory(chatClient);
         SkillVisibilityResolver visibilityResolver = (currentSkillName, sessionState, authentication) -> List.of(childMetadata);
         RefResolver refResolver = (value, session) -> value instanceof String text && text.startsWith("ref://")
                 ? "resolved-content"
@@ -286,7 +285,7 @@ class ExecutionCoordinatorTest {
         assertThat(chatClient.toolNamesByCall).containsExactly(List.of(), List.of("allowedVisibleSkill"));
         assertThat(chatClient.systemMessagesSeen).hasSize(2);
         assertThat(chatClient.systemMessagesSeen.get(1)).contains("plan-1", "VALID", "task-1", "Use allowedVisibleSkill");
-        assertThat(chatClient.lastToolResult).isEqualTo("\"child:resolved-content\"");
+        assertThat(chatClient.lastToolResult).isEqualTo("child:resolved-content");
         assertThat(session.getJournalSnapshot().stream()
                 .filter(entry -> entry.type() == JournalEntryType.TOOL_CALL)
                 .findFirst()
@@ -294,7 +293,7 @@ class ExecutionCoordinatorTest {
                 .payload()
                 .get("details")
                 .get("arguments"))
-                .isEqualTo(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of("value", "ref://artifacts/input.txt")));
+                .isEqualTo(new tools.jackson.databind.ObjectMapper().valueToTree(Map.of("value", "ref://artifacts/input.txt")));
         assertThat(session.getFramesSnapshot()).isEmpty();
     }
 
@@ -346,7 +345,7 @@ class ExecutionCoordinatorTest {
                 "mission complete",
                 "{\"value\":\"hello\"}",
                 false);
-        RecordingSkillChatClientFactory factory = new RecordingSkillChatClientFactory(chatClient);
+        RecordingModelInteractionFactory factory = new RecordingModelInteractionFactory(chatClient);
 
         ExecutionCoordinator coordinator = coordinator(
                 catalog,
@@ -396,7 +395,7 @@ class ExecutionCoordinatorTest {
 
         FakeCoordinatorChatClient defaultChatClient = new FakeCoordinatorChatClient(null, "unused", null, false);
         FakeCoordinatorChatClient stepChatClient = new FakeCoordinatorChatClient(null, "unused", null, false);
-        RecordingSkillChatClientFactory factory = new RecordingSkillChatClientFactory(defaultChatClient, stepChatClient);
+        RecordingModelInteractionFactory factory = new RecordingModelInteractionFactory(defaultChatClient, stepChatClient);
         ExecutionStateService stateService = fixedStateService();
         MissionExecutionEngine defaultEngine = (session, definition, objective, missionInput, chatClient, visibleTools, planningEnabled, authentication) -> {
             throw new AssertionError("Default engine should not be selected");
@@ -450,7 +449,7 @@ class ExecutionCoordinatorTest {
 
         FakeCoordinatorChatClient defaultChatClient = new FakeCoordinatorChatClient(null, "unused", null, false);
         FakeCoordinatorChatClient stepChatClient = new FakeCoordinatorChatClient(null, "unused", null, false);
-        RecordingSkillChatClientFactory factory = new RecordingSkillChatClientFactory(defaultChatClient, stepChatClient);
+        RecordingModelInteractionFactory factory = new RecordingModelInteractionFactory(defaultChatClient, stepChatClient);
         ExecutionStateService stateService = fixedStateService();
         MissionExecutionEngine defaultEngine = (session, definition, objective, missionInput, chatClient, visibleTools, planningEnabled, authentication) -> {
             assertThat(chatClient).isSameAs(defaultChatClient);
@@ -511,7 +510,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(),
-                new RecordingSkillChatClientFactory(new FakeCoordinatorChatClient(null, "unused", null, false)),
+                new RecordingModelInteractionFactory(new FakeCoordinatorChatClient(null, "unused", null, false)),
                 (value, session) -> value,
                 null,
                 stateService,
@@ -557,10 +556,11 @@ class ExecutionCoordinatorTest {
         InMemoryCapabilityRegistry registry = new InMemoryCapabilityRegistry();
         registry.register(rootMetadata.name(), rootMetadata);
 
-        SkillChatClientFactory factory = new SkillChatClientFactory() {
+        ModelInteractionFactory factory = new ModelInteractionFactory() {
             @Override
-            public ChatClient create(YamlSkillDefinition definition) {
-                return new FakeCoordinatorChatClient(null, "unused", null, false);
+            public com.lokiscale.loomspan.internal.model.ModelInteraction create(YamlSkillDefinition definition,
+                    com.lokiscale.loomspan.internal.model.ModelInteractionMode mode) {
+                throw new UnsupportedOperationException("step execution unavailable");
             }
         };
 
@@ -577,7 +577,7 @@ class ExecutionCoordinatorTest {
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", new LoomspanSession("session-1", "rootVisibleSkill", 3), null))
                 .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("createForStepExecution");
+                .hasMessageContaining("step execution unavailable");
     }
 
     @Test
@@ -611,7 +611,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(),
-                new RecordingSkillChatClientFactory(new FakeCoordinatorChatClient(null, "unused", null)),
+                new RecordingModelInteractionFactory(new FakeCoordinatorChatClient(null, "unused", null)),
                 (value, session) -> value,
                 null,
                 failingMissionExecutionEngine);
@@ -663,7 +663,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(),
-                new RecordingSkillChatClientFactory(new FakeCoordinatorChatClient(null, "mission complete", null, false)),
+                new RecordingModelInteractionFactory(new FakeCoordinatorChatClient(null, "mission complete", null, false)),
                 (value, session) -> value,
                 null);
 
@@ -708,7 +708,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(),
-                new RecordingSkillChatClientFactory(new FakeCoordinatorChatClient(null, "unused", null, false)),
+                new RecordingModelInteractionFactory(new FakeCoordinatorChatClient(null, "unused", null, false)),
                 (value, session) -> value,
                 null);
         LoomspanSession session = new LoomspanSession("session-attachment-redaction", "rootVisibleSkill", 3);
@@ -776,7 +776,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(),
-                new RecordingSkillChatClientFactory(new FakeCoordinatorChatClient(null, "unused", null)),
+                new RecordingModelInteractionFactory(new FakeCoordinatorChatClient(null, "unused", null)),
                 (value, session) -> value,
                 null,
                 stateService,
@@ -858,7 +858,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(childMetadata),
-                new RecordingSkillChatClientFactory(chatClient),
+                new RecordingModelInteractionFactory(chatClient),
                 (value, session) -> value,
                 null,
                 true);
@@ -926,7 +926,7 @@ class ExecutionCoordinatorTest {
                         List.of(toolTask("task-1", "Use allowedVisibleSkill", "allowedVisibleSkill", false))),
                 "unused",
                 "{\"value\":\"ref://artifacts/input.txt\"}");
-        RecordingSkillChatClientFactory factory = new RecordingSkillChatClientFactory(chatClient);
+        RecordingModelInteractionFactory factory = new RecordingModelInteractionFactory(chatClient);
         SkillVisibilityResolver visibilityResolver = (currentSkillName, sessionState, authentication) -> List.of(childMetadata);
         RefResolver refResolver = (value, session) -> value instanceof String text && text.startsWith("ref://")
                 ? "resolved-content"
@@ -943,8 +943,8 @@ class ExecutionCoordinatorTest {
         LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", session, null))
-                .isInstanceOf(ToolExecutionException.class)
-                .hasMessageContaining("tool exploded");
+                .isInstanceOf(IllegalStateException.class)
+                .hasRootCauseMessage("tool exploded");
         assertThat(session.getExecutionPlan()).isPresent();
         assertThat(session.getExecutionPlan().orElseThrow().tasks()).extracting(PlanTask::status)
                 .containsExactly(PlanTaskStatus.BLOCKED);
@@ -1029,7 +1029,7 @@ class ExecutionCoordinatorTest {
                         List.of(toolTask("child-task-1", "Use mars.analyzer", "mars.analyzer", false))),
                 "child mission complete",
                 "{\"topic\":\"mars\"}");
-        MultiClientSkillChatClientFactory factory = new MultiClientSkillChatClientFactory(
+        MultiClientModelInteractionFactory factory = new MultiClientModelInteractionFactory(
                 java.util.Map.of(
                         rootExecutionConfiguration.frameworkModel(), rootChatClient,
                         childExecutionConfiguration.frameworkModel(), childChatClient));
@@ -1067,7 +1067,7 @@ class ExecutionCoordinatorTest {
                 catalog.getSkill("child.llm.skill"));
         assertThat(factory.seenDefinitions).extracting(YamlSkillDefinition::executionConfiguration)
                 .containsExactly(rootExecutionConfiguration, childExecutionConfiguration);
-        assertThat(rootChatClient.lastToolResult).isEqualTo("\"child mission complete\"");
+        assertThat(rootChatClient.lastToolResult).isEqualTo("child mission complete");
         assertThat(session.getExecutionPlan()).isPresent();
         assertThat(session.getExecutionPlan().orElseThrow().planId()).isEqualTo("plan-root");
         assertThat(session.getExecutionPlan().orElseThrow().tasks()).extracting(PlanTask::status)
@@ -1144,7 +1144,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(childMetadata),
-                new RecordingSkillChatClientFactory(chatClient),
+                new RecordingModelInteractionFactory(chatClient),
                 (value, session) -> value,
                 null,
                 true);
@@ -1152,7 +1152,7 @@ class ExecutionCoordinatorTest {
         LoomspanSession session = new LoomspanSession("session-1", "rootVisibleSkill", 3);
 
         assertThatThrownBy(() -> coordinator.execute("rootVisibleSkill", "Say hello", session, null))
-                .isInstanceOf(ToolExecutionException.class)
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
                 .hasMessageContaining("Access denied");
         assertThat(session.getExecutionPlan()).isPresent();
         assertThat(session.getExecutionPlan().orElseThrow().tasks()).extracting(PlanTask::status)
@@ -1234,7 +1234,7 @@ class ExecutionCoordinatorTest {
                         List.of(toolTask("child-task-1", "Use mars.analyzer", "mars.analyzer", false))),
                 "child mission complete",
                 "{\"topic\":\"mars\"}");
-        MultiClientSkillChatClientFactory factory = new MultiClientSkillChatClientFactory(
+        MultiClientModelInteractionFactory factory = new MultiClientModelInteractionFactory(
                 java.util.Map.of(
                         rootExecutionConfiguration.frameworkModel(), rootChatClient,
                         childExecutionConfiguration.frameworkModel(), childChatClient));
@@ -1247,7 +1247,7 @@ class ExecutionCoordinatorTest {
         PlanningService planningService = fixedPlanningService(stateService);
         ToolSurfaceService toolSurfaceService = new DefaultToolSurfaceService(visibilityResolver);
         ExecutionCoordinator[] coordinatorHolder = new ExecutionCoordinator[1];
-        ToolCallbackFactory toolCallbackFactory = new DefaultToolCallbackFactory(
+        CapabilityBindingFactory toolCallbackFactory = new DefaultCapabilityInvoker(
                 new CapabilityExecutionRouter(
                         (value, session) -> value,
                         coordinatorProvider(() -> coordinatorHolder[0]),
@@ -1279,7 +1279,7 @@ class ExecutionCoordinatorTest {
                         AuthorityUtils.createAuthorityList("ROLE_ALLOWED")));
 
         assertThat(response).isEqualTo("root mission complete");
-        assertThat(rootChatClient.lastToolResult).isEqualTo("\"child mission complete\"");
+        assertThat(rootChatClient.lastToolResult).isEqualTo("child mission complete");
         assertThat(session.getExecutionPlan()).isPresent();
         assertThat(session.getExecutionPlan().orElseThrow().tasks()).extracting(PlanTask::status)
                 .containsExactly(PlanTaskStatus.COMPLETED);
@@ -1326,7 +1326,7 @@ class ExecutionCoordinatorTest {
                     catalog,
                     registry,
                     (currentSkillName, sessionState, authentication) -> List.of(),
-                    ignored -> new BlockingCoordinatorChatClient(),
+                    (ignored, mode) -> new BlockingCoordinatorChatClient(),
                     (value, session) -> value,
                     null,
                     stateService,
@@ -1378,15 +1378,15 @@ class ExecutionCoordinatorTest {
 
         ExecutionStateService stateService = fixedStateService();
         PlanningService planningService = fixedPlanningService(stateService);
-        ToolCallback callback = toolCallbackFactory((value, session) -> value, null, stateService, planningService)
-                .createToolCallbacks(
+        com.lokiscale.loomspan.internal.runtime.tool.BoundCapability callback = toolCallbackFactory((value, session) -> value, null, stateService, planningService)
+                .bind(
                         new LoomspanSession("session-1", "rootVisibleSkill", 2),
                         new YamlSkillDefinition(new ByteArrayResource(new byte[0]), manifest("rootVisibleSkill", List.of()), executionConfiguration),
                         List.of(childMetadata),
                         null)
                 .getFirst();
 
-        assertThat(callback.getToolDefinition().inputSchema()).isEqualTo(methodSchema);
+        assertThat(callback.inputSchema()).isEqualTo(methodSchema);
     }
 
     @Test
@@ -1442,7 +1442,7 @@ class ExecutionCoordinatorTest {
                 catalog,
                 registry,
                 (currentSkillName, sessionState, authentication) -> List.of(childMetadata),
-                new RecordingSkillChatClientFactory(chatClient),
+                new RecordingModelInteractionFactory(chatClient),
                 (value, session) -> value,
                 null,
                 true);
@@ -1495,7 +1495,7 @@ class ExecutionCoordinatorTest {
     private static ExecutionCoordinator coordinator(StubYamlSkillCatalog catalog,
                                                     InMemoryCapabilityRegistry registry,
                                                     SkillVisibilityResolver visibilityResolver,
-                                                    SkillChatClientFactory factory,
+                                                    ModelInteractionFactory factory,
                                                     RefResolver refResolver,
                                                     ExecutionCoordinator routedCoordinator) {
         return coordinator(catalog, registry, visibilityResolver, factory, refResolver, routedCoordinator, (Boolean) null);
@@ -1504,7 +1504,7 @@ class ExecutionCoordinatorTest {
     private static ExecutionCoordinator coordinator(StubYamlSkillCatalog catalog,
                                                     InMemoryCapabilityRegistry registry,
                                                     SkillVisibilityResolver visibilityResolver,
-                                                    SkillChatClientFactory factory,
+                                                    ModelInteractionFactory factory,
                                                     RefResolver refResolver,
                                                     ExecutionCoordinator routedCoordinator,
                                                     @Nullable Boolean dropInvocationAuthenticationForCallbacks) {
@@ -1527,7 +1527,7 @@ class ExecutionCoordinatorTest {
     private static ExecutionCoordinator coordinator(StubYamlSkillCatalog catalog,
                                                     InMemoryCapabilityRegistry registry,
                                                     SkillVisibilityResolver visibilityResolver,
-                                                    SkillChatClientFactory factory,
+                                                    ModelInteractionFactory factory,
                                                     RefResolver refResolver,
                                                     ExecutionCoordinator routedCoordinator,
                                                     MissionExecutionEngine missionExecutionEngine) {
@@ -1549,7 +1549,7 @@ class ExecutionCoordinatorTest {
     private static ExecutionCoordinator coordinator(StubYamlSkillCatalog catalog,
                                                     InMemoryCapabilityRegistry registry,
                                                     SkillVisibilityResolver visibilityResolver,
-                                                    SkillChatClientFactory factory,
+                                                    ModelInteractionFactory factory,
                                                     RefResolver refResolver,
                                                     ExecutionCoordinator routedCoordinator,
                                                     ExecutionStateService stateService,
@@ -1557,7 +1557,7 @@ class ExecutionCoordinatorTest {
                                                     MissionExecutionEngine missionExecutionEngine,
                                                     @Nullable Boolean dropInvocationAuthenticationForCallbacks) {
         ToolSurfaceService toolSurfaceService = new DefaultToolSurfaceService(visibilityResolver);
-        ToolCallbackFactory toolCallbackFactory = toolCallbackFactory(
+        CapabilityBindingFactory toolCallbackFactory = toolCallbackFactory(
                 refResolver,
                 routedCoordinator,
                 stateService,
@@ -1576,14 +1576,14 @@ class ExecutionCoordinatorTest {
                 accessGuard);
     }
 
-    private static ToolCallbackFactory toolCallbackFactory(RefResolver refResolver,
+    private static CapabilityBindingFactory toolCallbackFactory(RefResolver refResolver,
                                                            ExecutionCoordinator coordinator,
                                                            ExecutionStateService stateService,
                                                            PlanningService planningService) {
         return toolCallbackFactory(refResolver, coordinator, stateService, planningService, false);
     }
 
-    private static ToolCallbackFactory toolCallbackFactory(RefResolver refResolver,
+    private static CapabilityBindingFactory toolCallbackFactory(RefResolver refResolver,
                                                            ExecutionCoordinator coordinator,
                                                            ExecutionStateService stateService,
                                                            PlanningService planningService,
@@ -1591,7 +1591,7 @@ class ExecutionCoordinatorTest {
         StaticListableBeanFactory beanFactory = coordinator == null
                 ? new StaticListableBeanFactory()
                 : new StaticListableBeanFactory(java.util.Map.of("executionCoordinator", coordinator));
-        DefaultToolCallbackFactory delegate = new DefaultToolCallbackFactory(
+        DefaultCapabilityInvoker delegate = new DefaultCapabilityInvoker(
                 new CapabilityExecutionRouter(
                         refResolver,
                         beanFactory.getBeanProvider(ExecutionCoordinator.class),
@@ -1603,7 +1603,7 @@ class ExecutionCoordinatorTest {
             return delegate;
         }
         return (session, definition, capabilities, authentication) ->
-                delegate.createToolCallbacks(session, definition, capabilities, null);
+                delegate.bind(session, definition, capabilities, null);
     }
 
     private static ExecutionStateService fixedStateService() {
@@ -1699,48 +1699,44 @@ class ExecutionCoordinatorTest {
         }
     }
 
-    private static final class RecordingSkillChatClientFactory implements SkillChatClientFactory {
+    private static final class RecordingModelInteractionFactory implements ModelInteractionFactory {
 
         private final FakeCoordinatorChatClient chatClient;
         private final FakeCoordinatorChatClient stepChatClient;
         private YamlSkillDefinition lastDefinition;
         private boolean stepExecutionRequested;
 
-        private RecordingSkillChatClientFactory(FakeCoordinatorChatClient chatClient) {
+        private RecordingModelInteractionFactory(FakeCoordinatorChatClient chatClient) {
             this(chatClient, chatClient);
         }
 
-        private RecordingSkillChatClientFactory(FakeCoordinatorChatClient chatClient,
+        private RecordingModelInteractionFactory(FakeCoordinatorChatClient chatClient,
                                                 FakeCoordinatorChatClient stepChatClient) {
             this.chatClient = chatClient;
             this.stepChatClient = stepChatClient;
         }
 
         @Override
-        public org.springframework.ai.chat.client.ChatClient create(YamlSkillDefinition definition) {
+        public com.lokiscale.loomspan.internal.model.ModelInteraction create(YamlSkillDefinition definition,
+                com.lokiscale.loomspan.internal.model.ModelInteractionMode mode) {
             this.lastDefinition = definition;
-            return chatClient;
-        }
-
-        @Override
-        public org.springframework.ai.chat.client.ChatClient createForStepExecution(YamlSkillDefinition definition) {
-            this.lastDefinition = definition;
-            this.stepExecutionRequested = true;
-            return stepChatClient;
+            this.stepExecutionRequested = mode == com.lokiscale.loomspan.internal.model.ModelInteractionMode.STEP_EXECUTION;
+            return stepExecutionRequested ? stepChatClient : chatClient;
         }
     }
 
-    private static final class MultiClientSkillChatClientFactory implements SkillChatClientFactory {
+    private static final class MultiClientModelInteractionFactory implements ModelInteractionFactory {
 
         private final java.util.Map<String, FakeCoordinatorChatClient> clientsByModel;
         private final java.util.List<YamlSkillDefinition> seenDefinitions = new java.util.ArrayList<>();
 
-        private MultiClientSkillChatClientFactory(java.util.Map<String, FakeCoordinatorChatClient> clientsByModel) {
+        private MultiClientModelInteractionFactory(java.util.Map<String, FakeCoordinatorChatClient> clientsByModel) {
             this.clientsByModel = clientsByModel;
         }
 
         @Override
-        public org.springframework.ai.chat.client.ChatClient create(YamlSkillDefinition definition) {
+        public com.lokiscale.loomspan.internal.model.ModelInteraction create(YamlSkillDefinition definition,
+                com.lokiscale.loomspan.internal.model.ModelInteractionMode mode) {
             seenDefinitions.add(definition);
             EffectiveSkillExecutionConfiguration executionConfiguration = definition.executionConfiguration();
             FakeCoordinatorChatClient chatClient = clientsByModel.get(executionConfiguration.frameworkModel());
@@ -1750,10 +1746,6 @@ class ExecutionCoordinatorTest {
             return chatClient;
         }
 
-        @Override
-        public org.springframework.ai.chat.client.ChatClient createForStepExecution(YamlSkillDefinition definition) {
-            return create(definition);
-        }
     }
 
     private static final class BlockingCoordinatorChatClient extends com.lokiscale.loomspan.internal.runtime.SimpleChatClient {
@@ -1763,187 +1755,15 @@ class ExecutionCoordinatorTest {
         }
 
         @Override
-        public ChatClientRequestSpec prompt() {
-            return new BlockingRequestSpec();
-        }
-
-        private final class BlockingRequestSpec implements ChatClientRequestSpec {
-
-            @Override
-            public Builder mutate() {
-                throw new UnsupportedOperationException();
+        public com.lokiscale.loomspan.internal.model.ModelInteractionResult call(
+                com.lokiscale.loomspan.internal.model.ModelInteractionRequest request) {
+            try {
+                new java.util.concurrent.CountDownLatch(1).await();
+                throw new AssertionError("Blocking model unexpectedly resumed");
             }
-
-            @Override
-            public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(org.springframework.ai.chat.client.advisor.api.Advisor... advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(List<org.springframework.ai.chat.client.advisor.api.Advisor> advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(org.springframework.ai.chat.messages.Message... messages) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(List<org.springframework.ai.chat.messages.Message> messages) {
-                return this;
-            }
-
-            @Override
-            public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolNames(String... toolNames) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec tools(Object... tools) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolContext(Map<String, Object> toolContext) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(String text) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(String text) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-                return this;
-            }
-
-            @Override
-            public CallResponseSpec call() {
-                return new BlockingCallResponseSpec();
-            }
-
-            @Override
-            public StreamResponseSpec stream() {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        private static final class BlockingCallResponseSpec implements CallResponseSpec {
-
-            @Override
-            public <T> T entity(org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.client.ChatClientResponse chatClientResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.model.ChatResponse chatResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public String content() {
-                try {
-                    new CountDownLatch(1).await();
-                    throw new AssertionError("Latch await returned unexpectedly");
-                }
-                catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    return "interrupted";
-                }
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
+            catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Blocking model interrupted", ex);
             }
         }
     }

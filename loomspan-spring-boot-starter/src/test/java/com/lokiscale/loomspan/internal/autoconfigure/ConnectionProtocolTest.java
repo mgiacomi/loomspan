@@ -2,14 +2,18 @@ package com.lokiscale.loomspan.internal.autoconfigure;
 
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiChatOptionsContributor;
 import com.lokiscale.loomspan.internal.provider.ProviderFailureCategory;
 import com.lokiscale.loomspan.internal.provider.ProviderFailureClassification;
+import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
 import org.springframework.core.io.DefaultResourceLoader;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
@@ -73,12 +77,13 @@ class ConnectionProtocolTest {
 
             RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
             assertThat(request).isNotNull();
+            assertThat(server.getRequestCount()).isEqualTo(1);
             assertThat(request.getPath()).isEqualTo("/api/v1/chat/completions");
         }
     }
 
     @Test
-    void anthropicConnectionUsesConfiguredNativePathAndVersionHeaders() throws Exception {
+    void anthropicConnectionUsesOfficialPathAndCommonStaticHeaders() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(json("""
                     {"id":"msg_1","type":"message","role":"assistant","model":"claude-test",
@@ -89,22 +94,56 @@ class ConnectionProtocolTest {
             properties.setDriver(AiDriver.ANTHROPIC);
             properties.setApiKey("anthropic-secret");
             properties.setBaseUrl(server.url("/").toString());
-            LoomspanProperties.AnthropicOptions anthropic = new LoomspanProperties.AnthropicOptions();
-            anthropic.setCompletionsPath("/custom/messages");
-            anthropic.setVersion("2026-01-01");
-            anthropic.setBetaVersion("test-beta");
-            properties.setAnthropic(anthropic);
+            properties.setHeaders(Map.of("anthropic-beta", "test-beta"));
 
             var model = integration().create("anthropic-main", properties).chatModel();
             model.call(new Prompt("hello", AnthropicChatOptions.builder().model("claude-test").maxTokens(16).build()));
 
             RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
             assertThat(request).isNotNull();
-            assertThat(request.getPath()).isEqualTo("/custom/messages");
+            assertThat(server.getRequestCount()).isEqualTo(1);
+            assertThat(request.getPath()).isEqualTo("/v1/messages");
             assertThat(request.getHeader("x-api-key")).isEqualTo("anthropic-secret");
-            assertThat(request.getHeader("anthropic-version")).isEqualTo("2026-01-01");
+            assertThat(request.getHeader("anthropic-version")).isNotBlank();
             assertThat(request.getHeader("anthropic-beta")).isEqualTo("test-beta");
             assertThat(request.getBody().readUtf8()).contains("\"model\":\"claude-test\"");
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "low, 1024, 4096",
+            "medium, 4096, 8192",
+            "high, 8192, 16384"
+    })
+    void anthropicThinkingLevelsProduceProviderValidRequestTokenLimits(
+            String level, long expectedBudget, int expectedMaxTokens) throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(json("""
+                    {"id":"msg_1","type":"message","role":"assistant","model":"claude-test",
+                     "content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,
+                     "usage":{"input_tokens":1,"output_tokens":1}}
+                    """));
+            LoomspanProperties.ConnectionProperties properties = new LoomspanProperties.ConnectionProperties();
+            properties.setDriver(AiDriver.ANTHROPIC);
+            properties.setApiKey("anthropic-secret");
+            properties.setBaseUrl(server.url("/").toString());
+            var options = new SpringAiChatOptionsContributor().createOptions(
+                    new EffectiveSkillExecutionConfiguration(
+                            "alias", "anthropic-main", AiDriver.ANTHROPIC, "claude-test", level))
+                    .build();
+
+            integration().create("anthropic-main", properties).chatModel().call(new Prompt("hello", options));
+
+            RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
+            assertThat(request).isNotNull();
+            tools.jackson.databind.JsonNode body = tools.jackson.databind.json.JsonMapper.builder().build()
+                    .readTree(request.getBody().readUtf8());
+            assertThat(body.path("max_tokens").asInt()).isEqualTo(expectedMaxTokens);
+            assertThat(body.path("thinking").path("type").asText()).isEqualTo("enabled");
+            assertThat(body.path("thinking").path("budget_tokens").asLong()).isEqualTo(expectedBudget);
+            assertThat(body.path("thinking").path("budget_tokens").asLong())
+                    .isLessThan(body.path("max_tokens").asLong());
         }
     }
 
@@ -151,7 +190,6 @@ class ConnectionProtocolTest {
             LoomspanProperties.OpenAiOptions openAi = new LoomspanProperties.OpenAiOptions();
             openAi.setOrganizationId("org-a");
             openAi.setProjectId("project-a");
-            openAi.setChatCompletionsPath("/custom/chat/completions");
             properties.setOpenai(openAi);
 
             var model = integration().create("openai-main", properties).chatModel();
@@ -159,7 +197,8 @@ class ConnectionProtocolTest {
 
             RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
             assertThat(request).isNotNull();
-            assertThat(request.getPath()).isEqualTo("/custom/chat/completions");
+            assertThat(server.getRequestCount()).isEqualTo(1);
+            assertThat(request.getPath()).isEqualTo("/chat/completions");
             assertThat(request.getHeader("Authorization")).isEqualTo("Bearer secret-key");
             assertThat(request.getHeader("X-Tenant")).isEqualTo("tenant-a");
             assertThat(request.getHeader("OpenAI-Organization")).isEqualTo("org-a");
@@ -185,6 +224,7 @@ class ConnectionProtocolTest {
 
             RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
             assertThat(request).isNotNull();
+            assertThat(server.getRequestCount()).isEqualTo(1);
             assertThat(request.getPath()).isEqualTo("/api/chat");
             assertThat(request.getBody().readUtf8()).contains("\"model\":\"qwen\"");
         }
@@ -216,7 +256,7 @@ class ConnectionProtocolTest {
         return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
     }
 
-    private static SpringAiV11ProviderIntegration integration() {
-        return new SpringAiV11ProviderIntegration(new DefaultResourceLoader());
+    private static SpringAiProviderIntegration integration() {
+        return new SpringAiProviderIntegration(new DefaultResourceLoader());
     }
 }

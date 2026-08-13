@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.autoconfigure;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.autoconfigure.LoomspanAutoConfiguration;
@@ -10,7 +10,7 @@ import com.lokiscale.loomspan.internal.runtime.usage.MicrometerUsageMetricsRecor
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageRecord;
 import com.lokiscale.loomspan.internal.runtime.usage.UsagePrecision;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,7 +63,10 @@ class SensitiveConnectionDataRedactionTest {
 
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(
-                        ConfigurationPropertiesAutoConfiguration.class, LoomspanAutoConfiguration.class))
+                        ConfigurationPropertiesAutoConfiguration.class,
+                    com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration.class,
+                    LoomspanAutoConfiguration.class,
+                    com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration.class))
                 .withPropertyValues(
                         "loomspan.skills.locations=classpath:/skills/none/**/*.yaml",
                         "loomspan.connections.sensitive.driver=openai",
@@ -81,7 +84,7 @@ class SensitiveConnectionDataRedactionTest {
     }
 
     private static String registryFailure(LoomspanProperties.ConnectionProperties connection) {
-        SpringAiV11ProviderIntegration integration = mock(SpringAiV11ProviderIntegration.class);
+        SpringAiProviderIntegration integration = mock(SpringAiProviderIntegration.class);
         when(integration.create("sensitive", connection))
                 .thenThrow(new IllegalStateException(API_KEY + HEADER_VALUE + BASE_URL + CREDENTIAL_URI));
         try {

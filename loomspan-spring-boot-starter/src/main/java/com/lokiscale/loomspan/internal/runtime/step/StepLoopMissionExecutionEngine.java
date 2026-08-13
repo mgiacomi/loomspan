@@ -1,9 +1,9 @@
 package com.lokiscale.loomspan.internal.runtime.step;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.core.LoomspanSession;
 import com.lokiscale.loomspan.internal.core.LoomspanStackOverflowException;
 import com.lokiscale.loomspan.internal.core.CapabilityRegistry;
@@ -28,16 +28,13 @@ import com.lokiscale.loomspan.internal.runtime.LoomspanMissionTimeoutException;
 import com.lokiscale.loomspan.internal.runtime.MissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.attachment.DefaultMissionInputMaterializer;
 import com.lokiscale.loomspan.internal.runtime.attachment.MissionInputMaterializer;
-import com.lokiscale.loomspan.internal.runtime.attachment.MissionUserMessageSender;
 import com.lokiscale.loomspan.internal.runtime.attachment.RenderedMissionInput;
-import com.lokiscale.loomspan.internal.runtime.attachment.SpringAiMissionUserMessageSender;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceBackedOutputValidator;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceCoverageResult;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.runtime.prompt.SkillPromptComposer;
 import com.lokiscale.loomspan.internal.runtime.prompt.SkillPromptComposition;
 import com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolCallbackFactory;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageService;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
 import com.lokiscale.loomspan.internal.skill.YamlSkillCatalog;
@@ -46,14 +43,9 @@ import com.lokiscale.loomspan.internal.vfs.DefaultRefResolver;
 import com.lokiscale.loomspan.internal.vfs.SessionLocalVirtualFileSystem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.chat.messages.AbstractMessage;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.execution.ToolExecutionException;
+import com.lokiscale.loomspan.internal.model.ModelInteraction;
+import com.lokiscale.loomspan.internal.model.ModelInteractionRequest;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 
@@ -108,7 +100,6 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
     private final EvidenceBackedOutputValidator evidenceBackedOutputValidator;
     private final int defaultMaxSteps;
     private final MissionInputMaterializer missionInputMaterializer;
-    private final MissionUserMessageSender missionUserMessageSender;
 
     public StepLoopMissionExecutionEngine(PlanningService planningService,
             ExecutionStateService executionStateService,
@@ -126,52 +117,66 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
     public StepLoopMissionExecutionEngine(PlanningService planningService,
             ExecutionStateService executionStateService,
             CapabilityRegistry capabilityRegistry,
-            YamlSkillCatalog ignoredYamlSkillCatalog,
-            Duration missionTimeout,
-            ExecutorService missionExecutor,
-            SessionUsageService sessionUsageService,
-            int defaultMaxSteps)
-    {
-        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
-                sessionUsageService, defaultMaxSteps, defaultMaterializer(), new SpringAiMissionUserMessageSender());
-        this.yamlSkillCatalog = Objects.requireNonNull(ignoredYamlSkillCatalog, "yamlSkillCatalog must not be null");
-    }
-
-    public StepLoopMissionExecutionEngine(PlanningService planningService,
-            ExecutionStateService executionStateService,
-            CapabilityRegistry capabilityRegistry,
-            Duration missionTimeout,
-            ExecutorService missionExecutor,
-            SessionUsageService sessionUsageService)
-    {
-        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
-                sessionUsageService, DEFAULT_MAX_STEPS);
-    }
-
-    public StepLoopMissionExecutionEngine(PlanningService planningService,
-            ExecutionStateService executionStateService,
-            CapabilityRegistry capabilityRegistry,
-            Duration missionTimeout,
-            ExecutorService missionExecutor,
-            SessionUsageService sessionUsageService,
-            int defaultMaxSteps)
-    {
-        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
-                sessionUsageService, defaultMaxSteps, defaultMaterializer(), new SpringAiMissionUserMessageSender());
-    }
-
-    public StepLoopMissionExecutionEngine(PlanningService planningService,
-            ExecutionStateService executionStateService,
-            CapabilityRegistry capabilityRegistry,
-            YamlSkillCatalog ignoredYamlSkillCatalog,
+            YamlSkillCatalog yamlSkillCatalog,
             Duration missionTimeout,
             ExecutorService missionExecutor,
             SessionUsageService sessionUsageService,
             MissionInputMaterializer missionInputMaterializer,
-            MissionUserMessageSender missionUserMessageSender)
+            ObjectMapper schemaMapper)
     {
         this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
-                sessionUsageService, DEFAULT_MAX_STEPS, missionInputMaterializer, missionUserMessageSender);
+                sessionUsageService, DEFAULT_MAX_STEPS, missionInputMaterializer, schemaMapper);
+        this.yamlSkillCatalog = Objects.requireNonNull(yamlSkillCatalog, "yamlSkillCatalog must not be null");
+    }
+
+    public StepLoopMissionExecutionEngine(PlanningService planningService,
+            ExecutionStateService executionStateService,
+            CapabilityRegistry capabilityRegistry,
+            YamlSkillCatalog ignoredYamlSkillCatalog,
+            Duration missionTimeout,
+            ExecutorService missionExecutor,
+            SessionUsageService sessionUsageService,
+            int defaultMaxSteps)
+    {
+        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
+                sessionUsageService, defaultMaxSteps, defaultMaterializer());
+        this.yamlSkillCatalog = Objects.requireNonNull(ignoredYamlSkillCatalog, "yamlSkillCatalog must not be null");
+    }
+
+    public StepLoopMissionExecutionEngine(PlanningService planningService,
+            ExecutionStateService executionStateService,
+            CapabilityRegistry capabilityRegistry,
+            Duration missionTimeout,
+            ExecutorService missionExecutor,
+            SessionUsageService sessionUsageService)
+    {
+        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
+                sessionUsageService, DEFAULT_MAX_STEPS);
+    }
+
+    public StepLoopMissionExecutionEngine(PlanningService planningService,
+            ExecutionStateService executionStateService,
+            CapabilityRegistry capabilityRegistry,
+            Duration missionTimeout,
+            ExecutorService missionExecutor,
+            SessionUsageService sessionUsageService,
+            int defaultMaxSteps)
+    {
+        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
+                sessionUsageService, defaultMaxSteps, defaultMaterializer());
+    }
+
+    public StepLoopMissionExecutionEngine(PlanningService planningService,
+            ExecutionStateService executionStateService,
+            CapabilityRegistry capabilityRegistry,
+            YamlSkillCatalog ignoredYamlSkillCatalog,
+            Duration missionTimeout,
+            ExecutorService missionExecutor,
+            SessionUsageService sessionUsageService,
+            MissionInputMaterializer missionInputMaterializer)
+    {
+        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
+                sessionUsageService, DEFAULT_MAX_STEPS, missionInputMaterializer);
         this.yamlSkillCatalog = Objects.requireNonNull(ignoredYamlSkillCatalog, "yamlSkillCatalog must not be null");
     }
 
@@ -182,8 +187,22 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             ExecutorService missionExecutor,
             SessionUsageService sessionUsageService,
             int defaultMaxSteps,
+            MissionInputMaterializer missionInputMaterializer)
+    {
+        this(planningService, executionStateService, capabilityRegistry, missionTimeout, missionExecutor,
+                sessionUsageService, defaultMaxSteps, missionInputMaterializer,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().schemaTree());
+    }
+
+    public StepLoopMissionExecutionEngine(PlanningService planningService,
+            ExecutionStateService executionStateService,
+            CapabilityRegistry capabilityRegistry,
+            Duration missionTimeout,
+            ExecutorService missionExecutor,
+            SessionUsageService sessionUsageService,
+            int defaultMaxSteps,
             MissionInputMaterializer missionInputMaterializer,
-            MissionUserMessageSender missionUserMessageSender)
+            ObjectMapper schemaMapper)
     {
         this.planningService = Objects.requireNonNull(planningService, "planningService must not be null");
         this.executionStateService = Objects.requireNonNull(executionStateService, "executionStateService must not be null");
@@ -192,12 +211,12 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
         this.missionTimeout = Objects.requireNonNull(missionTimeout, "missionTimeout must not be null");
         this.missionExecutor = Objects.requireNonNull(missionExecutor, "missionExecutor must not be null");
         this.sessionUsageService = Objects.requireNonNull(sessionUsageService, "sessionUsageService must not be null");
-        this.objectMapper = JsonMapper.builder().findAndAddModules().build();
-        this.outputSchemaValidator = new OutputSchemaValidator();
-        this.evidenceBackedOutputValidator = new EvidenceBackedOutputValidator();
+        this.objectMapper = Objects.requireNonNull(schemaMapper, "schemaMapper must not be null");
+        this.outputSchemaValidator = new OutputSchemaValidator(schemaMapper);
+        this.evidenceBackedOutputValidator = new EvidenceBackedOutputValidator(schemaMapper,
+                new com.lokiscale.loomspan.internal.runtime.evidence.EvidenceCoverageValidator());
         this.defaultMaxSteps = defaultMaxSteps;
         this.missionInputMaterializer = Objects.requireNonNull(missionInputMaterializer, "missionInputMaterializer must not be null");
-        this.missionUserMessageSender = Objects.requireNonNull(missionUserMessageSender, "missionUserMessageSender must not be null");
     }
 
     @Override
@@ -205,15 +224,15 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             YamlSkillDefinition definition,
             String objective,
             @Nullable Map<String, Object> missionInput,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools,
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools,
             boolean planningEnabled,
             @Nullable Authentication authentication)
     {
         Objects.requireNonNull(session, "session must not be null");
         Objects.requireNonNull(definition, "definition must not be null");
         Objects.requireNonNull(objective, "objective must not be null");
-        Objects.requireNonNull(chatClient, "chatClient must not be null");
+        Objects.requireNonNull(modelInteraction, "modelInteraction must not be null");
         Objects.requireNonNull(visibleTools, "visibleTools must not be null");
         String skillName = definition.manifest().getName();
         EffectiveSkillExecutionConfiguration executionConfiguration = definition.requireExecutionConfiguration();
@@ -236,7 +255,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                             objective,
                             planningInput(missionInput, renderedInput),
                             definition,
-                            chatClient,
+                            modelInteraction,
                             visibleTools);
                 }
 
@@ -247,7 +266,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                             "Step-loop execution requires a plan but none was created for skill '" + skillName + "'");
                 }
 
-                return executeStepLoop(session, definition, objective, renderedInput, executionConfiguration, chatClient, visibleTools,
+                return executeStepLoop(session, definition, objective, renderedInput, executionConfiguration, modelInteraction, visibleTools,
                         cleanupOwner);
             }
             finally
@@ -313,8 +332,8 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             String objective,
             RenderedMissionInput renderedInput,
             EffectiveSkillExecutionConfiguration executionConfiguration,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools,
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools,
             AtomicReference<CleanupOwner> cleanupOwner)
     {
         String skillName = definition.manifest().getName();
@@ -373,7 +392,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                     objective,
                     renderedInput,
                     executionConfiguration,
-                    chatClient,
+                    modelInteraction,
                     visibleTools,
                     plan,
                     stepNumber,
@@ -407,8 +426,8 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             String objective,
             RenderedMissionInput renderedInput,
             EffectiveSkillExecutionConfiguration executionConfiguration,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools,
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools,
             ExecutionPlan plan,
             int stepNumber,
             @Nullable String lastToolResult,
@@ -461,7 +480,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                                 + invalidActionFeedback + "\nPlease correct and try again.";
 
                 String modelResponse = callModelForStep(
-                        session, skillName, executionConfiguration, chatClient, effectivePrompt,
+                        session, skillName, executionConfiguration, modelInteraction, effectivePrompt,
                         new RenderedMissionInput(stepUserMessage, renderedInput.attachments(), renderedInput.traceSafeInput()),
                         stepNumber,
                         promptComposition.traceMetadata(),
@@ -575,7 +594,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
     private String callModelForStep(LoomspanSession session,
             String skillName,
             EffectiveSkillExecutionConfiguration executionConfiguration,
-            ChatClient chatClient,
+            ModelInteraction modelInteraction,
             String stepPrompt,
             RenderedMissionInput renderedInput,
             int stepNumber,
@@ -598,24 +617,8 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                     skillName,
                     "step-" + stepNumber);
 
-            ChatClient.CallResponseSpec responseSpec = missionUserMessageSender.send(
-                    chatClient,
-                    stepPrompt,
-                    renderedInput,
-                    List.of(),
-                    skillName,
-                    executionConfiguration,
-                    modelTraceContext);
-
-            try
-            {
-                ChatClientResponse clientResponse = responseSpec.chatClientResponse();
-                return extractContentFromChatResponse(clientResponse.chatResponse());
-            }
-            catch (UnsupportedOperationException ignored)
-            {
-                return responseSpec.content();
-            }
+            return modelInteraction.call(new ModelInteractionRequest(
+                    stepPrompt, renderedInput, modelTraceContext, List.of(), false)).content();
         }
         catch (RuntimeException | Error ex)
         {
@@ -650,13 +653,12 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
     private StepResult executeToolAction(LoomspanSession session,
             StepAction action,
             @Nullable YamlSkillDefinition skillDefinition,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             ExecutionFrame stepFrame,
             int stepNumber)
     {
-        ToolCallback toolCallback = visibleTools.stream()
-                .filter(t -> t != null && t.getToolDefinition() != null
-                        && action.toolName().equals(t.getToolDefinition().name()))
+        BoundCapability toolCallback = visibleTools.stream()
+                .filter(t -> t != null && action.toolName().equals(t.name()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "Tool '%s' validated but not found in visible tools".formatted(action.toolName())));
@@ -669,26 +671,15 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
         String toolResult;
         try
         {
-            String argumentsJson;
-            try
-            {
-                argumentsJson = objectMapper.writeValueAsString(
-                        action.toolArguments() == null ? Map.of() : action.toolArguments());
-            }
-            catch (JsonProcessingException ex)
-            {
-                throw new IllegalStateException("Failed to serialize tool arguments for tool '" + action.toolName() + "'", ex);
-            }
+            Object rawResult = toolCallback.invoke(
+                    action.toolArguments() == null ? Map.of() : action.toolArguments(), action.taskId());
 
-            String rawResult = toolCallback.call(argumentsJson, new ToolContext(Map.of(
-                    DefaultToolCallbackFactory.STEP_LOOP_TASK_ID_CONTEXT_KEY, action.taskId())));
-
-            toolResult = rawResult == null ? "null" : rawResult;
+            toolResult = rawResult == null ? "null" : String.valueOf(rawResult);
             planningService.markToolCompleted(
                     session,
                     action.taskId(),
                     action.toolName(),
-                    toolResult);
+                    rawResult);
         }
         catch (RuntimeException ex)
         {
@@ -742,7 +733,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             }
             return parsed;
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             log.debug("Failed to parse step action JSON: {}", ex.getMessage());
             return null;
@@ -771,16 +762,6 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             }
         }
         return safePayload;
-    }
-
-    @Nullable
-    private static String extractContentFromChatResponse(@Nullable ChatResponse chatResponse)
-    {
-        return Optional.ofNullable(chatResponse)
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getText)
-                .orElse(null);
     }
 
     private void recordTerminalFailure(LoomspanSession session,
@@ -1026,7 +1007,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
         return action.stepAction().name();
     }
 
-    private String serializeFinalResponse(@Nullable com.fasterxml.jackson.databind.JsonNode finalResponseNode)
+    private String serializeFinalResponse(@Nullable tools.jackson.databind.JsonNode finalResponseNode)
     {
         if (finalResponseNode == null || finalResponseNode.isNull())
         {
@@ -1040,7 +1021,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
         {
             return objectMapper.writeValueAsString(finalResponseNode);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Failed to serialize FINAL_RESPONSE payload", ex);
         }
@@ -1124,14 +1105,6 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
 
     private RuntimeException unwrapMissionFailure(RuntimeException runtimeException)
     {
-        if (runtimeException instanceof ToolExecutionException toolExecutionException
-                && toolExecutionException.getCause() instanceof RuntimeException nestedRuntimeException
-                && (nestedRuntimeException instanceof LoomspanStackOverflowException
-                        || nestedRuntimeException instanceof LoomspanMissionTimeoutException))
-        {
-            return nestedRuntimeException;
-        }
-
         return runtimeException;
     }
 

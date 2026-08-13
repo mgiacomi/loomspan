@@ -2,7 +2,7 @@ package com.lokiscale.loomspan.internal.core;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.springframework.lang.Nullable;
 
 import java.time.Instant;

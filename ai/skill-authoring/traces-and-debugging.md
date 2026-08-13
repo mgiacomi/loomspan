@@ -28,6 +28,8 @@ an internal diagnostic format rather than an application dependency.
 
 ## Model attempts and retries
 
+Keep four levels distinct when reading a trace. A model interaction is the semantic request made by mission, planning, or step execution. The one selected tool-calling advisor may perform several model turns inside that interaction. A semantic retry repeats the semantic attempt after validation feedback. A provider retry repeats one unchanged model turn. Each actual downstream send is a physical attempt and consumes provider-attempt quota exactly once.
+
 One physical attempt is one downstream provider call. Each attempt has an `attemptId`, a positive `attemptNumber`, a `retrySequenceId`, an `attemptReason` (`INITIAL`, `PROVIDER_RETRY`, or `SEMANTIC_RETRY`), and a provider-attempt number. An unchanged provider retry increments the provider number; a semantic correction resets it to one while the physical attempt number continues increasing.
 
 For an attempt that reaches the provider and returns, the trace records prepared request, sent request, and received response facts with the same attempt identity. A known provider failure instead ends with `MODEL_ATTEMPT_FAILED`, including neutral classification, category, retry decision, delay, and bounded diagnostics; it is not reported as a missing-response gap. Validator mutation facts identify the exact attempt whose output caused a pass, retry, or exhaustion.
@@ -138,9 +140,10 @@ cross-version application contracts.
 - [`ProviderAttemptCallAdvisor.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/chat/ProviderAttemptCallAdvisor.java) owns the final pre-provider attempt boundary.
 - [`ModelTraceContext.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/ModelTraceContext.java) owns retry-sequence and attempt identity.
 - [`TraceCompletion.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceCompletion.java) and [`TraceOutcome.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/TraceOutcome.java) define terminal semantics.
-- [`DefaultToolCallbackFactory.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/runtime/tool/DefaultToolCallbackFactory.java) owns the pre-capability boundary, and `ExecutionStateServiceTest` protects canonical planned and unplanned start payloads.
+- [`DefaultCapabilityInvoker.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/runtime/tool/DefaultCapabilityInvoker.java) owns the pre-capability boundary, and `ExecutionStateServiceTest` protects canonical planned and unplanned start payloads.
+- `SpringAiChatClientAssemblerIntegrationTest` protects the single tool loop, semantic/provider scope, and exact model-turn/tool counts; `SpringAiObservationIntegrationTest` protects safe observation defaults and accounting canaries.
 - [`ModelAttemptCallAdvisorIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/chat/ModelAttemptCallAdvisorIntegrationTest.java) protects retry cardinality, failure behavior, usage, and quota enforcement.
-- [`LoomspanSessionRunnerTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/LoomspanSessionRunnerTest.java) and [`ExecutionCoordinatorTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/runtime/ExecutionCoordinatorTest.java) protect terminal failure linkage.
+- [`LoomspanSessionRunnerTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/LoomspanSessionRunnerTest.java) and [`ExecutionCoordinatorTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/ExecutionCoordinatorTest.java) protect terminal failure linkage.
 - `LoomspanSessionTest`, Go `failures.go`/diagnostic query tests, the runtime
   fixture corpus, and `TraceExplorer` component tests protect stable failure
   identity, completion-derived terminality, bounded retrieval, and inert text.

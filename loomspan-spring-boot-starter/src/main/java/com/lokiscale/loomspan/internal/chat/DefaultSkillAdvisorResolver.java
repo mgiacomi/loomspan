@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
+import tools.jackson.databind.ObjectMapper;
 
 public final class DefaultSkillAdvisorResolver implements SkillAdvisorResolver
 {
@@ -33,6 +34,12 @@ public final class DefaultSkillAdvisorResolver implements SkillAdvisorResolver
     public DefaultSkillAdvisorResolver(ExecutionStateService executionStateService)
     {
         this(executionStateService, new OutputSchemaValidator(), new OutputSchemaPromptAugmentor(), new EvidenceBackedOutputValidator());
+    }
+
+    public DefaultSkillAdvisorResolver(ExecutionStateService executionStateService, ObjectMapper schemaMapper)
+    {
+        this(executionStateService, new OutputSchemaValidator(schemaMapper), new OutputSchemaPromptAugmentor(),
+                new EvidenceBackedOutputValidator(schemaMapper, new com.lokiscale.loomspan.internal.runtime.evidence.EvidenceCoverageValidator()));
     }
 
     DefaultSkillAdvisorResolver(ExecutionStateService executionStateService,

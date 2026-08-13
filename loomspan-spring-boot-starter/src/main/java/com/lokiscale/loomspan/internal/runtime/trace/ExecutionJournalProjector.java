@@ -1,8 +1,7 @@
 package com.lokiscale.loomspan.internal.runtime.trace;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.core.ExecutionJournal;
 import com.lokiscale.loomspan.internal.core.JournalEntry;
 import com.lokiscale.loomspan.internal.core.JournalEntryType;
@@ -16,9 +15,17 @@ import java.util.Map;
 
 public final class ExecutionJournalProjector
 {
-    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
-            .findAndAddModules()
-            .build();
+    private final ObjectMapper objectMapper;
+
+    public ExecutionJournalProjector()
+    {
+        this(com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().canonicalTrace());
+    }
+
+    public ExecutionJournalProjector(ObjectMapper objectMapper)
+    {
+        this.objectMapper = java.util.Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+    }
 
     public ExecutionJournal project(List<TraceRecord> records)
     {
@@ -113,7 +120,7 @@ public final class ExecutionJournalProjector
                 record.timestamp(),
                 level,
                 type,
-                OBJECT_MAPPER.valueToTree(payload == null ? Map.of() : payload),
+                objectMapper.valueToTree(payload == null ? Map.of() : payload),
                 record.frameId(),
                 record.route());
     }
@@ -285,19 +292,19 @@ public final class ExecutionJournalProjector
     {
         if (node == null)
         {
-            return OBJECT_MAPPER.nullNode();
+            return objectMapper.nullNode();
         }
         if (node.isObject())
         {
-            var copy = OBJECT_MAPPER.createObjectNode();
-            node.fields().forEachRemaining(entry -> copy.set(entry.getKey(), shouldRedact(entry.getKey())
-                    ? OBJECT_MAPPER.getNodeFactory().textNode("[redacted]")
+            var copy = objectMapper.createObjectNode();
+            node.properties().iterator().forEachRemaining(entry -> copy.set(entry.getKey(), shouldRedact(entry.getKey())
+                    ? objectMapper.getNodeFactory().textNode("[redacted]")
                     : sanitize(entry.getValue())));
             return copy;
         }
         if (node.isArray())
         {
-            var copy = OBJECT_MAPPER.createArrayNode();
+            var copy = objectMapper.createArrayNode();
             node.forEach(value -> copy.add(sanitize(value)));
             return copy;
         }
@@ -339,7 +346,7 @@ public final class ExecutionJournalProjector
         }
 
         JsonNode value = node.get(fieldName);
-        if (value == null || value.isNull() || value.isContainerNode())
+        if (value == null || value.isNull() || value.isContainer())
         {
             return null;
         }

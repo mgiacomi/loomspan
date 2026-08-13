@@ -1,12 +1,12 @@
 package com.lokiscale.loomspan.internal.runtime.planning;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.lokiscale.loomspan.internal.core.LoomspanSession;
 import com.lokiscale.loomspan.internal.core.CapabilityMetadata;
 import com.lokiscale.loomspan.internal.core.ExecutionFrame;
@@ -32,13 +32,11 @@ import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguratio
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.messages.AbstractMessage;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
+import com.lokiscale.loomspan.internal.model.ModelInteraction;
+import com.lokiscale.loomspan.internal.model.ModelInteractionRequest;
+import com.lokiscale.loomspan.internal.model.ModelInteractionResult;
+import com.lokiscale.loomspan.internal.runtime.attachment.RenderedMissionInput;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import org.springframework.lang.Nullable;
 
 import java.util.ArrayList;
@@ -57,12 +55,12 @@ public class DefaultPlanningService implements PlanningService
 {
     private static final Logger log = LoggerFactory.getLogger(DefaultPlanningService.class);
 
-    private static final ObjectMapper YAML_OBJECT_MAPPER = YAMLMapper.builder().findAndAddModules().build();
     private static final int MAX_PLAN_QUALITY_RETRIES = 1;
 
     private final PlanTaskLinker planTaskLinker;
     private final ExecutionStateService executionStateService;
     private final ObjectMapper objectMapper;
+    private final ObjectMapper yamlObjectMapper;
     private final PlanQualityValidator planQualityValidator;
     private final EvidenceCoverageValidator evidenceCoverageValidator;
 
@@ -72,19 +70,31 @@ public class DefaultPlanningService implements PlanningService
                 planTaskLinker,
                 executionStateService,
                 defaultObjectMapper(),
+                defaultYamlObjectMapper(),
                 new PlanQualityValidator(),
                 new EvidenceCoverageValidator());
+    }
+
+    public DefaultPlanningService(PlanTaskLinker planTaskLinker,
+            ExecutionStateService executionStateService,
+            ObjectMapper planningJsonMapper,
+            ObjectMapper planningYamlMapper)
+    {
+        this(planTaskLinker, executionStateService, planningJsonMapper, planningYamlMapper,
+                new PlanQualityValidator(), new EvidenceCoverageValidator());
     }
 
     DefaultPlanningService(PlanTaskLinker planTaskLinker,
             ExecutionStateService executionStateService,
             ObjectMapper objectMapper,
+            ObjectMapper yamlObjectMapper,
             PlanQualityValidator planQualityValidator,
             EvidenceCoverageValidator evidenceCoverageValidator)
     {
         this.planTaskLinker = Objects.requireNonNull(planTaskLinker, "planTaskLinker must not be null");
         this.executionStateService = Objects.requireNonNull(executionStateService, "executionStateService must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.yamlObjectMapper = Objects.requireNonNull(yamlObjectMapper, "yamlObjectMapper must not be null");
         this.planQualityValidator = Objects.requireNonNull(planQualityValidator, "planQualityValidator must not be null");
         this.evidenceCoverageValidator = Objects.requireNonNull(evidenceCoverageValidator, "evidenceCoverageValidator must not be null");
     }
@@ -94,20 +104,20 @@ public class DefaultPlanningService implements PlanningService
             String objective,
             @Nullable Map<String, Object> missionInput,
             YamlSkillDefinition definition,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools)
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools)
     {
         Objects.requireNonNull(session, "session must not be null");
         Objects.requireNonNull(objective, "objective must not be null");
         Objects.requireNonNull(definition, "definition must not be null");
-        Objects.requireNonNull(chatClient, "chatClient must not be null");
+        Objects.requireNonNull(modelInteraction, "modelInteraction must not be null");
         String capabilityName = definition.manifest().getName();
         var executionConfiguration = definition.requireExecutionConfiguration();
 
         log.debug(
                 "Initializing plan for capability='{}' chatClientType={} visibleTools={}",
                 capabilityName,
-                chatClient.getClass().getName(),
+                modelInteraction.getClass().getName(),
                 visibleTools == null ? 0 : visibleTools.size());
 
         ModelExecutionIdentity modelIdentity = ModelExecutionIdentity.from(executionConfiguration);
@@ -126,7 +136,7 @@ public class DefaultPlanningService implements PlanningService
                     objective,
                     missionInput,
                     definition,
-                    chatClient,
+                    modelInteraction,
                     visibleTools,
                     planningFrame);
         }
@@ -258,8 +268,8 @@ public class DefaultPlanningService implements PlanningService
             String objective,
             @Nullable Map<String, Object> missionInput,
             YamlSkillDefinition definition,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools,
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools,
             ExecutionFrame planningFrame)
     {
         String capabilityName = definition.manifest().getName();
@@ -280,7 +290,7 @@ public class DefaultPlanningService implements PlanningService
                     missionInput,
                     definition,
                     executionConfiguration,
-                    chatClient,
+                    modelInteraction,
                     visibleTools,
                     retryFeedback,
                     evidenceContract,
@@ -375,8 +385,8 @@ public class DefaultPlanningService implements PlanningService
             @Nullable Map<String, Object> missionInput,
             YamlSkillDefinition definition,
             EffectiveSkillExecutionConfiguration executionConfiguration,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools,
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools,
             @Nullable String retryFeedback,
             @Nullable EvidenceContract evidenceContract,
             ModelTraceContext modelTraceContext)
@@ -399,44 +409,17 @@ public class DefaultPlanningService implements PlanningService
 
         try
         {
-            ChatClient.CallResponseSpec responseSpec = chatClient.prompt()
-                    .system(planningPrompt)
-                    .user(planningUserMessage)
-                    .advisors(spec ->
-                    {
-                        spec.param(OutputSchemaCallAdvisor.PLANNING_CALL_KEY, true);
-                        spec.param(ModelTraceContext.REQUEST_CONTEXT_KEY, modelTraceContext);
-                    })
-                    .call();
-            ChatResponse chatResponse;
-            String planPayload;
-            Map<String, Object> modelAttempt;
-
-            try
-            {
-                ChatClientResponse clientResponse = responseSpec.chatClientResponse();
-                chatResponse = clientResponse.chatResponse();
-                modelAttempt = ModelTraceContext.attemptFrom(clientResponse.context());
-                planPayload = extractContent(chatResponse);
-                log.debug(
-                        "Planning response retrieved via chatClientResponse() for capability='{}' payloadPreview={}...",
-                        capabilityName,
-                        preview(planPayload));
-            }
-            catch (UnsupportedOperationException ignored)
-            {
-                chatResponse = null;
-                modelAttempt = Map.of();
-                planPayload = responseSpec.content();
-                log.debug(
-                        "Planning response retrieved via content() fallback for capability='{}' payloadPreview={}...",
-                        capabilityName,
-                        preview(planPayload));
-            }
+            ModelInteractionResult result = modelInteraction.call(new ModelInteractionRequest(
+                    planningPrompt,
+                    new RenderedMissionInput(planningUserMessage, List.of(), Map.of()),
+                    modelTraceContext,
+                    List.of(),
+                    true));
+            String planPayload = result.content();
+            Map<String, Object> modelAttempt = ModelTraceContext.attemptFrom(result.context());
 
             return new PlanningAttemptResult(
                     parsePlan(planPayload, capabilityName),
-                    chatResponse,
                     planningPrompt,
                     planningUserMessage,
                     modelAttempt);
@@ -491,14 +474,14 @@ public class DefaultPlanningService implements PlanningService
     }
 
     private static String buildPlanningPrompt(String capabilityName,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             @Nullable String retryFeedback,
             @Nullable EvidenceContract evidenceContract)
     {
         String toolList = (visibleTools == null || visibleTools.isEmpty())
                 ? "(none)"
                 : visibleTools.stream()
-                        .filter(t -> t != null && t.getToolDefinition() != null)
+                        .filter(Objects::nonNull)
                         .map(DefaultPlanningService::describeTool)
                         .collect(Collectors.joining("\n"));
 
@@ -593,17 +576,16 @@ public class DefaultPlanningService implements PlanningService
         return qualityFeedback + "\n" + evidenceFeedback;
     }
 
-    private static String describeTool(ToolCallback callback)
+    private static String describeTool(BoundCapability callback)
     {
-        ToolDefinition definition = callback.getToolDefinition();
-        String description = definition.description();
+        String description = callback.description();
 
         if (description == null || description.isBlank())
         {
             description = "No description provided.";
         }
 
-        return "- %s: %s".formatted(definition.name(), description);
+        return "- %s: %s".formatted(callback.name(), description);
     }
 
     private Map<String, Object> closeMetadata(String status, @Nullable Throwable failure)
@@ -624,16 +606,6 @@ public class DefaultPlanningService implements PlanningService
         return plan.updateTask(taskId, updater);
     }
 
-    @Nullable
-    private static String extractContent(@Nullable ChatResponse chatResponse)
-    {
-        return Optional.ofNullable(chatResponse)
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getText)
-                .orElse(null);
-    }
-
     private ExecutionPlan parsePlan(String payload, String capabilityName)
     {
         String unwrapped = unwrapFencedBlock(payload);
@@ -649,7 +621,7 @@ public class DefaultPlanningService implements PlanningService
             normalizePlanTree(tree);
             return objectMapper.treeToValue(tree, ExecutionPlan.class);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException(
                     "Failed to parse planning response for capability '" + capabilityName
@@ -668,7 +640,7 @@ public class DefaultPlanningService implements PlanningService
         }
     }
 
-    private JsonNode parsePlanTree(String payload, String capabilityName) throws JsonProcessingException
+    private JsonNode parsePlanTree(String payload, String capabilityName) throws JacksonException
     {
         if (looksLikeJson(payload))
         {
@@ -676,13 +648,13 @@ public class DefaultPlanningService implements PlanningService
             {
                 return objectMapper.readTree(payload);
             }
-            catch (JsonProcessingException ex)
+            catch (JacksonException ex)
             {
                 log.debug("JSON plan parsing failed for capability='{}'; trying YAML tree parsing", capabilityName, ex);
             }
         }
 
-        return YAML_OBJECT_MAPPER.readTree(payload);
+        return yamlObjectMapper.readTree(payload);
     }
 
     private void normalizePlanTree(JsonNode tree)
@@ -810,7 +782,12 @@ public class DefaultPlanningService implements PlanningService
 
     private static ObjectMapper defaultObjectMapper()
     {
-        return JsonMapper.builder().findAndAddModules().build();
+        return com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().planningJson();
+    }
+
+    private static ObjectMapper defaultYamlObjectMapper()
+    {
+        return com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().planningYaml();
     }
 
     private String stringifyPlan(ExecutionPlan plan)
@@ -819,7 +796,6 @@ public class DefaultPlanningService implements PlanningService
     }
 
     private record PlanningAttemptResult(ExecutionPlan plan,
-            @Nullable ChatResponse chatResponse,
             String prompt,
             String userMessage,
             Map<String, Object> modelAttempt)

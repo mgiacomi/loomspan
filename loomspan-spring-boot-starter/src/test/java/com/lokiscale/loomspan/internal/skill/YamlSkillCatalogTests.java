@@ -28,12 +28,16 @@ class YamlSkillCatalogTests {
     private final ApplicationContextRunner modelFreeContextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     ConfigurationPropertiesAutoConfiguration.class,
-                    LoomspanAutoConfiguration.class));
+                    com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration.class,
+                    LoomspanAutoConfiguration.class,
+                    com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration.class));
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     ConfigurationPropertiesAutoConfiguration.class,
-                    LoomspanAutoConfiguration.class))
+                    com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration.class,
+                    LoomspanAutoConfiguration.class,
+                    com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration.class))
             .withInitializer(context -> {
                 try {
                     YamlPropertySourceLoader loader = new YamlPropertySourceLoader();

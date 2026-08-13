@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.observation;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TraceOutcome;
 import com.lokiscale.loomspan.internal.core.TraceRecord;

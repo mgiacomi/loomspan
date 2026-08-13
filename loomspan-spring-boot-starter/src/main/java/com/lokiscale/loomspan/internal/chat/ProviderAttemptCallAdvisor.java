@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 
-final class ProviderAttemptCallAdvisor implements CallAdvisor
+public final class ProviderAttemptCallAdvisor implements CallAdvisor
 {
     static final int ORDER = Ordered.LOWEST_PRECEDENCE - 1;
     private final ProviderConnectionRuntime runtime;
@@ -34,7 +34,7 @@ final class ProviderAttemptCallAdvisor implements CallAdvisor
     private final SessionUsageService sessionUsageService;
     private final ProviderRetryDecider retryDecider = new ProviderRetryDecider();
 
-    ProviderAttemptCallAdvisor(ProviderConnectionRuntime runtime, ExecutionStateService executionStateService,
+    public ProviderAttemptCallAdvisor(ProviderConnectionRuntime runtime, ExecutionStateService executionStateService,
             ModelUsageExtractor modelUsageExtractor, SessionUsageService sessionUsageService)
     {
         this.runtime = Objects.requireNonNull(runtime, "runtime must not be null");

@@ -16,7 +16,7 @@ import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguratio
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.time.Clock;
@@ -137,7 +137,7 @@ class EvidencePlanningIntegrationTest
         return scalar;
     }
 
-    private static List<ToolCallback> incidentTools()
+    private static List<BoundCapability> incidentTools()
     {
         return List.of(
                 tool("classifyIncident"),
@@ -146,12 +146,9 @@ class EvidencePlanningIntegrationTest
                 tool("draftIncidentResponse"));
     }
 
-    private static ToolCallback tool(String name)
+    private static BoundCapability tool(String name)
     {
-        ToolCallback callback = mock(ToolCallback.class);
-        when(callback.getToolDefinition()).thenReturn(
-                ToolDefinition.builder().name(name).description("Use " + name).inputSchema("{}").build());
-        return callback;
+        return com.lokiscale.loomspan.testkit.TestBoundCapabilities.describedCapability(name, "Use " + name);
     }
 
     private static ExecutionPlan incidentPlan(String investigator)

@@ -357,7 +357,7 @@ class LoomspanSessionTest {
                 Instant.parse("2026-03-15T12:00:01Z"),
                 JournalLevel.INFO,
                 JournalEntryType.THOUGHT,
-                new com.fasterxml.jackson.databind.ObjectMapper().valueToTree("extra"),
+                new tools.jackson.databind.ObjectMapper().valueToTree("extra"),
                 null,
                 null)))
                 .isInstanceOf(UnsupportedOperationException.class);

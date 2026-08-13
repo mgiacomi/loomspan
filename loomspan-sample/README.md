@@ -1,6 +1,6 @@
 # Loomspan Sample
 
-A runnable Spring Boot application that demonstrates Loomspan skills end to end: public YAML skill discovery, internal Java `@SkillMethod` targets, named-connection model routing, HTN planning, vision/attachment inputs, and HTTP invocation via `SkillTemplate`.
+A runnable Spring Boot 4 application that demonstrates Loomspan skills end to end: public YAML skill discovery, internal Java `@SkillMethod` targets with application-owned `@SkillParam` contracts, named-connection Spring AI 2 model routing, HTN planning, vision/attachment inputs, and HTTP invocation via `SkillTemplate`.
 
 Use this module as a reference implementation when integrating `loomspan-spring-boot-starter` into your own app.
 

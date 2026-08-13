@@ -23,8 +23,8 @@ import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
 import com.lokiscale.loomspan.internal.runtime.planning.DefaultPlanningService;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.tool.ContractAwareToolCallbacks;
-import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.DefaultCapabilityInvoker;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
 import com.lokiscale.loomspan.internal.runtime.usage.NoOpSessionUsageService;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
@@ -55,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -977,7 +978,7 @@ class StepLoopMissionExecutionEngineTest {
                 """);
         AtomicInteger routerCalls = new AtomicInteger();
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-real-tool", "test.entry", 3);
-        ToolCallback realWrappedTool = realToolCallback(stateService, planningService, routerCalls, session);
+        BoundCapability realWrappedTool = realToolCallback(stateService, planningService, routerCalls, session);
 
         try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
@@ -1002,6 +1003,41 @@ class StepLoopMissionExecutionEngineTest {
                 .filter(record -> "t-2".equals(record.metadata().get("linkedTaskId")))
                 .count();
         assertThat(linkedTask2Calls).isEqualTo(1);
+    }
+
+    @Test
+    void preservesExplicitNullArgumentsInTheStepLoopToolPath()
+    {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        ExecutionPlan plan = new ExecutionPlan("plan-null", "rootVisibleSkill",
+                Instant.parse("2026-03-15T12:00:00Z"), PlanStatus.VALID, null,
+                List.of(new PlanTask("t-1", "Parse invoice", PlanTaskStatus.PENDING,
+                        "invoiceParser", "Parse invoice", List.of(), List.of("parsed"), false, null)));
+        PlanningService planningService = new InitializingPlanningService(stateService, plan);
+        SequenceChatClient chatClient = new SequenceChatClient(
+                """
+                {"stepAction":"CALL_TOOL","taskId":"t-1","toolName":"invoiceParser","toolArguments":{"rawText":null}}
+                """,
+                """
+                {"stepAction":"FINAL_RESPONSE","finalResponse":"Mission complete"}
+                """);
+        AtomicReference<Map<String, Object>> observedArguments = new AtomicReference<>();
+        BoundCapability template = tool("invoiceParser", "unused");
+        BoundCapability capability = new BoundCapability(template.metadata(), (arguments, taskId) -> {
+            observedArguments.set(arguments);
+            return "parsed";
+        });
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "step-loop-null", "test.entry", 3);
+
+        try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor())
+        {
+            StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
+            assertThat(executeMission(engine, session, definition(), chatClient, List.of(capability)))
+                    .isEqualTo("Mission complete");
+        }
+
+        assertThat(observedArguments.get()).containsEntry("rawText", null);
     }
 
     @Test
@@ -1078,8 +1114,8 @@ class StepLoopMissionExecutionEngineTest {
     private static String executeMission(StepLoopMissionExecutionEngine engine,
                                          LoomspanSession session,
                                          YamlSkillDefinition definition,
-                                         ChatClient chatClient,
-                                         List<ToolCallback> visibleTools) {
+                                         com.lokiscale.loomspan.internal.model.ModelInteraction chatClient,
+                                         List<BoundCapability> visibleTools) {
         return executeMission(engine, session, definition, "Check duplicate invoices", null, chatClient, visibleTools);
     }
 
@@ -1088,8 +1124,8 @@ class StepLoopMissionExecutionEngineTest {
                                          YamlSkillDefinition definition,
                                          String objective,
                                          @Nullable Map<String, Object> missionInput,
-                                         ChatClient chatClient,
-                                         List<ToolCallback> visibleTools) {
+                                         com.lokiscale.loomspan.internal.model.ModelInteraction chatClient,
+                                         List<BoundCapability> visibleTools) {
         return engine.executeMission(
                 session,
                 definition,
@@ -1278,40 +1314,31 @@ class StepLoopMissionExecutionEngineTest {
                                 "expenseLookup", "Find matching expenses", List.of("t-1"), List.of("expenses"), false, null)));
     }
 
-    private static ToolCallback tool(String name, String result) {
-        ToolCallback callback = mock(ToolCallback.class);
-        ToolDefinition definition = ToolDefinition.builder().name(name).description(name).inputSchema("{}").build();
-        when(callback.getToolDefinition()).thenReturn(definition);
-        when(callback.call(org.mockito.ArgumentMatchers.anyString())).thenReturn(result);
-        when(callback.call(org.mockito.ArgumentMatchers.anyString(), any())).thenReturn(result);
-        return callback;
+    private static BoundCapability tool(String name, String result) {
+        return new BoundCapability(
+                com.lokiscale.loomspan.testkit.TestBoundCapabilities.capability(name).metadata(),
+                (arguments, linkedTaskId) -> result);
     }
 
-    private static ToolCallback toolWithSchema(String name, String inputSchema, String result) {
-        ToolCallback callback = mock(ToolCallback.class);
-        ToolDefinition definition = ToolDefinition.builder().name(name).description(name).inputSchema(inputSchema).build();
-        when(callback.getToolDefinition()).thenReturn(definition);
-        when(callback.call(org.mockito.ArgumentMatchers.anyString())).thenReturn(result);
-        when(callback.call(org.mockito.ArgumentMatchers.anyString(), any())).thenReturn(result);
-        return callback;
+    private static BoundCapability toolWithSchema(String name, String inputSchema, String result) {
+        return new BoundCapability(
+                com.lokiscale.loomspan.testkit.TestBoundCapabilities.capability(name, inputSchema).metadata(),
+                (arguments, linkedTaskId) -> result);
     }
 
-    private static ToolCallback toolWithContract(String name, String inputSchema, String contractSchema, String result) {
-        return ContractAwareToolCallbacks.wrap(
-                toolWithSchema(name, inputSchema, result),
-                new SkillInputContractResolver().resolveFromToolSchema(contractSchema));
+    private static BoundCapability toolWithContract(String name, String inputSchema, String contractSchema, String result) {
+        return new BoundCapability(
+                com.lokiscale.loomspan.testkit.TestBoundCapabilities.contractAware(name, inputSchema, contractSchema).metadata(),
+                (arguments, linkedTaskId) -> result);
     }
 
-    private static ToolCallback failingTool(String name) {
-        ToolCallback callback = mock(ToolCallback.class);
-        ToolDefinition definition = ToolDefinition.builder().name(name).description(name).inputSchema("{}").build();
-        when(callback.getToolDefinition()).thenReturn(definition);
-        when(callback.call(org.mockito.ArgumentMatchers.anyString())).thenThrow(new IllegalStateException("parser exploded"));
-        when(callback.call(org.mockito.ArgumentMatchers.anyString(), any())).thenThrow(new IllegalStateException("parser exploded"));
-        return callback;
+    private static BoundCapability failingTool(String name) {
+        return new BoundCapability(
+                com.lokiscale.loomspan.testkit.TestBoundCapabilities.capability(name).metadata(),
+                (arguments, linkedTaskId) -> { throw new IllegalStateException("parser exploded"); });
     }
 
-    private static ToolCallback realToolCallback(DefaultExecutionStateService stateService,
+    private static BoundCapability realToolCallback(DefaultExecutionStateService stateService,
                                                  PlanningService planningService,
                                                  AtomicInteger routerCalls,
                                                  LoomspanSession session) {
@@ -1332,8 +1359,8 @@ class StepLoopMissionExecutionEngineTest {
             Map<String, Object> arguments = (Map<String, Object>) invocation.getArgument(1);
             return Map.of("invoice", arguments.get("rawText"));
         });
-        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
-        return factory.createToolCallbacks(session, definition(), List.of(capability), null).getFirst();
+        DefaultCapabilityInvoker factory = new DefaultCapabilityInvoker(router, planningService, stateService);
+        return factory.bind(session, definition(), List.of(capability), null).getFirst();
     }
 
     private static List<TraceRecord> readRecords(LoomspanSession session) {
@@ -1359,8 +1386,8 @@ class StepLoopMissionExecutionEngineTest {
                                                       String objective,
                                                       @Nullable Map<String, Object> missionInput,
                                                       YamlSkillDefinition definition,
-                                                      ChatClient chatClient,
-                                                      List<ToolCallback> visibleTools) {
+                                                      com.lokiscale.loomspan.internal.model.ModelInteraction chatClient,
+                                                      List<BoundCapability> visibleTools) {
             stateService.storePlan(session, initialPlan);
             stateService.logPlanCreated(session, initialPlan);
             return Optional.of(initialPlan);
@@ -1414,7 +1441,7 @@ class StepLoopMissionExecutionEngineTest {
         }
     }
 
-    private static final class SequenceChatClient implements ChatClient {
+    private static final class SequenceChatClient implements com.lokiscale.loomspan.internal.model.ModelInteraction {
 
         private final Deque<String> responses = new ArrayDeque<>();
         private final List<String> systemMessagesSeen = new ArrayList<>();
@@ -1438,270 +1465,30 @@ class StepLoopMissionExecutionEngineTest {
         }
 
         @Override
-        public ChatClientRequestSpec prompt() {
-            return new SequenceRequestSpec();
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt(String content) {
-            return prompt();
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt(org.springframework.ai.chat.prompt.Prompt prompt) {
-            return prompt();
-        }
-
-        @Override
-        public Builder mutate() {
-            throw new UnsupportedOperationException();
-        }
-
-        private final class SequenceRequestSpec implements ChatClientRequestSpec {
-
-            @Override
-            public Builder mutate() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(org.springframework.ai.chat.client.advisor.api.Advisor... advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(List<org.springframework.ai.chat.client.advisor.api.Advisor> advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(org.springframework.ai.chat.messages.Message... messages) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(List<org.springframework.ai.chat.messages.Message> messages) {
-                return this;
-            }
-
-            @Override
-            public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolNames(String... toolNames) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec tools(Object... tools) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolContext(Map<String, Object> toolContext) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(String text) {
-                systemMessagesSeen.add(text);
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(String text) {
-                userMessagesSeen.add(text);
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
-                consumer.accept(new SequencePromptUserSpec());
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-                return this;
-            }
-
-            @Override
-            public CallResponseSpec call() {
-                String next = responses.pollFirst();
-                if (next == null) {
-                    throw new IllegalStateException("No more queued chat responses");
+        public com.lokiscale.loomspan.internal.model.ModelInteractionResult call(
+                com.lokiscale.loomspan.internal.model.ModelInteractionRequest request) {
+            systemMessagesSeen.add(request.systemPrompt());
+            userMessagesSeen.add(request.input().userText());
+            request.input().attachments().forEach(attachment -> userMediaSeen.add(
+                    new CapturedMedia(MimeType.valueOf(attachment.contentType()), attachment.resource())));
+            if (responses.peekFirst() == BLOCK_UNTIL_INTERRUPTED) {
+                responses.removeFirst();
+                try {
+                    new java.util.concurrent.CountDownLatch(1).await();
                 }
-                return new ResponseSpec(next);
+                catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("model interaction interrupted", ex);
+                }
             }
-
-            @Override
-            public StreamResponseSpec stream() {
-                throw new UnsupportedOperationException();
+            String next = responses.pollFirst();
+            if (next == null) {
+                throw new IllegalStateException("No more queued chat responses");
             }
+            return com.lokiscale.loomspan.internal.model.ModelInteractionResult.content(next);
         }
 
         private record CapturedMedia(MimeType mimeType, Resource resource) {
-        }
-
-        private final class SequencePromptUserSpec implements ChatClient.PromptUserSpec {
-
-            @Override
-            public PromptUserSpec text(String text) {
-                userMessagesSeen.add(text);
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec text(Resource resource, Charset charset) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec text(Resource resource) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec media(MimeType mimeType, Resource resource) {
-                userMediaSeen.add(new CapturedMedia(mimeType, resource));
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec media(MimeType mimeType, URL url) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec media(Media... media) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec param(String key, Object value) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec params(Map<String, Object> params) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec metadata(String key, Object value) {
-                return this;
-            }
-
-            @Override
-            public PromptUserSpec metadata(Map<String, Object> metadata) {
-                return this;
-            }
-        }
-
-        private record ResponseSpec(String content) implements CallResponseSpec {
-
-            @Override
-            public <T> T entity(org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.client.ChatClientResponse chatClientResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.model.ChatResponse chatResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public String content() {
-                if (BLOCK_UNTIL_INTERRUPTED.equals(content)) {
-                    try {
-                        new CountDownLatch(1).await();
-                        throw new AssertionError("Latch await returned unexpectedly");
-                    }
-                    catch (InterruptedException ex) {
-                        throw new IllegalStateException("provider interrupted", ex);
-                    }
-                }
-                return content;
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
         }
     }
 }

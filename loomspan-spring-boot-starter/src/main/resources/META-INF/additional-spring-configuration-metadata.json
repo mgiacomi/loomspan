@@ -41,12 +41,12 @@
     {
       "name": "loomspan.connections.*.base-url",
       "type": "java.lang.String",
-      "description": "Optional driver endpoint override; required for Ollama. OpenAI URLs ending in /v1 use /chat/completions; unversioned URLs use /v1/chat/completions. Values are not emitted in Loomspan diagnostics."
+      "description": "Optional driver service-root override; required for Ollama. OpenAI appends /chat/completions to the configured root, so include /v1 in the root when required by the service. Anthropic appends /v1/messages. Values are not emitted in Loomspan diagnostics."
     },
     {
       "name": "loomspan.connections.*.headers",
       "type": "java.util.Map<java.lang.String,java.lang.String>",
-      "description": "Sensitive static headers supported only for the OpenAI driver."
+      "description": "Sensitive static headers supported only for the OpenAI and Anthropic drivers; use them for supported provider-specific headers such as anthropic-beta."
     },
     {
       "name": "loomspan.connections.*.openai.organization-id",
@@ -57,11 +57,6 @@
       "name": "loomspan.connections.*.openai.project-id",
       "type": "java.lang.String",
       "description": "OpenAI-only project header value."
-    },
-    {
-      "name": "loomspan.connections.*.openai.chat-completions-path",
-      "type": "java.lang.String",
-      "description": "OpenAI-only chat-completions path override."
     },
     {
       "name": "loomspan.connections.*.openai.compatibility-profile",
@@ -110,21 +105,6 @@
       "type": "java.lang.Integer",
       "defaultValue": 192,
       "description": "Session-wide physical provider-attempt quota; zero disables enforcement."
-    },
-    {
-      "name": "loomspan.connections.*.anthropic.completions-path",
-      "type": "java.lang.String",
-      "description": "Anthropic-only messages/completions path override."
-    },
-    {
-      "name": "loomspan.connections.*.anthropic.version",
-      "type": "java.lang.String",
-      "description": "Anthropic-only API version override."
-    },
-    {
-      "name": "loomspan.connections.*.anthropic.beta-version",
-      "type": "java.lang.String",
-      "description": "Anthropic-only beta features header value."
     },
     {
       "name": "loomspan.connections.*.gemini.vertex-ai",

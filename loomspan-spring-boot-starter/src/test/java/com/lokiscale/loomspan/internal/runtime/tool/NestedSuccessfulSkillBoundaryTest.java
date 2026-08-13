@@ -20,7 +20,6 @@ import com.lokiscale.loomspan.internal.security.DefaultAccessGuard;
 import com.lokiscale.loomspan.internal.vfs.RefResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
-import org.springframework.ai.tool.ToolCallback;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -44,7 +43,7 @@ class NestedSuccessfulSkillBoundaryTest
     {
         Harness harness = harness(false);
 
-        harness.callback.call("{}");
+        harness.callback.invoke(Map.of(), null);
 
         assertThat(harness.session.getSuccessfulDirectSkills())
                 .containsExactly("classifyIncident", "investigateNetwork")
@@ -61,10 +60,9 @@ class NestedSuccessfulSkillBoundaryTest
     {
         Harness harness = harness(true);
 
-        assertThatThrownBy(() -> harness.callback.call("{}"))
-                .isInstanceOf(org.springframework.ai.tool.execution.ToolExecutionException.class)
-                .hasRootCauseInstanceOf(IllegalStateException.class)
-                .hasRootCauseMessage("nested failure");
+        assertThatThrownBy(() -> harness.callback.invoke(Map.of(), null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("nested failure");
         assertThat(harness.session.getSuccessfulDirectSkills())
                 .containsExactly("classifyIncident")
                 .doesNotContain("investigateNetwork", "checkDns");
@@ -98,8 +96,8 @@ class NestedSuccessfulSkillBoundaryTest
         PlanningService planning = mock(PlanningService.class);
         CapabilityMetadata capability = capability();
         when(planning.markToolStarted(eq(session), eq(capability), any())).thenReturn(Optional.empty());
-        ToolCallback callback = new DefaultToolCallbackFactory(router, planning, state)
-                .createToolCallbacks(session, definition(), List.of(capability), null)
+        BoundCapability callback = new DefaultCapabilityInvoker(router, planning, state)
+                .bind(session, definition(), List.of(capability), null)
                 .getFirst();
         return new Harness(session, parent, callback);
     }
@@ -144,5 +142,5 @@ class NestedSuccessfulSkillBoundaryTest
                 "internalProbe", "checkDns"));
     }
 
-    private record Harness(LoomspanSession session, ExecutionFrame parent, ToolCallback callback) { }
+    private record Harness(LoomspanSession session, ExecutionFrame parent, BoundCapability callback) { }
 }

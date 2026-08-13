@@ -2,7 +2,7 @@ package com.lokiscale.loomspan.internal.autoconfigure;
 
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
@@ -24,7 +24,7 @@ class AiConnectionChatModelFactoryTests {
         LoomspanProperties.ConnectionProperties openAi = new LoomspanProperties.ConnectionProperties();
         openAi.setDriver(AiDriver.OPENAI);
         openAi.setApiKey("test-key");
-        SpringAiV11ProviderIntegration integration = integration();
+        SpringAiProviderIntegration integration = integration();
         assertThat(integration.create("one", openAi).chatModel()).isInstanceOf(OpenAiChatModel.class)
                 .isNotSameAs(integration.create("two", openAi).chatModel());
 
@@ -47,7 +47,7 @@ class AiConnectionChatModelFactoryTests {
         when(resourceLoader.getResource("test:credentials")).thenReturn(new ByteArrayResource("""
                 {"type":"authorized_user","client_id":"client","client_secret":"secret","refresh_token":"token"}
                 """.getBytes(StandardCharsets.UTF_8)));
-        SpringAiV11ProviderIntegration geminiFactory = new SpringAiV11ProviderIntegration(resourceLoader);
+        SpringAiProviderIntegration geminiFactory = new SpringAiProviderIntegration(resourceLoader);
         LoomspanProperties.ConnectionProperties apiKeyGemini = new LoomspanProperties.ConnectionProperties();
         apiKeyGemini.setDriver(AiDriver.GEMINI);
         apiKeyGemini.setApiKey("test-key");
@@ -64,7 +64,7 @@ class AiConnectionChatModelFactoryTests {
         assertThat(geminiFactory.create("gemini-vertex", vertexGemini).chatModel()).isInstanceOf(GoogleGenAiChatModel.class);
     }
 
-    private static SpringAiV11ProviderIntegration integration() {
-        return new SpringAiV11ProviderIntegration(mock(ResourceLoader.class));
+    private static SpringAiProviderIntegration integration() {
+        return new SpringAiProviderIntegration(mock(ResourceLoader.class));
     }
 }

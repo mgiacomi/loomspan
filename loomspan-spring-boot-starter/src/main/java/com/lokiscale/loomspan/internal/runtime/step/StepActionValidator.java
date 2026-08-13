@@ -6,8 +6,7 @@ import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContract;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputValidationResult;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputValidator;
-import com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackInputContracts;
-import org.springframework.ai.tool.ToolCallback;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,7 +37,7 @@ final class StepActionValidator
 
     public static StepValidationResult validate(StepAction action,
             ExecutionPlan plan,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             boolean strictCompletion)
     {
         Objects.requireNonNull(plan, "plan must not be null");
@@ -60,7 +59,7 @@ final class StepActionValidator
         };
     }
 
-    private static StepValidationResult validateCallTool(StepAction action, ExecutionPlan plan, List<ToolCallback> visibleTools)
+    private static StepValidationResult validateCallTool(StepAction action, ExecutionPlan plan, List<BoundCapability> visibleTools)
     {
         boolean allTasksCompleted = plan.tasks().stream().allMatch(task -> task.status() == PlanTaskStatus.COMPLETED);
 
@@ -98,8 +97,8 @@ final class StepActionValidator
         }
 
         Set<String> validToolNames = visibleTools.stream()
-                .filter(tool -> tool != null && tool.getToolDefinition() != null)
-                .map(tool -> tool.getToolDefinition().name())
+                .filter(tool -> tool != null)
+                .map(tool -> tool.name())
                 .collect(Collectors.toSet());
 
         if (!validToolNames.contains(action.toolName()))
@@ -130,11 +129,11 @@ final class StepActionValidator
         return StepValidationResult.ok();
     }
 
-    private static StepValidationResult validateRequiredToolArguments(StepAction action, List<ToolCallback> visibleTools)
+    private static StepValidationResult validateRequiredToolArguments(StepAction action, List<BoundCapability> visibleTools)
     {
-        Optional<ToolCallback> matchingTool = visibleTools.stream()
-                .filter(tool -> tool != null && tool.getToolDefinition() != null)
-                .filter(tool -> action.toolName().equals(tool.getToolDefinition().name()))
+        Optional<BoundCapability> matchingTool = visibleTools.stream()
+                .filter(tool -> tool != null)
+                .filter(tool -> action.toolName().equals(tool.name()))
                 .findFirst();
 
         if (matchingTool.isEmpty())
@@ -142,7 +141,7 @@ final class StepActionValidator
             return StepValidationResult.ok();
         }
 
-        SkillInputContract contract = ToolCallbackInputContracts.resolve(matchingTool.get());
+        SkillInputContract contract = matchingTool.get().metadata().inputContract();
         if (contract.isGeneric())
         {
             return StepValidationResult.ok();

@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.trace;
 
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.core.JournalEntry;
 import com.lokiscale.loomspan.internal.core.JournalEntryType;

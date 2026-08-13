@@ -1,14 +1,5 @@
 package com.lokiscale.loomspan.autoconfigure;
 
-import com.lokiscale.loomspan.internal.autoconfigure.NamedAiConnectionRegistry;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
-import com.lokiscale.loomspan.internal.chat.DefaultSkillAdvisorResolver;
-import com.lokiscale.loomspan.internal.chat.DefaultSkillChatModelResolver;
-import com.lokiscale.loomspan.internal.chat.SkillAdvisorResolver;
-import com.lokiscale.loomspan.internal.chat.SkillChatClientFactory;
-import com.lokiscale.loomspan.internal.chat.SkillChatModelResolver;
-import com.lokiscale.loomspan.internal.chat.SkillChatOptionsAdapter;
-import com.lokiscale.loomspan.internal.chat.SpringAiSkillChatClientFactory;
 import com.lokiscale.loomspan.internal.core.LoomspanExceptionTransformer;
 import com.lokiscale.loomspan.internal.core.CapabilityRegistry;
 import com.lokiscale.loomspan.internal.core.LoomspanSessionRunner;
@@ -25,8 +16,6 @@ import com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.MissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.attachment.DefaultMissionInputMaterializer;
 import com.lokiscale.loomspan.internal.runtime.attachment.MissionInputMaterializer;
-import com.lokiscale.loomspan.internal.runtime.attachment.MissionUserMessageSender;
-import com.lokiscale.loomspan.internal.runtime.attachment.SpringAiMissionUserMessageSender;
 import com.lokiscale.loomspan.internal.runtime.planning.DefaultPlanningService;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.observability.ObservabilityActivationCoordinator;
@@ -34,9 +23,8 @@ import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputValidator;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
 import com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.DefaultCapabilityInvoker;
 import com.lokiscale.loomspan.internal.runtime.tool.DefaultToolSurfaceService;
-import com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackFactory;
 import com.lokiscale.loomspan.internal.runtime.tool.ToolSurfaceService;
 import com.lokiscale.loomspan.internal.runtime.usage.DefaultSessionUsageService;
 import com.lokiscale.loomspan.internal.runtime.usage.MicrometerUsageMetricsRecorder;
@@ -51,6 +39,7 @@ import com.lokiscale.loomspan.internal.skill.SkillVisibilityResolver;
 import com.lokiscale.loomspan.internal.skill.YamlSkillCapabilityRegistrar;
 import com.lokiscale.loomspan.internal.skill.YamlSkillCatalog;
 import com.lokiscale.loomspan.internal.skillapi.DefaultSkillTemplate;
+import com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs;
 import com.lokiscale.loomspan.api.SkillTemplate;
 import com.lokiscale.loomspan.internal.vfs.DefaultRefResolver;
 import com.lokiscale.loomspan.internal.vfs.RefResolver;
@@ -63,14 +52,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Role;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnNotWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Paths;
 import java.time.Clock;
 import java.util.List;
@@ -111,13 +98,14 @@ public class LoomspanAutoConfiguration
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     static SkillMethodBeanPostProcessor skillMethodBeanPostProcessor(
             SkillImplementationTargetRegistry skillImplementationTargetRegistry,
-            ObjectProvider<ObjectMapper> objectMapperProvider,
+            LoomspanJacksonCodecs codecs,
             LoomspanExceptionTransformer LoomspanExceptionTransformer,
             SkillInputContractResolver skillInputContractResolver)
     {
         return SkillMethodBeanPostProcessor.create(
                 skillImplementationTargetRegistry,
-                objectMapperProvider.getIfAvailable(ObjectMapper::new),
+                codecs.applicationConversion(),
+                codecs.schemaTree(),
                 LoomspanExceptionTransformer,
                 skillInputContractResolver);
     }
@@ -167,7 +155,8 @@ public class LoomspanAutoConfiguration
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     LoomspanSessionRunner LoomspanSessionRunner(LoomspanProperties properties,
             ExecutionTraceProperties executionTraceProperties,
-            ObservabilityActivationCoordinator observabilityActivationCoordinator)
+            ObservabilityActivationCoordinator observabilityActivationCoordinator,
+            LoomspanJacksonCodecs codecs)
     {
         return new LoomspanSessionRunner(
                 properties.getSession().getMaxDepth(),
@@ -175,15 +164,18 @@ public class LoomspanAutoConfiguration
                 Clock.systemUTC(),
                 observabilityActivationCoordinator.observationFactory(),
                 observabilityActivationCoordinator.completionRetention(),
-                properties.getSession().getQuotas());
+                properties.getSession().getQuotas(),
+                // The session factory carries the canonical role into every trace reader/writer it creates.
+                codecs.canonicalTrace());
     }
 
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    YamlSkillCatalog yamlSkillCatalog(LoomspanProperties properties)
+    YamlSkillCatalog yamlSkillCatalog(LoomspanProperties properties, LoomspanJacksonCodecs codecs)
     {
         // The catalog is the YAML discovery/loading boundary that downstream runtime beans build on.
-        return new YamlSkillCatalog(properties);
+        return new YamlSkillCatalog(properties, new org.springframework.core.io.support.PathMatchingResourcePatternResolver(),
+                codecs.skillYaml());
     }
 
     @Bean
@@ -202,9 +194,9 @@ public class LoomspanAutoConfiguration
 
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillInputContractResolver skillInputContractResolver(ObjectProvider<ObjectMapper> objectMapperProvider)
+    SkillInputContractResolver skillInputContractResolver(LoomspanJacksonCodecs codecs)
     {
-        return new SkillInputContractResolver(objectMapperProvider.getIfAvailable(ObjectMapper::new));
+        return new SkillInputContractResolver(codecs.applicationConversion());
     }
 
     @Bean
@@ -258,13 +250,6 @@ public class LoomspanAutoConfiguration
 
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    MissionUserMessageSender missionUserMessageSender()
-    {
-        return new SpringAiMissionUserMessageSender();
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     CapabilityExecutionRouter capabilityExecutionRouter(RefResolver refResolver,
             org.springframework.beans.factory.ObjectProvider<ExecutionCoordinator> executionCoordinatorProvider,
             ExecutionStateService executionStateService,
@@ -284,14 +269,14 @@ public class LoomspanAutoConfiguration
     SkillTemplate skillTemplate(CapabilityRegistry capabilityRegistry,
             CapabilityExecutionRouter capabilityExecutionRouter,
             LoomspanSessionRunner LoomspanSessionRunner,
-            ObjectProvider<ObjectMapper> objectMapperProvider,
+            LoomspanJacksonCodecs codecs,
             SkillInputValidator skillInputValidator)
     {
         return new DefaultSkillTemplate(
                 capabilityRegistry,
                 capabilityExecutionRouter,
                 LoomspanSessionRunner,
-                objectMapperProvider.getIfAvailable(ObjectMapper::new),
+                codecs.applicationConversion(),
                 skillInputValidator);
     }
 
@@ -337,9 +322,11 @@ public class LoomspanAutoConfiguration
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     PlanningService planningService(PlanTaskLinker planTaskLinker,
-            ExecutionStateService executionStateService)
+            ExecutionStateService executionStateService,
+            LoomspanJacksonCodecs codecs)
     {
-        return new DefaultPlanningService(planTaskLinker, executionStateService);
+        return new DefaultPlanningService(planTaskLinker, executionStateService,
+                codecs.planningJson(), codecs.planningYaml());
     }
 
     @Bean
@@ -351,13 +338,13 @@ public class LoomspanAutoConfiguration
 
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    ToolCallbackFactory toolCallbackFactory(CapabilityExecutionRouter capabilityExecutionRouter,
+    DefaultCapabilityInvoker capabilityInvoker(CapabilityExecutionRouter capabilityExecutionRouter,
             PlanningService planningService,
             ExecutionStateService executionStateService,
             SessionUsageService sessionUsageService,
             UsageMetricsRecorder usageMetricsRecorder)
     {
-        return new DefaultToolCallbackFactory(
+        return new DefaultCapabilityInvoker(
                 capabilityExecutionRouter,
                 planningService,
                 executionStateService,
@@ -379,7 +366,6 @@ public class LoomspanAutoConfiguration
             LoomspanProperties properties,
             SessionUsageService sessionUsageService,
             MissionInputMaterializer missionInputMaterializer,
-            MissionUserMessageSender missionUserMessageSender,
             @Qualifier("LoomspanMissionExecutor") ExecutorService LoomspanMissionExecutor)
     {
         return new DefaultMissionExecutionEngine(
@@ -388,77 +374,7 @@ public class LoomspanAutoConfiguration
                 properties.getSession().getMissionTimeout(),
                 LoomspanMissionExecutor,
                 sessionUsageService,
-                missionInputMaterializer,
-                missionUserMessageSender);
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    NamedAiConnectionRegistry namedAiConnectionRegistry(LoomspanProperties properties,
-            ResourceLoader resourceLoader)
-    {
-        return new NamedAiConnectionRegistry(properties.getConnections(),
-                new SpringAiV11ProviderIntegration(resourceLoader));
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillChatModelResolver skillChatModelResolver(NamedAiConnectionRegistry registry)
-    {
-        return new DefaultSkillChatModelResolver(registry.asMap());
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillChatOptionsAdapter openAiSkillChatOptionsAdapter()
-    {
-        return SpringAiSkillChatClientFactory.defaultAdapters().get(0);
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillChatOptionsAdapter anthropicSkillChatOptionsAdapter()
-    {
-        return SpringAiSkillChatClientFactory.defaultAdapters().get(1);
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillChatOptionsAdapter geminiSkillChatOptionsAdapter()
-    {
-        return SpringAiSkillChatClientFactory.defaultAdapters().get(2);
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillChatOptionsAdapter ollamaSkillChatOptionsAdapter()
-    {
-        return SpringAiSkillChatClientFactory.defaultAdapters().get(3);
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillAdvisorResolver skillAdvisorResolver(ExecutionStateService executionStateService)
-    {
-        return new DefaultSkillAdvisorResolver(executionStateService);
-    }
-
-    @Bean
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    SkillChatClientFactory skillChatClientFactory(SkillChatModelResolver chatModelResolver,
-            List<SkillChatOptionsAdapter> adapters,
-            SkillAdvisorResolver skillAdvisorResolver,
-            ExecutionStateService executionStateService,
-            ModelUsageExtractor modelUsageExtractor,
-            SessionUsageService sessionUsageService)
-    {
-        return new SpringAiSkillChatClientFactory(
-                chatModelResolver,
-                adapters,
-                skillAdvisorResolver,
-                executionStateService,
-                modelUsageExtractor,
-                sessionUsageService);
+                missionInputMaterializer);
     }
 
     @Bean
@@ -471,7 +387,7 @@ public class LoomspanAutoConfiguration
             LoomspanProperties properties,
             SessionUsageService sessionUsageService,
             MissionInputMaterializer missionInputMaterializer,
-            MissionUserMessageSender missionUserMessageSender,
+            LoomspanJacksonCodecs codecs,
             @Qualifier("LoomspanMissionExecutor") ExecutorService LoomspanMissionExecutor)
     {
         return new com.lokiscale.loomspan.internal.runtime.step.StepLoopMissionExecutionEngine(
@@ -483,16 +399,16 @@ public class LoomspanAutoConfiguration
                 LoomspanMissionExecutor,
                 sessionUsageService,
                 missionInputMaterializer,
-                missionUserMessageSender);
+                codecs.schemaTree());
     }
 
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     ExecutionCoordinator executionCoordinator(YamlSkillCatalog yamlSkillCatalog,
             CapabilityRegistry capabilityRegistry,
-            SkillChatClientFactory skillChatClientFactory,
+            com.lokiscale.loomspan.internal.model.ModelInteractionFactory modelInteractionFactory,
             ToolSurfaceService toolSurfaceService,
-            ToolCallbackFactory toolCallbackFactory,
+            com.lokiscale.loomspan.internal.runtime.tool.CapabilityBindingFactory capabilityBindingFactory,
             MissionExecutionEngine missionExecutionEngine,
             com.lokiscale.loomspan.internal.runtime.step.StepLoopMissionExecutionEngine stepLoopMissionExecutionEngine,
             ExecutionStateService executionStateService,
@@ -501,9 +417,9 @@ public class LoomspanAutoConfiguration
         return new ExecutionCoordinator(
                 yamlSkillCatalog,
                 capabilityRegistry,
-                skillChatClientFactory,
+                modelInteractionFactory,
                 toolSurfaceService,
-                toolCallbackFactory,
+                capabilityBindingFactory,
                 missionExecutionEngine,
                 stepLoopMissionExecutionEngine,
                 executionStateService,

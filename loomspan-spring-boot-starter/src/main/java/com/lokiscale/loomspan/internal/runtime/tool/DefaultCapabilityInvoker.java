@@ -15,10 +15,6 @@ import com.lokiscale.loomspan.internal.runtime.usage.NoOpUsageMetricsRecorder;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageService;
 import com.lokiscale.loomspan.internal.runtime.usage.UsageMetricsRecorder;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.function.FunctionToolCallback;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 
@@ -28,24 +24,22 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-public class DefaultToolCallbackFactory implements ToolCallbackFactory
+public class DefaultCapabilityInvoker implements CapabilityInvoker, CapabilityBindingFactory
 {
-    public static final String STEP_LOOP_TASK_ID_CONTEXT_KEY = "loomspan.stepLoop.taskId";
-
     private final CapabilityExecutionRouter capabilityExecutionRouter;
     private final PlanningService planningService;
     private final ExecutionStateService executionStateService;
     private final SessionUsageService sessionUsageService;
     private final UsageMetricsRecorder usageMetricsRecorder;
 
-    public DefaultToolCallbackFactory(CapabilityExecutionRouter capabilityExecutionRouter,
+    public DefaultCapabilityInvoker(CapabilityExecutionRouter capabilityExecutionRouter,
             PlanningService planningService,
             ExecutionStateService executionStateService)
     {
         this(capabilityExecutionRouter, planningService, executionStateService, new NoOpSessionUsageService(), new NoOpUsageMetricsRecorder());
     }
 
-    public DefaultToolCallbackFactory(CapabilityExecutionRouter capabilityExecutionRouter,
+    public DefaultCapabilityInvoker(CapabilityExecutionRouter capabilityExecutionRouter,
             PlanningService planningService,
             ExecutionStateService executionStateService,
             SessionUsageService sessionUsageService,
@@ -59,7 +53,7 @@ public class DefaultToolCallbackFactory implements ToolCallbackFactory
     }
 
     @Override
-    public List<ToolCallback> createToolCallbacks(LoomspanSession session,
+    public List<BoundCapability> bind(LoomspanSession session,
             YamlSkillDefinition definition,
             List<CapabilityMetadata> capabilities,
             @Nullable Authentication authentication)
@@ -67,40 +61,23 @@ public class DefaultToolCallbackFactory implements ToolCallbackFactory
         Objects.requireNonNull(session, "session must not be null");
         Objects.requireNonNull(definition, "definition must not be null");
         Objects.requireNonNull(capabilities, "capabilities must not be null");
-
         return capabilities.stream()
-                .map(capability -> toToolCallback(capability, session, definition, authentication))
+                .map(capability -> new BoundCapability(capability,
+                        (arguments, linkedTaskId) -> invoke(
+                                capability, arguments, session, definition, authentication, linkedTaskId)))
                 .toList();
     }
 
-    private ToolCallback toToolCallback(CapabilityMetadata capability,
-            LoomspanSession session,
-            YamlSkillDefinition definition,
-            @Nullable Authentication authentication)
-    {
-        ToolCallback callback = FunctionToolCallback.<Map<String, Object>, Object>builder(
-                capability.tool().name(),
-                (arguments, toolContext) -> invokeCapability(capability, arguments, session, definition, authentication, toolContext))
-                .description(capability.tool().description())
-                .inputType(new ParameterizedTypeReference<Map<String, Object>>()
-                {
-                })
-                .inputSchema(capability.tool().inputSchema())
-                .build();
-
-        return new ContractAwareToolCallback(callback, capability.inputContract());
-    }
-
-    private Object invokeCapability(CapabilityMetadata capability,
+    @Override
+    public Object invoke(CapabilityMetadata capability,
             Map<String, Object> arguments,
             LoomspanSession session,
             YamlSkillDefinition definition,
             @Nullable Authentication authentication,
-            @Nullable ToolContext toolContext)
+            @Nullable String boundTaskId)
     {
         Map<String, Object> safeArguments = arguments == null ? Map.of() : arguments;
         String currentSkillName = currentSkillName(session);
-        String boundTaskId = stepLoopTaskId(toolContext);
         sessionUsageService.recordToolCall(session, currentSkillName, capability.name());
         String linkedTaskId = boundTaskId;
 
@@ -194,18 +171,6 @@ public class DefaultToolCallbackFactory implements ToolCallbackFactory
         {
             executionStateService.closeFrame(session, toolFrame, closeMetadata(toolFrameStatus, toolFailure));
         }
-    }
-
-    @Nullable
-    private String stepLoopTaskId(@Nullable ToolContext toolContext)
-    {
-        if (toolContext == null)
-        {
-            return null;
-        }
-
-        Object taskId = toolContext.getContext().get(STEP_LOOP_TASK_ID_CONTEXT_KEY);
-        return taskId instanceof String value && !value.isBlank() ? value : null;
     }
 
     private Map<String, Object> toolFrameParameters(Map<String, Object> arguments, @Nullable String linkedTaskId)

@@ -21,10 +21,10 @@ import com.lokiscale.loomspan.internal.vfs.RefResolver;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
-import org.springframework.ai.tool.ToolCallback;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,14 +38,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class ToolCallbackFactoryTest {
+class DefaultCapabilityInvokerTest {
 
     @Test
     void recordsToolThrowableOnActiveFrameBeforeClosingIt() {
         CapabilityExecutionRouter router = mock(CapabilityExecutionRouter.class);
         PlanningService planningService = mock(PlanningService.class);
         ExecutionStateService stateService = mock(ExecutionStateService.class);
-        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
+        DefaultCapabilityInvoker factory = new DefaultCapabilityInvoker(router, planningService, stateService);
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-failure", "test.entry", 2);
         CapabilityMetadata capability = capability();
         ExecutionFrame toolFrame = new ExecutionFrame(
@@ -56,8 +56,8 @@ class ToolCallbackFactoryTest {
         when(router.execute(eq(capability), any(), eq(session), eq(null))).thenThrow(failure);
         when(stateService.recordFailure(eq(session), eq(failure), any())).thenReturn("failure-1");
 
-        ToolCallback callback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
-        assertThatThrownBy(() -> callback.call("{\"value\":\"hello\"}")).hasCause(failure);
+        BoundCapability callback = factory.bind(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
+        assertThatThrownBy(() -> callback.invoke(Map.of("value", "hello"), null)).isSameAs(failure);
 
         org.mockito.InOrder order = inOrder(stateService);
         order.verify(stateService).recordFailure(eq(session), eq(failure), any());
@@ -69,17 +69,17 @@ class ToolCallbackFactoryTest {
         CapabilityExecutionRouter router = mock(CapabilityExecutionRouter.class);
         PlanningService planningService = mock(PlanningService.class);
         ExecutionStateService stateService = mock(ExecutionStateService.class);
-        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
+        DefaultCapabilityInvoker factory = new DefaultCapabilityInvoker(router, planningService, stateService);
 
-        ToolCallback callback = factory.createToolCallbacks(
+        BoundCapability callback = factory.bind(
                 com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2),
                 definitionWithEvidenceContract(),
                 List.of(capability()),
                 null).getFirst();
 
-        assertThat(callback.getToolDefinition().name()).isEqualTo("allowedVisibleSkill");
-        assertThat(callback.getToolDefinition().description()).isEqualTo("child");
-        assertThat(callback.getToolDefinition().inputSchema()).contains("\"type\" : \"object\"");
+        assertThat(callback.name()).isEqualTo("allowedVisibleSkill");
+        assertThat(callback.description()).isEqualTo("child");
+        assertThat(callback.inputSchema()).contains("\"type\":\"object\"");
     }
 
     @Test
@@ -87,7 +87,7 @@ class ToolCallbackFactoryTest {
         CapabilityExecutionRouter router = mock(CapabilityExecutionRouter.class);
         PlanningService planningService = mock(PlanningService.class);
         ExecutionStateService stateService = mock(ExecutionStateService.class);
-        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
+        DefaultCapabilityInvoker factory = new DefaultCapabilityInvoker(router, planningService, stateService);
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         CapabilityMetadata capability = capability();
         assertThat(capability.skillExecution().configured()).isFalse();
@@ -113,10 +113,10 @@ class ToolCallbackFactoryTest {
         when(stateService.openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any())).thenReturn(toolFrame);
         when(router.execute(eq(capability), any(), eq(session), eq(null))).thenReturn("child:hello");
 
-        ToolCallback linkedCallback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
-        Object linkedResult = linkedCallback.call("{\"value\":\"hello\"}");
+        BoundCapability linkedCallback = factory.bind(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
+        Object linkedResult = linkedCallback.invoke(Map.of("value", "hello"), null);
 
-        assertThat(linkedResult).isEqualTo("\"child:hello\"");
+        assertThat(linkedResult).isEqualTo("child:hello");
         verify(planningService).markToolCompleted(eq(session), eq("task-1"), eq(capability.name()), eq("child:hello"));
         org.mockito.InOrder inOrder = inOrder(stateService, router);
         inOrder.verify(stateService).openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any());
@@ -129,10 +129,10 @@ class ToolCallbackFactoryTest {
         when(stateService.openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any())).thenReturn(toolFrame);
         when(router.execute(eq(capability), any(), eq(session), eq(null))).thenReturn("child:again");
 
-        ToolCallback unplannedCallback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
-        Object unplannedResult = unplannedCallback.call("{\"value\":\"again\"}");
+        BoundCapability unplannedCallback = factory.bind(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
+        Object unplannedResult = unplannedCallback.invoke(Map.of("value", "again"), null);
 
-        assertThat(unplannedResult).isEqualTo("\"child:again\"");
+        assertThat(unplannedResult).isEqualTo("child:again");
         verify(stateService).logUnplannedToolCall(eq(session), any());
         verify(stateService).recordSuccessfulSkill(eq(session), eq(capability.name()), eq(null), eq(true));
         verify(stateService, times(2)).closeFrame(eq(session), eq(toolFrame), any());
@@ -167,13 +167,13 @@ class ToolCallbackFactoryTest {
                 new StaticListableBeanFactory().getBeanProvider(com.lokiscale.loomspan.internal.core.ExecutionCoordinator.class),
                 stateService,
                 new DefaultAccessGuard());
-        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
+        DefaultCapabilityInvoker factory = new DefaultCapabilityInvoker(router, planningService, stateService);
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
 
-        ToolCallback callback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability()), null).getFirst();
-        Object result = callback.call("{\"value\":\"ref://artifacts/input.txt\"}");
+        BoundCapability callback = factory.bind(session, definitionWithEvidenceContract(), List.of(capability()), null).getFirst();
+        Object result = callback.invoke(Map.of("value", "ref://artifacts/input.txt"), null);
 
-        assertThat(result).isEqualTo("\"child:resolved-content\"");
+        assertThat(result).isEqualTo("child:resolved-content");
     }
 
     @Test
@@ -181,7 +181,7 @@ class ToolCallbackFactoryTest {
         CapabilityExecutionRouter router = mock(CapabilityExecutionRouter.class);
         PlanningService planningService = mock(PlanningService.class);
         ExecutionStateService stateService = mock(ExecutionStateService.class);
-        DefaultToolCallbackFactory factory = new DefaultToolCallbackFactory(router, planningService, stateService);
+        DefaultCapabilityInvoker factory = new DefaultCapabilityInvoker(router, planningService, stateService);
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-1", "test.entry", 2);
         CapabilityMetadata capability = capability();
         ExecutionFrame toolFrame = new ExecutionFrame(
@@ -196,13 +196,10 @@ class ToolCallbackFactoryTest {
         when(stateService.openFrame(eq(session), eq(TraceFrameType.TOOL_INVOCATION), eq(capability.name()), any())).thenReturn(toolFrame);
         when(router.execute(eq(capability), any(), eq(session), eq(null))).thenReturn("child:hello");
 
-        ToolCallback callback = factory.createToolCallbacks(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
-        Object result = callback.call(
-                "{\"value\":\"hello\"}",
-                new org.springframework.ai.chat.model.ToolContext(java.util.Map.of(
-                        DefaultToolCallbackFactory.STEP_LOOP_TASK_ID_CONTEXT_KEY, "task-1")));
+        BoundCapability callback = factory.bind(session, definitionWithEvidenceContract(), List.of(capability), null).getFirst();
+        Object result = callback.invoke(Map.of("value", "hello"), "task-1");
 
-        assertThat(result).isEqualTo("\"child:hello\"");
+        assertThat(result).isEqualTo("child:hello");
         verify(planningService, never()).markToolCompleted(eq(session), eq("task-1"), eq(capability.name()), eq("child:hello"));
         verify(stateService, never()).recordSuccessfulSkill(eq(session), eq(capability.name()), eq("task-1"), eq(false));
     }

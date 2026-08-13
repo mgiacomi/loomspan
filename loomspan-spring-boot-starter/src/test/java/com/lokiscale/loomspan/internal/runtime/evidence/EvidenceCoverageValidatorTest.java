@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.evidence;
 
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.core.PlanStatus;
 import com.lokiscale.loomspan.internal.core.PlanTask;

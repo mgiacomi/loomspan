@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.evidence;
 
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.core.LoomspanSessionRunner;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClientRequest;

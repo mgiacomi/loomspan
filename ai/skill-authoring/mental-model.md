@@ -111,6 +111,17 @@ Annotated method names MUST be unique within one Spring bean because overloads w
 
 Java leaves SHOULD own operations whose correctness should not depend on model reasoning, such as database lookups, calculations, controlled API calls, policy enforcement, and stable fixture access.
 
+Use Loomspan's application-owned `@SkillParam` on Java parameters when the reflected contract needs a description or optionality. Description defaults to empty and `required` defaults to `true`; set `required = false` for inputs the model or caller may omit. An optional parameter MUST use a nullable reference type such as `Integer`, not a primitive such as `int`, because omission binds `null`; Loomspan rejects optional primitive declarations during target discovery. Do not use Spring AI's parameter annotation at this boundary.
+
+```java
+@SkillMethod(description = "Look up one account.")
+Account lookup(
+        @SkillParam(description = "Stable account identifier.") String accountId,
+        @SkillParam(description = "Optional region hint.", required = false) String region) {
+    // deterministic application logic
+}
+```
+
 ## Root, Planner, Specialist, and Leaf Are Roles
 
 These words describe how a capability is used, not distinct framework classes.
@@ -214,6 +225,7 @@ Use these only when current behavior or an edge case needs verification:
 - [`SkillTemplate.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/api/SkillTemplate.java) defines the public invocation surface.
 - [`DefaultSkillTemplate.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/skillapi/DefaultSkillTemplate.java) validates YAML-only entry invocation and creates sessions.
 - [`SkillMethod.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/api/SkillMethod.java) defines the deterministic Java target annotation.
+- [`SkillParam.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/api/SkillParam.java), `SkillParamTest`, `SkillMethodBeanPostProcessorTest`, and `SkillMethodTargetDiscoveryIntegrationTests` define and protect parameter description, requiredness, schema, binding, proxy, interface, and bridge behavior.
 - [`YamlSkillManifest.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/skill/YamlSkillManifest.java) defines the accepted manifest object shape.
 - [`YamlSkillCatalog.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/skill/YamlSkillCatalog.java) validates the exact public YAML name before other manifest-specific validation and stores definitions by that identity.
 - [`YamlSkillDefinition.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/skill/YamlSkillDefinition.java) exposes normalized YAML skill settings.
@@ -228,7 +240,7 @@ Use these only when current behavior or an edge case needs verification:
 - [`CapabilityExecutionRouter.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/CapabilityExecutionRouter.java) distinguishes nested LLM-backed YAML execution from mapped/Java invocation and preserves parent state.
 - [`ExecutionCoordinator.java`](../../loomspan-spring-boot-starter/src/main/java/com/lokiscale/loomspan/internal/core/ExecutionCoordinator.java) selects the execution engine and constructs each YAML mission boundary.
 - [`CapabilityExecutionRouterTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/internal/core/CapabilityExecutionRouterTest.java) covers nested routing, authorization fallback, plan restoration, successful-skill isolation, and canonical mission input.
-- [`SupportedSurfaceIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/integration/SupportedSurfaceIntegrationTest.java) proves that an LLM-backed YAML entry skill can be configured and invoked through `SkillTemplate` without replacing internal Loomspan infrastructure.
+- [`SupportedSurfaceIntegrationTest.java`](../../loomspan-spring-boot-starter/src/test/java/com/lokiscale/loomspan/integration/SupportedSurfaceIntegrationTest.java) proves that an LLM-backed YAML entry skill can call a mapped `@SkillMethod`/`@SkillParam` leaf through `SkillTemplate` without replacing internal Loomspan infrastructure.
 
 ## Coverage Boundary
 

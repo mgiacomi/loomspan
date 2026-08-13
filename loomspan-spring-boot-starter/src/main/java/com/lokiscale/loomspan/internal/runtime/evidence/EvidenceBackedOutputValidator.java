@@ -1,9 +1,9 @@
 package com.lokiscale.loomspan.internal.runtime.evidence;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Set;
 
@@ -14,10 +14,11 @@ public final class EvidenceBackedOutputValidator
 
     public EvidenceBackedOutputValidator()
     {
-        this(JsonMapper.builder().findAndAddModules().build(), new EvidenceCoverageValidator());
+        this(com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().schemaTree(),
+                new EvidenceCoverageValidator());
     }
 
-    EvidenceBackedOutputValidator(ObjectMapper objectMapper,
+    public EvidenceBackedOutputValidator(ObjectMapper objectMapper,
             EvidenceCoverageValidator coverageValidator)
     {
         this.objectMapper = objectMapper;
@@ -36,7 +37,7 @@ public final class EvidenceBackedOutputValidator
         {
             return validate(objectMapper.readTree(rawOutput == null ? "{}" : rawOutput), contract, successfulSkills);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Evidence validation expected schema-valid JSON but could not parse it.", ex);
         }

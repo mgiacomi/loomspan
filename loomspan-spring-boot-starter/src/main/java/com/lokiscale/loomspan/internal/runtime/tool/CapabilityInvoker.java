@@ -1,19 +1,19 @@
 package com.lokiscale.loomspan.internal.runtime.tool;
 
-import com.lokiscale.loomspan.internal.core.LoomspanSession;
 import com.lokiscale.loomspan.internal.core.CapabilityMetadata;
+import com.lokiscale.loomspan.internal.core.LoomspanSession;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 
-import java.util.List;
+import java.util.Map;
 
-public interface ToolCallbackFactory
+public interface CapabilityInvoker
 {
-    List<ToolCallback> createToolCallbacks(
+    Object invoke(CapabilityMetadata capability,
+            Map<String, Object> arguments,
             LoomspanSession session,
             YamlSkillDefinition definition,
-            List<CapabilityMetadata> capabilities,
-            @Nullable Authentication authentication);
+            @Nullable Authentication authentication,
+            @Nullable String linkedTaskId);
 }

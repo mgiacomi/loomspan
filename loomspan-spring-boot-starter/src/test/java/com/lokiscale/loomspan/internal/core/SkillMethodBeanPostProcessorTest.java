@@ -1,13 +1,13 @@
 package com.lokiscale.loomspan.internal.core;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.api.SkillMethod;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContract;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputSchemaNode;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,7 +75,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void invokesCapabilityUsingEnvelopeMap() throws JsonProcessingException {
+    void invokesCapabilityUsingEnvelopeMap() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -94,7 +94,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void handlesMissingOptionalParameterWithoutCrashing() throws JsonProcessingException {
+    void handlesMissingOptionalParameterWithoutCrashing() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -108,6 +108,24 @@ class SkillMethodBeanPostProcessorTest {
 
         assertThat(rawResult).isInstanceOf(String.class);
         assertThat(objectMapper.readValue((String) rawResult, String.class)).isEqualTo("base:default");
+    }
+
+    @Test
+    void rejectsOptionalPrimitiveParameterDuringTargetDiscovery()
+    {
+        InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
+        SkillMethodBeanPostProcessor processor = processor(registry);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                process(processor, new OptionalPrimitiveBean(), "optionalPrimitiveBean"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Invalid @SkillParam contract")
+                .hasMessageContaining("optionalPrimitiveBean")
+                .hasMessageContaining("optionalCount")
+                .hasMessageContaining("required=false")
+                .hasMessageContaining("primitive int")
+                .hasMessageContaining("boxed type");
+        assertThat(registry.getAllTargets()).isEmpty();
     }
 
     @Test
@@ -141,7 +159,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void readsResourceBackedRefsIntoStringParameters() throws JsonProcessingException {
+    void readsResourceBackedRefsIntoStringParameters() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -157,7 +175,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void readsResourceBackedRefsIntoByteArrayParameters() throws JsonProcessingException {
+    void readsResourceBackedRefsIntoByteArrayParameters() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -173,7 +191,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void passesResourceBackedRefsThroughResourceAndInputStreamParameters() throws JsonProcessingException {
+    void passesResourceBackedRefsThroughResourceAndInputStreamParameters() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -197,7 +215,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void publishesRefFriendlyInputSchemasForRefCapableParameters() throws JsonProcessingException {
+    void publishesRefFriendlyInputSchemasForRefCapableParameters() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -217,7 +235,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void materializesNestedResourceLeavesInsideTypedRecordParameters() throws JsonProcessingException {
+    void materializesNestedResourceLeavesInsideTypedRecordParameters() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -238,7 +256,7 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
-    void materializesResourceLeavesInsideTypedCollectionParameters() throws JsonProcessingException {
+    void materializesResourceLeavesInsideTypedCollectionParameters() throws JacksonException {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
         SkillMethodBeanPostProcessor processor = processor(registry);
 
@@ -353,8 +371,16 @@ class SkillMethodBeanPostProcessorTest {
     static class OptionalInvocationBean {
 
         @SkillMethod(description = "Optional values")
-        String optionalValues(String required, @ToolParam(required = false) String optional) {
+        String optionalValues(String required, @SkillParam(required = false) String optional) {
             return required + ":" + (optional == null ? "default" : optional);
+        }
+    }
+
+    static class OptionalPrimitiveBean {
+
+        @SkillMethod(description = "Invalid optional primitive")
+        String invalid(@SkillParam(required = false) int optionalCount) {
+            return Integer.toString(optionalCount);
         }
     }
 
@@ -443,7 +469,7 @@ class SkillMethodBeanPostProcessorTest {
     record NestedDocument(String title, List<byte[]> attachments) {
     }
 
-    private String readPayloadPropertyType(SkillImplementationTarget metadata) throws JsonProcessingException {
+    private String readPayloadPropertyType(SkillImplementationTarget metadata) throws JacksonException {
         return objectMapper.readTree(metadata.inputSchema())
                 .path("properties")
                 .path("payload")
@@ -451,7 +477,7 @@ class SkillMethodBeanPostProcessorTest {
                 .asText();
     }
 
-    private String readNestedAttachmentItemType(SkillImplementationTarget metadata) throws JsonProcessingException {
+    private String readNestedAttachmentItemType(SkillImplementationTarget metadata) throws JacksonException {
         return objectMapper.readTree(metadata.inputSchema())
                 .path("properties")
                 .path("payload")
@@ -464,7 +490,7 @@ class SkillMethodBeanPostProcessorTest {
                 .asText();
     }
 
-    private boolean readPayloadPropertyRefMarker(SkillImplementationTarget metadata) throws JsonProcessingException {
+    private boolean readPayloadPropertyRefMarker(SkillImplementationTarget metadata) throws JacksonException {
         return objectMapper.readTree(metadata.inputSchema())
                 .path("properties")
                 .path("payload")
@@ -472,7 +498,7 @@ class SkillMethodBeanPostProcessorTest {
                 .asBoolean(false);
     }
 
-    private boolean readNestedAttachmentItemRefMarker(SkillImplementationTarget metadata) throws JsonProcessingException {
+    private boolean readNestedAttachmentItemRefMarker(SkillImplementationTarget metadata) throws JacksonException {
         return objectMapper.readTree(metadata.inputSchema())
                 .path("properties")
                 .path("payload")

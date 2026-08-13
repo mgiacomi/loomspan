@@ -1,9 +1,9 @@
 package com.lokiscale.loomspan.internal.runtime.trace;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.databind.node.TextNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.StringNode;
 import com.lokiscale.loomspan.internal.core.ExecutionTraceReader;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
@@ -19,9 +19,17 @@ import java.util.function.Consumer;
 
 final class NdjsonExecutionTraceReader implements ExecutionTraceReader
 {
-    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
-            .findAndAddModules()
-            .build();
+    private final ObjectMapper objectMapper;
+
+    NdjsonExecutionTraceReader()
+    {
+        this(com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().canonicalTrace());
+    }
+
+    NdjsonExecutionTraceReader(ObjectMapper objectMapper)
+    {
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+    }
 
     @Override
     public void read(Path tracePath, Consumer<TraceRecord> consumer) throws IOException
@@ -84,15 +92,15 @@ final class NdjsonExecutionTraceReader implements ExecutionTraceReader
         TraceRecord record;
         try
         {
-            record = OBJECT_MAPPER.readValue(line, TraceRecord.class);
+            record = objectMapper.readValue(line, TraceRecord.class);
         }
-        catch (IOException ex)
+        catch (JacksonException ex)
         {
             if (allowTrailingPartialRecord)
             {
                 return pendingChunkedRecord;
             }
-            throw ex;
+            throw new IOException(ex);
         }
 
         if (pendingChunkedRecord != null)
@@ -120,9 +128,9 @@ final class NdjsonExecutionTraceReader implements ExecutionTraceReader
         Object contentType = record.metadata().get("contentType");
         if ("text/plain".equals(contentType))
         {
-            return TextNode.valueOf(content);
+            return StringNode.valueOf(content);
         }
-        return OBJECT_MAPPER.readTree(content);
+        return objectMapper.readTree(content);
     }
 
     private final class PendingChunkedRecord

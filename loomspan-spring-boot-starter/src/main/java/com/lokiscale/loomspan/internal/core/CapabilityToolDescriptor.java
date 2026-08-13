@@ -1,9 +1,5 @@
 package com.lokiscale.loomspan.internal.core;
 
-import org.springframework.ai.util.json.schema.JsonSchemaGenerator;
-import org.springframework.core.ParameterizedTypeReference;
-
-import java.util.Map;
 import java.util.Objects;
 
 public record CapabilityToolDescriptor(
@@ -11,10 +7,7 @@ public record CapabilityToolDescriptor(
         String description,
         String inputSchema)
 {
-    private static final String GENERIC_INPUT_SCHEMA = JsonSchemaGenerator.generateForType(
-            new ParameterizedTypeReference<Map<String, Object>>()
-            {
-            }.getType());
+    private static final String GENERIC_INPUT_SCHEMA = "{\"type\":\"object\",\"additionalProperties\":true}";
 
     public CapabilityToolDescriptor
     {

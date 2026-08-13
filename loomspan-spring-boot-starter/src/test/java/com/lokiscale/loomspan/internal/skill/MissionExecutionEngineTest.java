@@ -9,6 +9,7 @@ import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.runtime.LoomspanMissionTimeoutException;
 import com.lokiscale.loomspan.internal.runtime.DefaultMissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.SimpleChatClient;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
@@ -68,7 +69,7 @@ class MissionExecutionEngineTest {
                             new PlanTask("task-1", "Use tool", PlanTaskStatus.PENDING, "allowedVisibleSkill", "Use tool", List.of(), List.of(), false, null),
                             new PlanTask("task-2", "Blocked", PlanTaskStatus.BLOCKED, null)));
             MissionChatClient chatClient = new MissionChatClient("mission complete");
-            ToolCallback callback = mock(ToolCallback.class);
+            BoundCapability callback = com.lokiscale.loomspan.testkit.TestBoundCapabilities.capability("allowedVisibleSkill");
 
             when(planningService.initializePlan(eq(session), eq("hello"), eq(null), any(YamlSkillDefinition.class), eq(chatClient), any()))
                     .thenAnswer(invocation -> {
@@ -141,7 +142,7 @@ class MissionExecutionEngineTest {
                     Duration.ofSeconds(5),
                     missionExecutor);
             LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-request-trace", "test.entry", 2);
-            ToolCallback callback = mock(ToolCallback.class);
+            BoundCapability callback = com.lokiscale.loomspan.testkit.TestBoundCapabilities.capability("allowedVisibleSkill");
 
             String response = engine.executeMission(
                     session,
@@ -539,191 +540,18 @@ class MissionExecutionEngineTest {
         }
 
         @Override
-        public ChatClientRequestSpec prompt() {
-            return new BlockingRequestSpec();
-        }
-
-        private final class BlockingRequestSpec implements ChatClientRequestSpec {
-
-            @Override
-            public Builder mutate() {
-                throw new UnsupportedOperationException();
+        public com.lokiscale.loomspan.internal.model.ModelInteractionResult call(
+                com.lokiscale.loomspan.internal.model.ModelInteractionRequest request) {
+            try {
+                new CountDownLatch(1).await();
+                throw new AssertionError("Latch await returned unexpectedly");
             }
-
-            @Override
-            public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(org.springframework.ai.chat.client.advisor.api.Advisor... advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(List<org.springframework.ai.chat.client.advisor.api.Advisor> advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(org.springframework.ai.chat.messages.Message... messages) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(List<org.springframework.ai.chat.messages.Message> messages) {
-                return this;
-            }
-
-            @Override
-            public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolNames(String... toolNames) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec tools(Object... tools) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolContext(java.util.Map<String, Object> toolContext) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(String text) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(String text) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-                return this;
-            }
-
-            @Override
-            public CallResponseSpec call() {
-                return new BlockingResponseSpec();
-            }
-
-            @Override
-            public StreamResponseSpec stream() {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        private final class BlockingResponseSpec implements CallResponseSpec {
-
-            @Override
-            public <T> T entity(org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.client.ChatClientResponse chatClientResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.model.ChatResponse chatResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public String content() {
-                try {
-                    new CountDownLatch(1).await();
-                    throw new AssertionError("Latch await returned unexpectedly");
-                }
-                catch (InterruptedException ex) {
-                    interrupted.set(true);
-                    throw new IllegalStateException("provider interrupted", ex);
-                }
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
+            catch (InterruptedException ex) {
+                interrupted.set(true);
+                throw new IllegalStateException("provider interrupted", ex);
             }
         }
     }
-
     private static final class FailingMissionChatClient extends SimpleChatClient {
 
         private final Throwable failure;
@@ -738,143 +566,17 @@ class MissionExecutionEngineTest {
         }
 
         @Override
-        public ChatClientRequestSpec prompt() {
-            return new FailingRequestSpec(failure);
-        }
-
-        private static final class FailingRequestSpec implements ChatClientRequestSpec {
-
-            private final Throwable failure;
-
-            private FailingRequestSpec(Throwable failure) {
-                this.failure = failure;
+        public com.lokiscale.loomspan.internal.model.ModelInteractionResult call(
+                com.lokiscale.loomspan.internal.model.ModelInteractionRequest request) {
+            if (failure instanceof RuntimeException runtimeException) {
+                throw runtimeException;
             }
-
-            @Override
-            public Builder mutate() {
-                throw new UnsupportedOperationException();
+            if (failure instanceof Error error) {
+                throw error;
             }
-
-            @Override
-            public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(org.springframework.ai.chat.client.advisor.api.Advisor... advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(List<org.springframework.ai.chat.client.advisor.api.Advisor> advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(org.springframework.ai.chat.messages.Message... messages) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(List<org.springframework.ai.chat.messages.Message> messages) {
-                return this;
-            }
-
-            @Override
-            public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolNames(String... toolNames) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec tools(Object... tools) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolContext(java.util.Map<String, Object> toolContext) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(String text) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(String text) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-                return this;
-            }
-
-            @Override
-            public CallResponseSpec call() {
-                if (failure instanceof RuntimeException runtimeException) {
-                    throw runtimeException;
-                }
-                throw (Error) failure;
-            }
-
-            @Override
-            public StreamResponseSpec stream() {
-                throw new UnsupportedOperationException();
-            }
+            throw new IllegalStateException(failure);
         }
     }
-
     private static final class BlockingPlanningService implements PlanningService {
 
         private final AtomicBoolean interrupted;
@@ -888,8 +590,8 @@ class MissionExecutionEngineTest {
                                                                 String objective,
                                                                 java.util.Map<String, Object> missionInput,
                                                                 YamlSkillDefinition definition,
-                                                                org.springframework.ai.chat.client.ChatClient chatClient,
-                                                                List<ToolCallback> visibleTools) {
+                                                                com.lokiscale.loomspan.internal.model.ModelInteraction chatClient,
+                                                                List<BoundCapability> visibleTools) {
             try {
                 new CountDownLatch(1).await();
                 throw new AssertionError("Latch await returned unexpectedly");

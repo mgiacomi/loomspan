@@ -12,6 +12,7 @@ import com.lokiscale.loomspan.internal.observability.web.ObservabilityRestContro
 import com.lokiscale.loomspan.internal.observability.web.ObservabilityRouteCollisionDetector;
 import com.lokiscale.loomspan.internal.observability.web.ObservabilityRouteRegistrar;
 import com.lokiscale.loomspan.internal.skill.YamlSkillCatalog;
+import com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.Filter;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -20,7 +21,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Role;
@@ -40,9 +41,9 @@ public class LoomspanObservabilityWebAutoConfiguration
 {
     @Bean
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    ObservabilityJsonCodec observabilityJsonCodec()
+    ObservabilityJsonCodec observabilityJsonCodec(LoomspanJacksonCodecs codecs)
     {
-        return new ObservabilityJsonCodec();
+        return new ObservabilityJsonCodec(codecs.strictObservability());
     }
 
     @Bean

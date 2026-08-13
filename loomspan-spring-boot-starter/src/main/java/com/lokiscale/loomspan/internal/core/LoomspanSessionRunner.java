@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import tools.jackson.databind.ObjectMapper;
 
 public class LoomspanSessionRunner
 {
@@ -23,6 +24,7 @@ public class LoomspanSessionRunner
     private final Clock clock;
     private final ExecutionObservationHandleFactory observationHandleFactory;
     private final InternalExecutionTraceHandleFactory traceHandleFactory;
+    private final ObjectMapper canonicalTraceMapper;
 
     public LoomspanSessionRunner(int maxDepth)
     {
@@ -91,12 +93,44 @@ public class LoomspanSessionRunner
                                 ConfiguredLimitsSnapshot.from(quotas)));
     }
 
+    public LoomspanSessionRunner(
+            int maxDepth,
+            TracePersistencePolicy tracePersistencePolicy,
+            Clock clock,
+            ExecutionObservationHandleFactory observationHandleFactory,
+            CompletionGraceRetention completionGraceRetention,
+            LoomspanProperties.Session.Quotas quotas,
+            ObjectMapper canonicalTraceMapper)
+    {
+        this(maxDepth, tracePersistencePolicy, clock, observationHandleFactory,
+                (sessionId, entrySkill, policy, handleClock, observationHandle) ->
+                        new com.lokiscale.loomspan.internal.runtime.trace.DefaultExecutionTraceHandle(
+                                sessionId, entrySkill, policy, handleClock, observationHandle,
+                                Objects.requireNonNull(completionGraceRetention,
+                                        "completionGraceRetention must not be null"),
+                                ConfiguredLimitsSnapshot.from(quotas),
+                                Objects.requireNonNull(canonicalTraceMapper,
+                                        "canonicalTraceMapper must not be null")), canonicalTraceMapper);
+    }
+
     LoomspanSessionRunner(
             int maxDepth,
             TracePersistencePolicy tracePersistencePolicy,
             Clock clock,
             ExecutionObservationHandleFactory observationHandleFactory,
             InternalExecutionTraceHandleFactory traceHandleFactory)
+    {
+        this(maxDepth, tracePersistencePolicy, clock, observationHandleFactory, traceHandleFactory,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().canonicalTrace());
+    }
+
+    private LoomspanSessionRunner(
+            int maxDepth,
+            TracePersistencePolicy tracePersistencePolicy,
+            Clock clock,
+            ExecutionObservationHandleFactory observationHandleFactory,
+            InternalExecutionTraceHandleFactory traceHandleFactory,
+            ObjectMapper canonicalTraceMapper)
     {
         if (maxDepth <= 0)
         {
@@ -109,6 +143,8 @@ public class LoomspanSessionRunner
         this.observationHandleFactory = Objects.requireNonNull(
                 observationHandleFactory, "observationHandleFactory must not be null");
         this.traceHandleFactory = Objects.requireNonNull(traceHandleFactory, "traceHandleFactory must not be null");
+        this.canonicalTraceMapper = Objects.requireNonNull(canonicalTraceMapper,
+                "canonicalTraceMapper must not be null");
     }
 
     public void runWithNewSession(String entrySkill, Consumer<LoomspanSession> action)
@@ -123,11 +159,18 @@ public class LoomspanSessionRunner
                 UUID.randomUUID().toString(),
                 entrySkill,
                 maxDepth,
+                java.util.List.of(),
+                null,
+                null,
+                null,
+                null,
                 authentication,
                 tracePersistencePolicy,
                 clock,
                 observationHandleFactory,
-                traceHandleFactory);
+                traceHandleFactory,
+                () -> UUID.randomUUID().toString(),
+                canonicalTraceMapper);
 
         LoomspanSessionHolder.runWithSession(session, () ->
         {
@@ -160,11 +203,18 @@ public class LoomspanSessionRunner
                 UUID.randomUUID().toString(),
                 entrySkill,
                 maxDepth,
+                java.util.List.of(),
+                null,
+                null,
+                null,
+                null,
                 authentication,
                 tracePersistencePolicy,
                 clock,
                 observationHandleFactory,
-                traceHandleFactory);
+                traceHandleFactory,
+                () -> UUID.randomUUID().toString(),
+                canonicalTraceMapper);
 
         return LoomspanSessionHolder.callWithSession(session, () ->
         {

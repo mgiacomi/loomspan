@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.skill;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.core.PublicSkillImplementationType;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import org.springframework.core.io.Resource;
@@ -19,7 +19,8 @@ public record YamlSkillDefinition(
         EvidenceContract evidenceContract,
         YamlSkillSource source)
 {
-    private static final ObjectMapper COPY_MAPPER = new ObjectMapper();
+    private static final ObjectMapper COPY_MAPPER =
+            com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().applicationConversion();
 
     public YamlSkillDefinition
     {

@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.sample.support;
 
 import com.lokiscale.loomspan.api.SkillMethod;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,8 +12,8 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Looks up customer plan, tenure, and prior complaint count for the support scenario.")
     public Map<String, Object> lookupCustomer(
-            @ToolParam(description = "Fixture key that selects canned customer data.") String scenario,
-            @ToolParam(description = "Optional customer id hint from the demo controller.", required = false) String customerId) {
+            @SkillParam(description = "Fixture key that selects canned customer data.") String scenario,
+            @SkillParam(description = "Optional customer id hint from the demo controller.", required = false) String customerId) {
         String key = normalize(scenario);
         String id = hasText(customerId) ? customerId.trim() : defaultCustomerId(key);
         return switch (key) {
@@ -64,8 +64,8 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Looks up recent invoice charges for the support scenario.")
     public Map<String, Object> lookupInvoices(
-            @ToolParam(description = "Fixture key that selects canned invoice data.") String scenario,
-            @ToolParam(description = "Optional customer id hint.", required = false) String customerId) {
+            @SkillParam(description = "Fixture key that selects canned invoice data.") String scenario,
+            @SkillParam(description = "Optional customer id hint.", required = false) String customerId) {
         String key = normalize(scenario);
         String id = hasText(customerId) ? customerId.trim() : defaultCustomerId(key);
         return switch (key) {
@@ -101,7 +101,7 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Returns structured refund policy eligibility facts for the support scenario.")
     public Map<String, Object> lookupRefundPolicy(
-            @ToolParam(description = "Fixture key that selects canned policy facts.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned policy facts.") String scenario) {
         String key = normalize(scenario);
         return switch (key) {
             case "billing-duplicate-charge" -> Map.of(
@@ -134,7 +134,7 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Looks up account status and feature flags for the support scenario.")
     public Map<String, Object> lookupAccountStatus(
-            @ToolParam(description = "Fixture key that selects canned account status.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned account status.") String scenario) {
         String key = normalize(scenario);
         return switch (key) {
             case "tech-crash-on-checkout" -> Map.of(
@@ -158,7 +158,7 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Searches known issues and KB entries for the support scenario.")
     public Map<String, Object> searchKnownIssues(
-            @ToolParam(description = "Fixture key that selects canned known-issue matches.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned known-issue matches.") String scenario) {
         String key = normalize(scenario);
         return switch (key) {
             case "tech-crash-on-checkout" -> Map.of(
@@ -179,8 +179,8 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Creates a deterministic fake bug ticket id for the support scenario.")
     public Map<String, Object> createBugTicket(
-            @ToolParam(description = "Fixture key that selects canned ticket id.") String scenario,
-            @ToolParam(description = "Optional short summary echoed on the ticket.", required = false) String summary) {
+            @SkillParam(description = "Fixture key that selects canned ticket id.") String scenario,
+            @SkillParam(description = "Optional short summary echoed on the ticket.", required = false) String summary) {
         String key = normalize(scenario);
         String ticketId = switch (key) {
             case "tech-crash-on-checkout" -> "BUG-TECH-1002";
@@ -197,8 +197,8 @@ public class SupportCrmService {
 
     @SkillMethod(description = "Searches help-center articles for the support scenario.")
     public Map<String, Object> searchHelpCenter(
-            @ToolParam(description = "Fixture key that selects canned help articles.") String scenario,
-            @ToolParam(description = "Optional free-text query hint.", required = false) String query) {
+            @SkillParam(description = "Fixture key that selects canned help articles.") String scenario,
+            @SkillParam(description = "Optional free-text query hint.", required = false) String query) {
         String key = normalize(scenario);
         String q = hasText(query) ? query.trim() : "";
         return switch (key) {

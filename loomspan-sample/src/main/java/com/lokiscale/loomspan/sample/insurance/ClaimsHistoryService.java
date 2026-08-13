@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.sample.insurance;
 
 import com.lokiscale.loomspan.api.SkillMethod;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -15,7 +15,7 @@ public class ClaimsHistoryService {
 
     @SkillMethod(description = "Looks up prior claims count, recency, and similar loss types for the scenario.")
     public Map<String, Object> priorClaimsLookup(
-            @ToolParam(description = "Fixture key that selects canned claims history.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned claims history.") String scenario) {
         String key = normalize(scenario);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scenario", key.isEmpty() ? "unknown" : key);
@@ -72,7 +72,7 @@ public class ClaimsHistoryService {
 
     @SkillMethod(description = "Returns a 0.0–1.0 anomaly score and short reason for the claim scenario.")
     public Map<String, Object> anomalyScore(
-            @ToolParam(description = "Fixture key that selects canned anomaly scoring.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned anomaly scoring.") String scenario) {
         String key = normalize(scenario);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scenario", key.isEmpty() ? "unknown" : key);
@@ -119,7 +119,7 @@ public class ClaimsHistoryService {
 
     @SkillMethod(description = "Returns optional address/velocity risk flags for the claim scenario.")
     public Map<String, Object> addressRiskSignals(
-            @ToolParam(description = "Fixture key that selects canned address risk signals.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned address risk signals.") String scenario) {
         String key = normalize(scenario);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("scenario", key.isEmpty() ? "unknown" : key);

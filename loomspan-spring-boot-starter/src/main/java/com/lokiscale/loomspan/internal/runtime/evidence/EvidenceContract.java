@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.evidence;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -65,7 +65,7 @@ public final class EvidenceContract
             return Set.of();
         }
         LinkedHashSet<String> presentClaims = new LinkedHashSet<>();
-        candidate.fieldNames().forEachRemaining(fieldName ->
+        candidate.propertyNames().forEach(fieldName ->
         {
             String canonicalClaim = canonicalClaimByNormalized.get(normalizeKey(fieldName));
             if (canonicalClaim != null)

@@ -7,9 +7,8 @@ import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContract;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputPromptRenderer;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputSchemaNode;
-import com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackInputContracts;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
-import org.springframework.ai.tool.ToolCallback;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import org.springframework.lang.Nullable;
 
 import java.util.Comparator;
@@ -35,7 +34,7 @@ final class StepPromptBuilder
             int stepNumber,
             @Nullable String lastToolResult,
             @Nullable String executionSummary,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             boolean finalResponseOnly,
             @Nullable YamlSkillManifest.OutputSchemaManifest outputSchema)
     {
@@ -58,7 +57,7 @@ final class StepPromptBuilder
             int stepNumber,
             @Nullable String lastToolResult,
             @Nullable String executionSummary,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             boolean finalResponseOnly,
             @Nullable YamlSkillManifest.OutputSchemaManifest outputSchema)
     {
@@ -81,7 +80,7 @@ final class StepPromptBuilder
             int stepNumber,
             @Nullable String lastToolResult,
             @Nullable String executionSummary,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             boolean finalResponseOnly,
             boolean forceVerboseToolArgumentGuidance,
             @Nullable YamlSkillManifest.OutputSchemaManifest outputSchema)
@@ -100,8 +99,8 @@ final class StepPromptBuilder
         String toolNameList = (visibleTools == null || visibleTools.isEmpty())
                 ? "(none)"
                 : visibleTools.stream()
-                        .filter(t -> t != null && t.getToolDefinition() != null)
-                        .map(t -> "- " + t.getToolDefinition().name())
+                        .filter(t -> t != null)
+                        .map(t -> "- " + t.name())
                         .reduce((a, b) -> a + "\n" + b)
                         .orElse("(none)");
 
@@ -424,7 +423,7 @@ final class StepPromptBuilder
 
     @Nullable
     private static String formatToolArgumentGuidance(List<PlanTask> readyTasks,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             boolean forceVerboseToolArgumentGuidance)
     {
         if (readyTasks == null || readyTasks.isEmpty() || visibleTools == null || visibleTools.isEmpty())
@@ -441,7 +440,7 @@ final class StepPromptBuilder
 
     @Nullable
     private static String formatToolArgumentGuidance(PlanTask task,
-            List<ToolCallback> visibleTools,
+            List<BoundCapability> visibleTools,
             boolean forceVerboseToolArgumentGuidance)
     {
         if (task.capabilityName() == null || task.capabilityName().isBlank())
@@ -449,9 +448,9 @@ final class StepPromptBuilder
             return null;
         }
 
-        ToolCallback tool = visibleTools.stream()
-                .filter(candidate -> candidate != null && candidate.getToolDefinition() != null)
-                .filter(candidate -> task.capabilityName().equals(candidate.getToolDefinition().name()))
+        BoundCapability tool = visibleTools.stream()
+                .filter(candidate -> candidate != null)
+                .filter(candidate -> task.capabilityName().equals(candidate.name()))
                 .findFirst()
                 .orElse(null);
 
@@ -460,7 +459,7 @@ final class StepPromptBuilder
             return null;
         }
 
-        SkillInputContract contract = ToolCallbackInputContracts.resolve(tool);
+        SkillInputContract contract = tool.metadata().inputContract();
         if (contract.isGeneric())
         {
             return null;

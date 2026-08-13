@@ -1,17 +1,18 @@
 package com.lokiscale.loomspan.internal.core;
 
-import com.lokiscale.loomspan.internal.chat.SkillChatClientFactory;
+import com.lokiscale.loomspan.internal.model.ModelInteraction;
+import com.lokiscale.loomspan.internal.model.ModelInteractionFactory;
+import com.lokiscale.loomspan.internal.model.ModelInteractionMode;
 import com.lokiscale.loomspan.internal.runtime.LoomspanMissionTimeoutException;
 import com.lokiscale.loomspan.internal.runtime.MissionExecutionEngine;
 import com.lokiscale.loomspan.internal.runtime.state.ExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.tool.ToolCallbackFactory;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
+import com.lokiscale.loomspan.internal.runtime.tool.CapabilityBindingFactory;
 import com.lokiscale.loomspan.internal.runtime.tool.ToolSurfaceService;
 import com.lokiscale.loomspan.internal.security.AccessGuard;
 import com.lokiscale.loomspan.internal.skill.YamlSkillCatalog;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.core.io.Resource;
 import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
@@ -28,9 +29,9 @@ public class ExecutionCoordinator
 {
     private final YamlSkillCatalog yamlSkillCatalog;
     private final CapabilityRegistry capabilityRegistry;
-    private final SkillChatClientFactory skillChatClientFactory;
+    private final ModelInteractionFactory modelInteractionFactory;
     private final ToolSurfaceService toolSurfaceService;
-    private final ToolCallbackFactory toolCallbackFactory;
+    private final CapabilityBindingFactory capabilityBindingFactory;
     private final MissionExecutionEngine missionExecutionEngine;
     private final MissionExecutionEngine stepLoopMissionExecutionEngine;
     private final ExecutionStateService executionStateService;
@@ -38,9 +39,9 @@ public class ExecutionCoordinator
 
     public ExecutionCoordinator(YamlSkillCatalog yamlSkillCatalog,
             CapabilityRegistry capabilityRegistry,
-            SkillChatClientFactory skillChatClientFactory,
+            ModelInteractionFactory modelInteractionFactory,
             ToolSurfaceService toolSurfaceService,
-            ToolCallbackFactory toolCallbackFactory,
+            CapabilityBindingFactory capabilityBindingFactory,
             MissionExecutionEngine missionExecutionEngine,
             MissionExecutionEngine stepLoopMissionExecutionEngine,
             ExecutionStateService executionStateService,
@@ -48,9 +49,9 @@ public class ExecutionCoordinator
     {
         this.yamlSkillCatalog = Objects.requireNonNull(yamlSkillCatalog, "yamlSkillCatalog must not be null");
         this.capabilityRegistry = Objects.requireNonNull(capabilityRegistry, "capabilityRegistry must not be null");
-        this.skillChatClientFactory = Objects.requireNonNull(skillChatClientFactory, "skillChatClientFactory must not be null");
+        this.modelInteractionFactory = Objects.requireNonNull(modelInteractionFactory, "modelInteractionFactory must not be null");
         this.toolSurfaceService = Objects.requireNonNull(toolSurfaceService, "toolSurfaceService must not be null");
-        this.toolCallbackFactory = Objects.requireNonNull(toolCallbackFactory, "toolCallbackFactory must not be null");
+        this.capabilityBindingFactory = Objects.requireNonNull(capabilityBindingFactory, "capabilityBindingFactory must not be null");
         this.missionExecutionEngine = Objects.requireNonNull(missionExecutionEngine, "missionExecutionEngine must not be null");
         this.stepLoopMissionExecutionEngine = Objects.requireNonNull(stepLoopMissionExecutionEngine, "stepLoopMissionExecutionEngine must not be null");
         this.executionStateService = Objects.requireNonNull(executionStateService, "executionStateService must not be null");
@@ -107,11 +108,10 @@ public class ExecutionCoordinator
             {
                 boolean stepExecutionEnabled = definition.planningModeExplicitlyEnabled();
                 MissionExecutionEngine engine = stepExecutionEnabled ? stepLoopMissionExecutionEngine : missionExecutionEngine;
-                ChatClient chatClient = stepExecutionEnabled
-                        ? skillChatClientFactory.createForStepExecution(definition)
-                        : skillChatClientFactory.create(definition);
+                ModelInteraction modelInteraction = modelInteractionFactory.create(definition,
+                        stepExecutionEnabled ? ModelInteractionMode.STEP_EXECUTION : ModelInteractionMode.STANDARD);
 
-                List<ToolCallback> visibleTools = toolCallbackFactory.createToolCallbacks(
+                List<BoundCapability> visibleTools = capabilityBindingFactory.bind(
                         session,
                         definition,
                         toolSurfaceService.visibleToolsFor(skillName, session, authentication),
@@ -122,7 +122,7 @@ public class ExecutionCoordinator
                         definition,
                         objective,
                         missionInput,
-                        chatClient,
+                        modelInteraction,
                         visibleTools,
                         definition.planningModeExplicitlyEnabled(),
                         authentication);

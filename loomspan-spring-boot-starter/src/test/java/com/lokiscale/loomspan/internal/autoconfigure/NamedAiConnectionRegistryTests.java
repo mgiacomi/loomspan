@@ -6,7 +6,7 @@ import com.lokiscale.loomspan.internal.provider.AttemptOwnership;
 import com.lokiscale.loomspan.internal.provider.ProviderConnectionRuntime;
 import com.lokiscale.loomspan.internal.provider.ProviderFailureDetails;
 import com.lokiscale.loomspan.internal.provider.ProviderRetryPolicy;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.DisposableBean;
@@ -28,7 +28,7 @@ class NamedAiConnectionRegistryTests {
     void constructsAndKeepsDistinctNamedConnectionsUsingTheSameDriver() {
         ChatModel primary = mock(ChatModel.class);
         ChatModel secondary = mock(ChatModel.class);
-        SpringAiV11ProviderIntegration integration = mock(SpringAiV11ProviderIntegration.class);
+        SpringAiProviderIntegration integration = mock(SpringAiProviderIntegration.class);
 
         LoomspanProperties.ConnectionProperties first = connection("http://one.example");
         LoomspanProperties.ConnectionProperties second = connection("http://two.example");
@@ -46,7 +46,7 @@ class NamedAiConnectionRegistryTests {
     @Test
     void preservesSafeFieldDiagnosticsAndCleansUpModelsBuiltBeforeFailure() throws Exception {
         ChatModel closeable = mock(ChatModel.class, withSettings().extraInterfaces(DisposableBean.class));
-        SpringAiV11ProviderIntegration integration = mock(SpringAiV11ProviderIntegration.class);
+        SpringAiProviderIntegration integration = mock(SpringAiProviderIntegration.class);
 
         LinkedHashMap<String, LoomspanProperties.ConnectionProperties> connections = new LinkedHashMap<>();
         connections.put("first", geminiConnection());
@@ -64,7 +64,7 @@ class NamedAiConnectionRegistryTests {
     @Test
     void opaqueClientRetryOwnershipRequiresLoomspanRetryToBeDisabled() {
         ChatModel model = mock(ChatModel.class);
-        SpringAiV11ProviderIntegration integration = mock(SpringAiV11ProviderIntegration.class);
+        SpringAiProviderIntegration integration = mock(SpringAiProviderIntegration.class);
         LoomspanProperties.ConnectionProperties properties = connection("http://opaque.example");
         ProviderConnectionRuntime opaque = new ProviderConnectionRuntime(model, AiDriver.OLLAMA,
                 AttemptOwnership.OPAQUE_CLIENT_RETRIES,

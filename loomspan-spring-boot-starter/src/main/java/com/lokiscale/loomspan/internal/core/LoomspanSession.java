@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import tools.jackson.databind.ObjectMapper;
 import java.util.function.UnaryOperator;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -216,6 +217,29 @@ public final class LoomspanSession
             InternalExecutionTraceHandleFactory traceHandleFactory,
             Supplier<String> failureIdSupplier)
     {
+        this(sessionId, entrySkill, maxDepth, frames, executionPlan, lastLinterOutcome, lastOutputSchemaOutcome,
+                sessionUsage, authentication, persistencePolicy, clock, observationHandleFactory, traceHandleFactory,
+                failureIdSupplier,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().canonicalTrace());
+    }
+
+    LoomspanSession(
+            String sessionId,
+            String entrySkill,
+            int maxDepth,
+            List<ExecutionFrame> frames,
+            ExecutionPlan executionPlan,
+            @Nullable LinterOutcome lastLinterOutcome,
+            @Nullable OutputSchemaOutcome lastOutputSchemaOutcome,
+            @Nullable SessionUsageSnapshot sessionUsage,
+            @Nullable Authentication authentication,
+            TracePersistencePolicy persistencePolicy,
+            Clock clock,
+            ExecutionObservationHandleFactory observationHandleFactory,
+            InternalExecutionTraceHandleFactory traceHandleFactory,
+            Supplier<String> failureIdSupplier,
+            ObjectMapper canonicalTraceMapper)
+    {
         this.sessionId = requireNonBlank(sessionId, "sessionId");
         this.entrySkill = EntrySkillIdentity.normalize(entrySkill);
         if (maxDepth <= 0)
@@ -233,7 +257,8 @@ public final class LoomspanSession
         this.failureIdSupplier = Objects.requireNonNull(failureIdSupplier, "failureIdSupplier must not be null");
         this.failureRecordingFailure = null;
         // The runtime supports one session lifecycle: a live in-process session with a canonical trace handle.
-        this.journalProjector = new ExecutionJournalProjector();
+        this.journalProjector = new ExecutionJournalProjector(
+                Objects.requireNonNull(canonicalTraceMapper, "canonicalTraceMapper must not be null"));
         this.executionObservationHandle = Objects.requireNonNull(observationHandleFactory,
                 "observationHandleFactory must not be null").create(this.sessionId, this.entrySkill);
         ExecutionTraceHandle traceHandle;

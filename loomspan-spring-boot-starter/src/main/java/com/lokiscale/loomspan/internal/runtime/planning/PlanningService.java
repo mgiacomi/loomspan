@@ -1,11 +1,11 @@
 package com.lokiscale.loomspan.internal.runtime.planning;
 
 import com.lokiscale.loomspan.internal.core.LoomspanSession;
+import com.lokiscale.loomspan.internal.model.ModelInteraction;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import com.lokiscale.loomspan.internal.core.CapabilityMetadata;
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.lang.Nullable;
 
 import java.util.List;
@@ -19,8 +19,8 @@ public interface PlanningService
             String objective,
             @Nullable Map<String, Object> missionInput,
             YamlSkillDefinition definition,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools);
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools);
 
     Optional<ExecutionPlan> markToolStarted(LoomspanSession session, CapabilityMetadata capability, Map<String, Object> arguments);
 

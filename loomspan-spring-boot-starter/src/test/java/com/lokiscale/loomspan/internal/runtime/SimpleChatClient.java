@@ -1,25 +1,19 @@
 package com.lokiscale.loomspan.internal.runtime;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.content.Media;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.core.ParameterizedTypeReference;
+import com.lokiscale.loomspan.internal.model.ModelInteraction;
+import com.lokiscale.loomspan.internal.model.ModelInteractionRequest;
+import com.lokiscale.loomspan.internal.model.ModelInteractionResult;
 import org.springframework.core.io.Resource;
 import org.springframework.util.MimeType;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.net.URL;
-import java.nio.charset.Charset;
 
-public class SimpleChatClient implements ChatClient {
+public class SimpleChatClient implements ModelInteraction {
 
     private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
             .findAndAddModules()
@@ -49,264 +43,22 @@ public class SimpleChatClient implements ChatClient {
     }
 
     @Override
-    public ChatClientRequestSpec prompt() {
-        return new SimpleRequestSpec();
-    }
-
-    @Override
-    public ChatClientRequestSpec prompt(String content) {
-        return new SimpleRequestSpec();
-    }
-
-    @Override
-    public ChatClientRequestSpec prompt(org.springframework.ai.chat.prompt.Prompt prompt) {
-        return new SimpleRequestSpec();
-    }
-
-    @Override
-    public Builder mutate() {
-        throw new UnsupportedOperationException();
-    }
-
-    private final class SimpleRequestSpec implements ChatClientRequestSpec {
-
-        @Override
-        public Builder mutate() {
-            throw new UnsupportedOperationException();
+    public ModelInteractionResult call(ModelInteractionRequest request) {
+        systemMessagesSeen.add(request.systemPrompt());
+        userMessagesSeen.add(request.input().userText());
+        request.input().attachments().forEach(attachment -> userMediaSeen.add(
+                new CapturedMedia(MimeType.valueOf(attachment.contentType()), attachment.resource())));
+        if (plan != null) {
+            try {
+                return ModelInteractionResult.content(OBJECT_MAPPER.writeValueAsString(plan));
+            }
+            catch (JacksonException ex) {
+                throw new IllegalStateException("Failed to serialize execution plan", ex);
+            }
         }
-
-        @Override
-        public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec advisors(org.springframework.ai.chat.client.advisor.api.Advisor... advisors) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec advisors(List<org.springframework.ai.chat.client.advisor.api.Advisor> advisors) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec messages(org.springframework.ai.chat.messages.Message... messages) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec messages(List<org.springframework.ai.chat.messages.Message> messages) {
-            return this;
-        }
-
-        @Override
-        public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec toolNames(String... toolNames) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec tools(Object... tools) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec toolContext(Map<String, Object> toolContext) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec system(String text) {
-            systemMessagesSeen.add(text);
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec user(String text) {
-            userMessagesSeen.add(text);
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
-            consumer.accept(new SimplePromptUserSpec());
-            return this;
-        }
-
-        @Override
-        public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-            return this;
-        }
-
-        @Override
-        public CallResponseSpec call() {
-            return new SimpleResponseSpec(plan != null ? plan : content);
-        }
-
-        @Override
-        public StreamResponseSpec stream() {
-            throw new UnsupportedOperationException();
-        }
+        return ModelInteractionResult.content(content);
     }
 
     public record CapturedMedia(MimeType mimeType, Resource resource) {
-    }
-
-    private final class SimplePromptUserSpec implements ChatClient.PromptUserSpec {
-
-        @Override
-        public PromptUserSpec text(String text) {
-            userMessagesSeen.add(text);
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec text(Resource resource) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec text(Resource resource, Charset charset) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec media(MimeType mimeType, Resource resource) {
-            userMediaSeen.add(new CapturedMedia(mimeType, resource));
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec media(MimeType mimeType, URL url) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec media(Media... media) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec param(String key, Object value) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec params(Map<String, Object> params) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec metadata(String key, Object value) {
-            return this;
-        }
-
-        @Override
-        public PromptUserSpec metadata(Map<String, Object> metadata) {
-            return this;
-        }
-    }
-
-    private record SimpleResponseSpec(Object payload) implements CallResponseSpec {
-
-        @Override
-        public <T> T entity(ParameterizedTypeReference<T> type) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> T entity(org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        @SuppressWarnings("unchecked")
-        public <T> T entity(Class<T> type) {
-            return (T) payload;
-        }
-
-        @Override
-        public ChatClientResponse chatClientResponse() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ChatResponse chatResponse() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public String content() {
-            if (payload instanceof ExecutionPlan executionPlan) {
-                try {
-                    return OBJECT_MAPPER.writeValueAsString(executionPlan);
-                }
-                catch (JsonProcessingException ex) {
-                    throw new IllegalStateException("Failed to serialize execution plan", ex);
-                }
-            }
-            return String.valueOf(payload);
-        }
-
-        @Override
-        public <T> org.springframework.ai.chat.client.ResponseEntity<ChatResponse, T> responseEntity(Class<T> type) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> org.springframework.ai.chat.client.ResponseEntity<ChatResponse, T> responseEntity(ParameterizedTypeReference<T> type) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> org.springframework.ai.chat.client.ResponseEntity<ChatResponse, T> responseEntity(
-                org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-            throw new UnsupportedOperationException();
-        }
     }
 }

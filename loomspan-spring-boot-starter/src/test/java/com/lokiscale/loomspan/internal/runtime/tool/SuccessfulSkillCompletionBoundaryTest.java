@@ -19,7 +19,6 @@ import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguratio
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
 
 import java.time.Instant;
 import java.util.List;
@@ -51,10 +50,10 @@ class SuccessfulSkillCompletionBoundaryTest
                 .thenReturn(frame(capability.name()));
         when(router.execute(eq(capability), any(), eq(session), eq(null))).thenReturn("done");
 
-        ToolCallback callback = new DefaultToolCallbackFactory(router, planning, state)
-                .createToolCallbacks(session, definitionWithoutEvidenceContract(), List.of(capability), null)
+        BoundCapability callback = new DefaultCapabilityInvoker(router, planning, state)
+                .bind(session, definitionWithoutEvidenceContract(), List.of(capability), null)
                 .getFirst();
-        callback.call("{}");
+        callback.invoke(Map.of(), null);
 
         org.mockito.InOrder order = inOrder(planning, router);
         order.verify(planning).markToolStarted(eq(session), eq(capability), any());
@@ -81,13 +80,11 @@ class SuccessfulSkillCompletionBoundaryTest
                     .thenReturn(frame(capability.name()));
             when(router.execute(eq(capability), any(), eq(session), eq(null))).thenThrow(failure);
 
-            ToolCallback callback = new DefaultToolCallbackFactory(router, planning, state)
-                    .createToolCallbacks(session, definitionWithoutEvidenceContract(), List.of(capability), null)
+            BoundCapability callback = new DefaultCapabilityInvoker(router, planning, state)
+                    .bind(session, definitionWithoutEvidenceContract(), List.of(capability), null)
                     .getFirst();
 
-            assertThatThrownBy(() -> callback.call("{}"))
-                    .isInstanceOf(org.springframework.ai.tool.execution.ToolExecutionException.class)
-                    .hasRootCause(failure);
+            assertThatThrownBy(() -> callback.invoke(Map.of(), null)).isSameAs(failure);
             verify(state, never()).recordSuccessfulSkill(eq(session), eq(capability.name()), eq(null), eq(true));
             verify(planning, never()).markToolCompleted(any(), any(), any(), any());
         }

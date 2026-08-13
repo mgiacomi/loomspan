@@ -1,4 +1,4 @@
-package com.lokiscale.loomspan.internal.springai.v1_1;
+package com.lokiscale.loomspan.internal.springai;
 
 import com.lokiscale.loomspan.internal.provider.ProviderFailureDetails;
 

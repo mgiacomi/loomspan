@@ -35,6 +35,9 @@ class NdjsonTraceRecordWriterTest {
                 .contains(sessionId)
                 .endsWith(".execution-trace.ndjson");
         assertThat(Files.exists(handle.tracePath())).isTrue();
+        String ndjson = Files.readString(handle.tracePath());
+        assertThat(ndjson).endsWith("\n").doesNotContain("\r\n");
+        assertThat(ndjson.lines()).hasSize(4);
         assertThat(records)
                 .extracting(TraceRecord::recordType)
                 .contains(TraceRecordType.TRACE_STARTED, TraceRecordType.TRACE_CAPTURE_POLICY_RECORDED, TraceRecordType.MODEL_REQUEST_SENT);

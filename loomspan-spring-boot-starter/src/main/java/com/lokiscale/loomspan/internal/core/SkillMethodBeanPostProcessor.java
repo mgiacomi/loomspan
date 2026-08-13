@@ -1,18 +1,18 @@
 package com.lokiscale.loomspan.internal.core;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JavaType;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.introspect.BeanPropertyDefinition;
 import com.lokiscale.loomspan.api.SkillMethod;
+import com.lokiscale.loomspan.api.SkillParam;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
+import com.lokiscale.loomspan.internal.serialization.LoomspanMethodInputSchemaGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.util.json.schema.JsonSchemaGenerator;
-import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
@@ -48,12 +48,15 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
     private final ObjectMapper objectMapper;
     private final LoomspanExceptionTransformer LoomspanExceptionTransformer;
     private final SkillInputContractResolver inputContractResolver;
+    private final LoomspanMethodInputSchemaGenerator schemaGenerator;
     private final Set<String> processedBeanNames = ConcurrentHashMap.newKeySet();
     private BeanFactory beanFactory;
 
     public SkillMethodBeanPostProcessor(SkillImplementationTargetRegistry targetRegistry)
     {
-        this(targetRegistry, new ObjectMapper(), new DefaultLoomspanExceptionTransformer(), new SkillInputContractResolver());
+        this(targetRegistry,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().applicationConversion(),
+                new DefaultLoomspanExceptionTransformer(), new SkillInputContractResolver());
     }
 
     public static SkillMethodBeanPostProcessor create(SkillImplementationTargetRegistry targetRegistry,
@@ -61,7 +64,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
     {
         return new SkillMethodBeanPostProcessor(
                 targetRegistry,
-                new ObjectMapper(),
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().applicationConversion(),
                 LoomspanExceptionTransformer,
                 new SkillInputContractResolver());
     }
@@ -78,8 +81,27 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
                 inputContractResolver);
     }
 
+    public static SkillMethodBeanPostProcessor create(SkillImplementationTargetRegistry targetRegistry,
+            ObjectMapper applicationMapper,
+            ObjectMapper schemaMapper,
+            LoomspanExceptionTransformer LoomspanExceptionTransformer,
+            SkillInputContractResolver inputContractResolver)
+    {
+        return new SkillMethodBeanPostProcessor(targetRegistry, applicationMapper, schemaMapper,
+                LoomspanExceptionTransformer, inputContractResolver);
+    }
+
     SkillMethodBeanPostProcessor(SkillImplementationTargetRegistry targetRegistry,
             ObjectMapper objectMapper,
+            LoomspanExceptionTransformer LoomspanExceptionTransformer,
+            SkillInputContractResolver inputContractResolver)
+    {
+        this(targetRegistry, objectMapper, objectMapper, LoomspanExceptionTransformer, inputContractResolver);
+    }
+
+    private SkillMethodBeanPostProcessor(SkillImplementationTargetRegistry targetRegistry,
+            ObjectMapper objectMapper,
+            ObjectMapper schemaMapper,
             LoomspanExceptionTransformer LoomspanExceptionTransformer,
             SkillInputContractResolver inputContractResolver)
     {
@@ -87,6 +109,8 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.LoomspanExceptionTransformer = Objects.requireNonNull(LoomspanExceptionTransformer, "LoomspanExceptionTransformer must not be null");
         this.inputContractResolver = Objects.requireNonNull(inputContractResolver, "inputContractResolver must not be null");
+        this.schemaGenerator = new LoomspanMethodInputSchemaGenerator(
+                Objects.requireNonNull(schemaMapper, "schemaMapper must not be null"));
     }
 
     @Override
@@ -146,6 +170,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
 
     private void registerSkillMethod(String beanName, Method method, Method contractMethod, SkillMethod annotation)
     {
+        validateSkillParameters(beanName, method, contractMethod);
         String capabilityDescription = annotation.description().isBlank() ? method.getName() : annotation.description();
         String inputSchema = buildInputSchema(method, contractMethod);
         String targetId = beanName + "#" + method.getName();
@@ -162,6 +187,28 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
         targetRegistry.register(target);
     }
 
+    private void validateSkillParameters(String beanName, Method method, Method contractMethod)
+    {
+        Parameter[] parameters = method.getParameters();
+        Parameter[] contractParameters = contractMethod.getParameters();
+        for (int index = 0; index < parameters.length; index++)
+        {
+            SkillParam skillParam = contractParameters[index].getAnnotation(SkillParam.class);
+            if (skillParam == null)
+            {
+                skillParam = parameters[index].getAnnotation(SkillParam.class);
+            }
+            if (skillParam != null && !skillParam.required() && parameters[index].getType().isPrimitive())
+            {
+                throw new IllegalStateException("Invalid @SkillParam contract on bean '" + beanName
+                        + "' for method '" + method.getName() + "', parameter '"
+                        + contractParameters[index].getName() + "': required=false cannot be used with primitive "
+                        + parameters[index].getType().getTypeName()
+                        + " because an omitted value binds to null; use the boxed type or mark the parameter required.");
+            }
+        }
+    }
+
     private Method resolveContractMethod(String beanName, Class<?> targetClass, Method canonicalMethod)
     {
         List<Method> interfaceContracts = ClassUtils.getAllInterfacesForClassAsSet(targetClass).stream()
@@ -173,7 +220,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
                 .toList();
 
         if (canonicalMethod.isAnnotationPresent(SkillMethod.class)
-                && interfaceContracts.stream().noneMatch(this::hasToolParameterMetadata))
+                && interfaceContracts.stream().noneMatch(this::hasSkillParameterMetadata))
         {
             return canonicalMethod;
         }
@@ -194,7 +241,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
         }
 
         return interfaceContracts.stream()
-                .filter(this::hasToolParameterMetadata)
+                .filter(this::hasSkillParameterMetadata)
                 .findFirst()
                 .orElseGet(() -> interfaceContracts.stream().findFirst().orElse(canonicalMethod));
     }
@@ -219,8 +266,8 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
         {
             if (!leftParameters[index].getName().equals(rightParameters[index].getName())
                     || !Objects.equals(
-                            leftParameters[index].getAnnotation(ToolParam.class),
-                            rightParameters[index].getAnnotation(ToolParam.class)))
+                            leftParameters[index].getAnnotation(SkillParam.class),
+                            rightParameters[index].getAnnotation(SkillParam.class)))
             {
                 return false;
             }
@@ -228,10 +275,10 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
         return true;
     }
 
-    private boolean hasToolParameterMetadata(Method method)
+    private boolean hasSkillParameterMetadata(Method method)
     {
         return java.util.Arrays.stream(method.getParameters())
-                .anyMatch(parameter -> parameter.isAnnotationPresent(ToolParam.class));
+                .anyMatch(parameter -> parameter.isAnnotationPresent(SkillParam.class));
     }
 
     private boolean mapsToCanonicalMethod(Method interfaceMethod, Class<?> targetClass, Method canonicalMethod)
@@ -248,7 +295,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
     {
         try
         {
-            JsonNode schema = objectMapper.readTree(JsonSchemaGenerator.generateForMethodInput(method));
+            JsonNode schema = schemaGenerator.generate(method);
             JsonNode propertiesNode = schema.path("properties");
             if (propertiesNode instanceof ObjectNode propertiesObject)
             {
@@ -271,7 +318,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
             }
             return objectMapper.writeValueAsString(schema);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Failed to build method input schema for " + method, ex);
         }
@@ -284,16 +331,16 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
             Parameter contractParameter,
             Parameter implementationParameter)
     {
-        ToolParam toolParam = contractParameter.getAnnotation(ToolParam.class);
-        if (toolParam == null)
+        SkillParam skillParam = contractParameter.getAnnotation(SkillParam.class);
+        if (skillParam == null)
         {
-            toolParam = implementationParameter.getAnnotation(ToolParam.class);
+            skillParam = implementationParameter.getAnnotation(SkillParam.class);
         }
-        if (toolParam != null
+        if (skillParam != null
                 && parameterSchema instanceof ObjectNode objectSchema
-                && !toolParam.description().isBlank())
+                && !skillParam.description().isBlank())
         {
-            objectSchema.put("description", toolParam.description());
+            objectSchema.put("description", skillParam.description());
         }
 
         ArrayNode required = rootSchema.withArray("required");
@@ -307,7 +354,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
                 required.remove(index);
             }
         }
-        if (toolParam == null ? generatedRequired : toolParam.required())
+        if (skillParam == null ? generatedRequired : skillParam.required())
         {
             required.add(parameterName);
         }
@@ -415,7 +462,7 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
             Object result = ReflectionUtils.invokeMethod(invocableMethod, bean, invocationArguments);
             return objectMapper.writeValueAsString(result);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             throw new IllegalStateException("Failed to serialize skill implementation target result for " + targetId, ex);
         }
@@ -483,12 +530,12 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
             Parameter parameter = parameters[index];
             Parameter contractParameter = contractParameters[index];
             Object rawValue = arguments.get(contractParameter.getName());
-            ToolParam toolParam = contractParameter.getAnnotation(ToolParam.class);
-            if (toolParam == null)
+            SkillParam skillParam = contractParameter.getAnnotation(SkillParam.class);
+            if (skillParam == null)
             {
-                toolParam = parameter.getAnnotation(ToolParam.class);
+                skillParam = parameter.getAnnotation(SkillParam.class);
             }
-            if (rawValue == null && toolParam != null && !toolParam.required())
+            if (rawValue == null && skillParam != null && !skillParam.required())
             {
                 bound[index] = null;
                 continue;
@@ -607,8 +654,8 @@ public class SkillMethodBeanPostProcessor implements BeanPostProcessor, BeanFact
 
     private Map<String, JavaType> propertyTypes(JavaType targetType)
     {
-        return objectMapper.getDeserializationConfig()
-                .introspect(targetType)
+        return objectMapper._deserializationContext()
+                .introspectBeanDescriptionForCreation(targetType)
                 .findProperties()
                 .stream()
                 .filter(definition -> definition.getPrimaryMember() != null)

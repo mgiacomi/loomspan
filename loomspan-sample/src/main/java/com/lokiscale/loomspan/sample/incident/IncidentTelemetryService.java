@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.sample.incident;
 
 import com.lokiscale.loomspan.api.SkillMethod;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,7 +12,7 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Checks DNS resolution status for the incident scenario.")
     public Map<String, Object> checkDns(
-            @ToolParam(description = "Fixture key that selects canned DNS telemetry.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned DNS telemetry.") String scenario) {
         return switch (normalize(scenario)) {
             case "network-dns" -> Map.of(
                     "status", "FAIL",
@@ -44,7 +44,7 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Checks service latency percentiles for the incident scenario.")
     public Map<String, Object> checkLatency(
-            @ToolParam(description = "Fixture key that selects canned latency telemetry.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned latency telemetry.") String scenario) {
         return switch (normalize(scenario)) {
             case "network-dns" -> Map.of(
                     "p50Ms", 45,
@@ -76,7 +76,7 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Checks recent firewall deny hits for the incident scenario.")
     public Map<String, Object> checkFirewallRules(
-            @ToolParam(description = "Fixture key that selects canned firewall telemetry.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned firewall telemetry.") String scenario) {
         return switch (normalize(scenario)) {
             case "firewall-block" -> Map.of(
                     "denyHitsLast15m", 842,
@@ -105,7 +105,7 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Returns application 5xx error rate for the incident scenario.")
     public Map<String, Object> getErrorRate(
-            @ToolParam(description = "Fixture key that selects canned error-rate telemetry.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned error-rate telemetry.") String scenario) {
         return switch (normalize(scenario)) {
             case "app-deploy-regression" -> Map.of(
                     "service", "checkout",
@@ -137,7 +137,7 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Returns recent deploys for services related to the incident scenario.")
     public Map<String, Object> getRecentDeploys(
-            @ToolParam(description = "Fixture key that selects canned deploy history.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned deploy history.") String scenario) {
         return switch (normalize(scenario)) {
             case "app-deploy-regression" -> Map.of(
                     "deploys", List.of(
@@ -164,7 +164,7 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Returns service health status for the incident scenario.")
     public Map<String, Object> getServiceHealth(
-            @ToolParam(description = "Fixture key that selects canned health status.") String scenario) {
+            @SkillParam(description = "Fixture key that selects canned health status.") String scenario) {
         return switch (normalize(scenario)) {
             case "app-deploy-regression" -> Map.of(
                     "service", "checkout",
@@ -196,8 +196,8 @@ public class IncidentTelemetryService {
 
     @SkillMethod(description = "Looks up a short incident runbook excerpt for the scenario and optional category.")
     public Map<String, Object> lookupRunbook(
-            @ToolParam(description = "Fixture key that selects canned runbook text.") String scenario,
-            @ToolParam(description = "Optional incident category hint (network, application, mixed, unknown).",
+            @SkillParam(description = "Fixture key that selects canned runbook text.") String scenario,
+            @SkillParam(description = "Optional incident category hint (network, application, mixed, unknown).",
                     required = false) String category) {
         String key = normalize(scenario);
         String cat = category == null ? "" : category.trim().toLowerCase();

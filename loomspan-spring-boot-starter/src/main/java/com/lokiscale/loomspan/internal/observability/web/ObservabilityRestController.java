@@ -11,7 +11,6 @@ import com.lokiscale.loomspan.internal.runtime.observation.catalog.TraceCatalogS
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
-import org.springframework.http.ContentDisposition;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -414,13 +413,15 @@ public final class ObservabilityRestController
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("application/x-ndjson");
         response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
-        response.setHeader(
-                "Content-Disposition",
-                ContentDisposition.attachment()
-                        .filename("loomspan-trace-" + traceId + ".ndjson", java.nio.charset.StandardCharsets.UTF_8)
-                        .build()
-                        .toString());
+        response.setHeader("Content-Disposition", artifactContentDisposition(traceId));
         response.setContentLengthLong(sizeBytes);
+    }
+
+    static String artifactContentDisposition(String traceId)
+    {
+        String filename = "loomspan-trace-" + traceId + ".ndjson";
+        return "attachment; filename=\"=?UTF-8?Q?" + filename
+                + "?=\"; filename*=UTF-8''" + filename;
     }
 
     private static long parseActivityCursor(String value)

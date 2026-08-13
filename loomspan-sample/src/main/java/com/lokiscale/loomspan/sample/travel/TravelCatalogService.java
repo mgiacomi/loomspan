@@ -1,9 +1,9 @@
 package com.lokiscale.loomspan.sample.travel;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.api.SkillMethod;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -25,10 +25,10 @@ public class TravelCatalogService {
 
     @SkillMethod(description = "Searches fake flight inventory and returns multiple priced options for the trip scenario.")
     public Map<String, Object> searchFlights(
-            @ToolParam(description = "Fixture key that selects canned flight inventory.") String scenario,
-            @ToolParam(description = "Optional origin airport or city code.", required = false) String origin,
-            @ToolParam(description = "Optional destination airport or city code.", required = false) String destination,
-            @ToolParam(description = "Optional departure date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String date) {
+            @SkillParam(description = "Fixture key that selects canned flight inventory.") String scenario,
+            @SkillParam(description = "Optional origin airport or city code.", required = false) String origin,
+            @SkillParam(description = "Optional destination airport or city code.", required = false) String destination,
+            @SkillParam(description = "Optional departure date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String date) {
         String key = normalize(scenario);
         String from = hasText(origin) ? origin.trim() : defaultOrigin(key);
         String to = hasText(destination) ? destination.trim() : defaultDestination(key);
@@ -68,10 +68,10 @@ public class TravelCatalogService {
 
     @SkillMethod(description = "Searches fake train inventory and returns multiple priced options for the trip scenario.")
     public Map<String, Object> searchTrains(
-            @ToolParam(description = "Fixture key that selects canned train inventory.") String scenario,
-            @ToolParam(description = "Optional origin city or station.", required = false) String origin,
-            @ToolParam(description = "Optional destination city or station.", required = false) String destination,
-            @ToolParam(description = "Optional departure date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String date) {
+            @SkillParam(description = "Fixture key that selects canned train inventory.") String scenario,
+            @SkillParam(description = "Optional origin city or station.", required = false) String origin,
+            @SkillParam(description = "Optional destination city or station.", required = false) String destination,
+            @SkillParam(description = "Optional departure date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String date) {
         String key = normalize(scenario);
         String from = hasText(origin) ? origin.trim() : defaultOrigin(key);
         String to = hasText(destination) ? destination.trim() : defaultDestination(key);
@@ -109,11 +109,11 @@ public class TravelCatalogService {
 
     @SkillMethod(description = "Searches fake hotel inventory and returns multiple priced options for the trip scenario.")
     public Map<String, Object> searchHotels(
-            @ToolParam(description = "Fixture key that selects canned hotel inventory.") String scenario,
-            @ToolParam(description = "Optional destination city.", required = false) String destination,
-            @ToolParam(description = "Optional check-in date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String startDate,
-            @ToolParam(description = "Optional check-out date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String endDate,
-            @ToolParam(description = "Optional party size; catalog may mildly bias room notes.", required = false) Integer partySize) {
+            @SkillParam(description = "Fixture key that selects canned hotel inventory.") String scenario,
+            @SkillParam(description = "Optional destination city.", required = false) String destination,
+            @SkillParam(description = "Optional check-in date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String startDate,
+            @SkillParam(description = "Optional check-out date (yyyy-MM-dd preferred; datetime or free text falls back to scenario default).", required = false) String endDate,
+            @SkillParam(description = "Optional party size; catalog may mildly bias room notes.", required = false) Integer partySize) {
         String key = normalize(scenario);
         String city = hasText(destination) ? destination.trim() : defaultDestination(key);
         String checkIn = resolveDate(startDate, defaultDate(key));
@@ -155,9 +155,9 @@ public class TravelCatalogService {
 
     @SkillMethod(description = "Returns loyalty tier and hotel-chain perks for the trip scenario.")
     public Map<String, Object> checkLoyaltyPerks(
-            @ToolParam(description = "Fixture key that selects canned loyalty data.") String scenario,
-            @ToolParam(description = "Optional loyalty tier (e.g. gold, silver).", required = false) String loyaltyTier,
-            @ToolParam(description = "Optional hotel chain name.", required = false) String hotelChain) {
+            @SkillParam(description = "Fixture key that selects canned loyalty data.") String scenario,
+            @SkillParam(description = "Optional loyalty tier (e.g. gold, silver).", required = false) String loyaltyTier,
+            @SkillParam(description = "Optional hotel chain name.", required = false) String hotelChain) {
         String key = normalize(scenario);
         String tier = hasText(loyaltyTier) ? loyaltyTier.trim() : defaultTier(key);
         String chain = hasText(hotelChain) ? hotelChain.trim() : defaultChain(key);
@@ -201,9 +201,9 @@ public class TravelCatalogService {
 
     @SkillMethod(description = "Deterministically ranks transport options by price or duration. Prefer options as a JSON array of compact option objects (price, durationMinutes, identity). optionsJson string is accepted as a fallback. sortBy is optional (price|duration; default price). Java ranks; the planner still picks. On bad input returns ok=false with a clear error (does not throw).")
     public Map<String, Object> rankTransportOptions(
-            @ToolParam(description = "Preferred: JSON array of compact transport option objects with price, durationMinutes, and one identity field (airline, operator, or id). Example: [{\"airline\":\"Pacific Jet\",\"price\":210.0,\"durationMinutes\":125},{\"airline\":\"Bargain Multi\",\"price\":98.0,\"durationMinutes\":450}]", required = false) List<Map<String, Object>> options,
-            @ToolParam(description = "Fallback when options cannot be passed as an array: JSON array string of the same compact option objects.", required = false) String optionsJson,
-            @ToolParam(description = "Optional sort key: price (ascending) or duration (ascending). Default price when omitted.", required = false) String sortBy) {
+            @SkillParam(description = "Preferred: JSON array of compact transport option objects with price, durationMinutes, and one identity field (airline, operator, or id). Example: [{\"airline\":\"Pacific Jet\",\"price\":210.0,\"durationMinutes\":125},{\"airline\":\"Bargain Multi\",\"price\":98.0,\"durationMinutes\":450}]", required = false) List<Map<String, Object>> options,
+            @SkillParam(description = "Fallback when options cannot be passed as an array: JSON array string of the same compact option objects.", required = false) String optionsJson,
+            @SkillParam(description = "Optional sort key: price (ascending) or duration (ascending). Default price when omitted.", required = false) String sortBy) {
         String sort = hasText(sortBy) ? sortBy.trim().toLowerCase(Locale.ROOT) : "price";
         if (!sort.equals("price") && !sort.equals("duration")) {
             sort = "price";

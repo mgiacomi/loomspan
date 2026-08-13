@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.internal.observability.web;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.core.FinalizedTraceArtifact;
 import com.lokiscale.loomspan.internal.core.TraceOutcome;
 import com.lokiscale.loomspan.internal.core.TracePersistencePolicy;
@@ -13,7 +13,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
@@ -127,7 +128,8 @@ class ObservabilityPhaseOneIntegrationTest
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = SecurityAutoConfiguration.class)
+    @EnableAutoConfiguration(exclude = { SecurityAutoConfiguration.class,
+            ServletWebSecurityAutoConfiguration.class })
     static class TestApplication
     {
     }

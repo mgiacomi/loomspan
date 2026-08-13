@@ -5,8 +5,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -259,7 +260,7 @@ class ObservabilityRestIntegrationTest
                 .andExpect(jsonPath("$.items[0].sessionId").value("session-3"))
                 .andExpect(jsonPath("$.hasMore").value(true))
                 .andReturn().getResponse().getContentAsString();
-        String nextCursor = new com.fasterxml.jackson.databind.ObjectMapper()
+        String nextCursor = new tools.jackson.databind.ObjectMapper()
                 .readTree(firstBody).get("nextCursor").asText();
 
         runtime.activeExecutions().replace(activeSnapshot("session-4", now));
@@ -313,7 +314,8 @@ class ObservabilityRestIntegrationTest
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = SecurityAutoConfiguration.class)
+    @EnableAutoConfiguration(exclude = { SecurityAutoConfiguration.class,
+            ServletWebSecurityAutoConfiguration.class })
     static class TestApplication
     {
     }

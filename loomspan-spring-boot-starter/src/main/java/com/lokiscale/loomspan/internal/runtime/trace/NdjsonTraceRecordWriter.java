@@ -1,7 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.trace;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 
 import java.io.IOException;
@@ -14,15 +13,18 @@ import java.util.Objects;
 
 final class NdjsonTraceRecordWriter implements TraceRecordWriter
 {
-    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
-            .findAndAddModules()
-            .build();
-
     private final Path tracePath;
+    private final ObjectMapper objectMapper;
 
     public NdjsonTraceRecordWriter(Path tracePath)
     {
+        this(tracePath, com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().canonicalTrace());
+    }
+
+    NdjsonTraceRecordWriter(Path tracePath, ObjectMapper objectMapper)
+    {
         this.tracePath = Objects.requireNonNull(tracePath, "tracePath must not be null");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
     }
 
     @Override
@@ -37,7 +39,7 @@ final class NdjsonTraceRecordWriter implements TraceRecordWriter
                 StandardOpenOption.WRITE,
                 StandardOpenOption.APPEND))
         {
-            writer.write(OBJECT_MAPPER.writeValueAsString(record));
+            writer.write(objectMapper.writeValueAsString(record));
             writer.write('\n');
         }
     }

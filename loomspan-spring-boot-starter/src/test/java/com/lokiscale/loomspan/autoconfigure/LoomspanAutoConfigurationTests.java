@@ -3,9 +3,9 @@ package com.lokiscale.loomspan.autoconfigure;
 import com.lokiscale.loomspan.api.SkillMethod;
 import com.lokiscale.loomspan.internal.chat.DefaultSkillAdvisorResolver;
 import com.lokiscale.loomspan.internal.chat.SkillAdvisorResolver;
-import com.lokiscale.loomspan.internal.chat.SkillChatClientFactory;
+import com.lokiscale.loomspan.internal.model.ModelInteractionFactory;
 import com.lokiscale.loomspan.internal.chat.SkillChatModelResolver;
-import com.lokiscale.loomspan.internal.chat.SpringAiSkillChatClientFactory;
+import com.lokiscale.loomspan.internal.springai.SpringAiModelInteractionFactory;
 import com.lokiscale.loomspan.internal.core.LoomspanExceptionTransformer;
 import com.lokiscale.loomspan.internal.core.LoomspanSessionRunner;
 import com.lokiscale.loomspan.internal.core.CapabilityMetadata;
@@ -16,11 +16,15 @@ import com.lokiscale.loomspan.internal.core.SkillMethodBeanPostProcessor;
 import com.lokiscale.loomspan.internal.core.SkillImplementationTargetRegistry;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
 import com.lokiscale.loomspan.internal.runtime.input.SkillInputValidator;
+import com.lokiscale.loomspan.internal.runtime.planning.DefaultPlanningService;
+import com.lokiscale.loomspan.internal.runtime.planning.PlanningService;
 import com.lokiscale.loomspan.internal.observability.ObservabilityActivationCoordinator;
+import com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs;
 import com.lokiscale.loomspan.internal.skill.SkillVisibilityResolver;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
 import com.lokiscale.loomspan.internal.skill.YamlSkillCatalog;
 import com.lokiscale.loomspan.api.SkillTemplate;
+import com.lokiscale.loomspan.internal.skillapi.DefaultSkillTemplate;
 import com.lokiscale.loomspan.internal.vfs.RefResolver;
 import com.lokiscale.loomspan.internal.vfs.VirtualFileSystem;
 import org.junit.jupiter.api.Test;
@@ -54,12 +58,16 @@ class LoomspanAutoConfigurationTests {
     private final ApplicationContextRunner modelFreeContextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     ConfigurationPropertiesAutoConfiguration.class,
-                    LoomspanAutoConfiguration.class));
+                    LoomspanJacksonAutoConfiguration.class,
+                    LoomspanAutoConfiguration.class,
+                    LoomspanAiAutoConfiguration.class));
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     ConfigurationPropertiesAutoConfiguration.class,
-                    LoomspanAutoConfiguration.class))
+                    LoomspanJacksonAutoConfiguration.class,
+                    LoomspanAutoConfiguration.class,
+                    LoomspanAiAutoConfiguration.class))
             .withInitializer(context -> {
                 try {
                     YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
@@ -76,11 +84,14 @@ class LoomspanAutoConfigurationTests {
             new ReactiveWebApplicationContextRunner()
                     .withConfiguration(AutoConfigurations.of(
                             ConfigurationPropertiesAutoConfiguration.class,
-                            LoomspanAutoConfiguration.class));
+                            LoomspanJacksonAutoConfiguration.class,
+                            LoomspanAutoConfiguration.class,
+                            LoomspanAiAutoConfiguration.class));
 
     @Test
     void hasAutoConfigurationAnnotation() {
         assertThat(LoomspanAutoConfiguration.class.isAnnotationPresent(AutoConfiguration.class)).isTrue();
+        assertThat(LoomspanAiAutoConfiguration.class.isAnnotationPresent(AutoConfiguration.class)).isTrue();
         assertThat(LoomspanObservabilityWebAutoConfiguration.class.isAnnotationPresent(AutoConfiguration.class)).isTrue();
     }
 
@@ -93,7 +104,9 @@ class LoomspanAutoConfigurationTests {
             String imports = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             assertThat(imports.lines().filter(line -> !line.isBlank()).toList())
                     .containsExactly(
+                            "com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration",
                             "com.lokiscale.loomspan.autoconfigure.LoomspanAutoConfiguration",
+                            "com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration",
                             "com.lokiscale.loomspan.autoconfigure.LoomspanObservabilityWebAutoConfiguration");
         }
     }
@@ -119,6 +132,44 @@ class LoomspanAutoConfigurationTests {
                     assertThat(context).hasSingleBean(SkillInputValidator.class);
                     assertThat(context).hasSingleBean(SkillTemplate.class);
                     assertThat(context.getBean(LoomspanProperties.class).getSession().getMaxDepth()).isEqualTo(5);
+                });
+    }
+
+    @Test
+    void wiresPurposeOwnedCodecRolesIntoProductionConsumers()
+    {
+        modelFreeContextRunner
+                .withPropertyValues("loomspan.skills.locations=classpath:/skills/none/**/*.yaml")
+                .run(context ->
+                {
+                    LoomspanJacksonCodecs codecs = context.getBean(LoomspanJacksonCodecs.class);
+                    LoomspanSessionRunner sessionRunner = context.getBean(LoomspanSessionRunner.class);
+                    YamlSkillCatalog skillCatalog = context.getBean(YamlSkillCatalog.class);
+                    SkillInputContractResolver inputContractResolver =
+                            context.getBean(SkillInputContractResolver.class);
+                    DefaultSkillTemplate skillTemplate = (DefaultSkillTemplate) context.getBean(SkillTemplate.class);
+                    DefaultPlanningService planningService =
+                            (DefaultPlanningService) context.getBean(PlanningService.class);
+                    SkillMethodBeanPostProcessor beanPostProcessor =
+                            context.getBean(SkillMethodBeanPostProcessor.class);
+
+                    assertThat(ReflectionTestUtils.getField(sessionRunner, "canonicalTraceMapper"))
+                            .isSameAs(codecs.canonicalTrace());
+                    assertThat(ReflectionTestUtils.getField(skillCatalog, "yamlObjectMapper"))
+                            .isSameAs(codecs.skillYaml());
+                    assertThat(ReflectionTestUtils.getField(inputContractResolver, "objectMapper"))
+                            .isSameAs(codecs.applicationConversion());
+                    assertThat(ReflectionTestUtils.getField(skillTemplate, "objectMapper"))
+                            .isSameAs(codecs.applicationConversion());
+                    assertThat(ReflectionTestUtils.getField(planningService, "objectMapper"))
+                            .isSameAs(codecs.planningJson());
+                    assertThat(ReflectionTestUtils.getField(planningService, "yamlObjectMapper"))
+                            .isSameAs(codecs.planningYaml());
+                    assertThat(ReflectionTestUtils.getField(beanPostProcessor, "objectMapper"))
+                            .isSameAs(codecs.applicationConversion());
+                    Object schemaGenerator = ReflectionTestUtils.getField(beanPostProcessor, "schemaGenerator");
+                    assertThat(ReflectionTestUtils.getField(schemaGenerator, "mapper"))
+                            .isSameAs(codecs.schemaTree());
                 });
     }
 
@@ -196,7 +247,7 @@ class LoomspanAutoConfigurationTests {
     }
 
     @Test
-    void autoConfiguresExecutionCoordinatorWhenSkillChatClientFactoryIsAvailable() {
+    void autoConfiguresExecutionCoordinatorWhenModelInteractionFactoryIsAvailable() {
         contextRunner
                 .withPropertyValues("loomspan.skills.locations=classpath:/skills/valid/default-thinking-skill.yaml")
                 .run(context -> assertThat(context).hasSingleBean(ExecutionCoordinator.class));
@@ -211,7 +262,7 @@ class LoomspanAutoConfigurationTests {
                 .run(context -> {
                     assertThat(context).hasSingleBean(SkillAdvisorResolver.class);
                     assertThat(context).hasSingleBean(SkillChatModelResolver.class);
-                    assertThat(context).hasSingleBean(SkillChatClientFactory.class);
+                    assertThat(context).hasSingleBean(ModelInteractionFactory.class);
                     assertThat(context.getBean(SkillAdvisorResolver.class)).isInstanceOf(DefaultSkillAdvisorResolver.class);
                 });
     }
@@ -272,7 +323,7 @@ class LoomspanAutoConfigurationTests {
     }
 
     @Test
-    void exposesSkillChatClientFactoryBackedByResolver() {
+    void exposesModelInteractionFactoryBackedByResolver() {
         OpenAiChatModel openAiChatModel = Mockito.mock(OpenAiChatModel.class);
 
         contextRunner
@@ -280,8 +331,8 @@ class LoomspanAutoConfigurationTests {
                 .withPropertyValues("loomspan.skills.locations=classpath:/skills/valid/default-thinking-skill.yaml")
                 .run(context -> {
                     assertThat(context).hasSingleBean(SkillChatModelResolver.class);
-                    assertThat(context).hasSingleBean(SkillChatClientFactory.class);
-                    assertThat(context.getBean(SkillChatClientFactory.class)).isInstanceOf(SpringAiSkillChatClientFactory.class);
+                    assertThat(context).hasSingleBean(ModelInteractionFactory.class);
+                    assertThat(context.getBean(ModelInteractionFactory.class)).isInstanceOf(SpringAiModelInteractionFactory.class);
                 });
     }
 

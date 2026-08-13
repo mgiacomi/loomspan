@@ -186,9 +186,8 @@ class CapabilityExecutionRouterTest {
         com.lokiscale.loomspan.internal.skill.YamlSkillCatalog catalog = mock(com.lokiscale.loomspan.internal.skill.YamlSkillCatalog.class);
         when(catalog.getSkill("child.llm.skill")).thenReturn(definition);
 
-        com.lokiscale.loomspan.internal.chat.SkillChatClientFactory chatClientFactory = mock(com.lokiscale.loomspan.internal.chat.SkillChatClientFactory.class);
-        when(chatClientFactory.create(definition)).thenReturn(mock(org.springframework.ai.chat.client.ChatClient.class));
-        when(chatClientFactory.createForStepExecution(definition)).thenReturn(mock(org.springframework.ai.chat.client.ChatClient.class));
+        com.lokiscale.loomspan.internal.model.ModelInteractionFactory chatClientFactory =
+                (ignored, mode) -> request -> com.lokiscale.loomspan.internal.model.ModelInteractionResult.content("unused");
 
         com.lokiscale.loomspan.internal.runtime.MissionExecutionEngine engine = (session, skillDefinition, objective, missionInput, chatClient, visibleTools, planningEnabled, authentication) -> {
             assertThat(session.getSuccessfulDirectSkills()).isEmpty();

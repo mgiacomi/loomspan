@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.annotation.DirtiesContext;
@@ -261,7 +262,8 @@ class ObservabilitySseIntegrationTest
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = SecurityAutoConfiguration.class)
+    @EnableAutoConfiguration(exclude = { SecurityAutoConfiguration.class,
+            ServletWebSecurityAutoConfiguration.class })
     static class TestApplication
     {
     }

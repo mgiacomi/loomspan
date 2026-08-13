@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.env.StandardEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LoomspanPropertiesTest {
@@ -14,7 +15,9 @@ class LoomspanPropertiesTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     ConfigurationPropertiesAutoConfiguration.class,
-                    LoomspanAutoConfiguration.class))
+                    com.lokiscale.loomspan.autoconfigure.LoomspanJacksonAutoConfiguration.class,
+                    LoomspanAutoConfiguration.class,
+                    com.lokiscale.loomspan.autoconfigure.LoomspanAiAutoConfiguration.class))
             .withPropertyValues("loomspan.skills.locations=classpath:/skills/none/**/*.yaml")
             .withInitializer(context -> {
                 if (context.getEnvironment() instanceof StandardEnvironment env) {
@@ -118,6 +121,26 @@ class LoomspanPropertiesTest {
     }
 
     @Test
+    void rejectsRemovedProviderFieldsWithTheirFullPaths()
+    {
+        for (String removed : java.util.List.of(
+                "openai.chat-" + "completions-path=/custom/chat/completions",
+                "anthropic." + "completions-path=/custom/messages",
+                "anthropic." + "version=2026-01-01",
+                "anthropic." + "beta-version=test-beta")) {
+            String driver = removed.startsWith("openai") ? "openai" : "anthropic";
+            String fullPath = "loomspan.connections.removed." + removed.substring(0, removed.indexOf('='));
+            contextRunner.withPropertyValues(
+                    "loomspan.connections.removed.driver=" + driver,
+                    "loomspan.connections.removed.api-key=test-key",
+                    "loomspan.connections.removed." + removed)
+                    .run(context -> assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(org.springframework.boot.context.properties.bind.UnboundConfigurationPropertiesException.class)
+                            .rootCause().hasMessageContaining(fullPath));
+        }
+    }
+
+    @Test
     void rejectsRemovedProviderAndUnknownConnectionReferencesWithExactPaths() {
         contextRunner
                 .withPropertyValues(
@@ -188,6 +211,43 @@ class LoomspanPropertiesTest {
                 .hasMessageContaining("loomspan.connections.local.api-key")
                 .hasMessageContaining("not supported for driver OLLAMA")
                 .hasMessageNotContaining("ignored-secret");
+    }
+
+    @Test
+    void acceptsCommonHeadersOnlyForOpenAiAndAnthropic()
+    {
+        for (AiDriver driver : java.util.List.of(AiDriver.OPENAI, AiDriver.ANTHROPIC))
+        {
+            LoomspanProperties.ConnectionProperties connection = new LoomspanProperties.ConnectionProperties();
+            connection.setDriver(driver);
+            connection.setApiKey("test-key");
+            connection.setHeaders(java.util.Map.of("X-Provider-Feature", "enabled"));
+
+            LoomspanProperties properties = new LoomspanProperties();
+            properties.setConnections(java.util.Map.of(driver.name().toLowerCase(), connection));
+            assertThatCode(properties::afterPropertiesSet).doesNotThrowAnyException();
+        }
+
+        for (AiDriver driver : java.util.List.of(AiDriver.GEMINI, AiDriver.OLLAMA))
+        {
+            LoomspanProperties.ConnectionProperties connection = new LoomspanProperties.ConnectionProperties();
+            connection.setDriver(driver);
+            connection.setHeaders(java.util.Map.of("X-Provider-Feature", "enabled"));
+            if (driver == AiDriver.GEMINI)
+            {
+                connection.setApiKey("test-key");
+            }
+            else
+            {
+                connection.setBaseUrl("http://localhost:11434");
+            }
+
+            LoomspanProperties properties = new LoomspanProperties();
+            properties.setConnections(java.util.Map.of(driver.name().toLowerCase(), connection));
+            assertThatThrownBy(properties::afterPropertiesSet)
+                    .hasMessageContaining(".headers")
+                    .hasMessageContaining("only supported for drivers OPENAI and ANTHROPIC");
+        }
     }
 
     @Test

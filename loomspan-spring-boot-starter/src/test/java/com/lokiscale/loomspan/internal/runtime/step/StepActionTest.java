@@ -1,9 +1,9 @@
 package com.lokiscale.loomspan.internal.runtime.step;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -25,7 +25,7 @@ class StepActionTest {
     }
 
     @Test
-    void finalResponse_factoryMethod_setsFields() throws JsonProcessingException {
+    void finalResponse_factoryMethod_setsFields() throws JacksonException {
         JsonNode payload = objectMapper.readTree("""
                 {"isDuplicate":false}
                 """);
@@ -38,7 +38,7 @@ class StepActionTest {
     }
 
     @Test
-    void callTool_json_roundTrips() throws JsonProcessingException {
+    void callTool_json_roundTrips() throws JacksonException {
         StepAction original = StepAction.callTool("t-1", "invoiceParser", Map.of("input", "text"));
         String json = objectMapper.writeValueAsString(original);
         StepAction deserialized = objectMapper.readValue(json, StepAction.class);
@@ -48,7 +48,7 @@ class StepActionTest {
     }
 
     @Test
-    void finalResponse_json_roundTrips() throws JsonProcessingException {
+    void finalResponse_json_roundTrips() throws JacksonException {
         JsonNode payload = objectMapper.readTree("""
                 {"result":"done"}
                 """);
@@ -60,7 +60,7 @@ class StepActionTest {
     }
 
     @Test
-    void callTool_deserializesFromModelOutput() throws JsonProcessingException {
+    void callTool_deserializesFromModelOutput() throws JacksonException {
         String modelJson = """
                 {
                   "stepAction": "CALL_TOOL",
@@ -77,7 +77,7 @@ class StepActionTest {
     }
 
     @Test
-    void finalResponse_deserializesFromModelOutput() throws JsonProcessingException {
+    void finalResponse_deserializesFromModelOutput() throws JacksonException {
         String modelJson = """
                 {
                   "stepAction": "FINAL_RESPONSE",
@@ -90,7 +90,7 @@ class StepActionTest {
     }
 
     @Test
-    void unknownFields_areIgnored() throws JsonProcessingException {
+    void unknownFields_areIgnored() throws JacksonException {
         String modelJson = """
                 {
                   "stepAction": "CALL_TOOL",

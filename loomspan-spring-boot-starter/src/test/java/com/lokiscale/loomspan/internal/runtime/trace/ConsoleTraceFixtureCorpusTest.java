@@ -1,8 +1,8 @@
 package com.lokiscale.loomspan.internal.runtime.trace;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.internal.core.ExecutionFrame;
 import com.lokiscale.loomspan.internal.core.LoomspanSession;
@@ -153,6 +153,22 @@ class ConsoleTraceFixtureCorpusTest
             expected.add("expected/" + name + ".json");
         });
         assertThat(fileNames(fixtureRoot())).containsExactlyInAnyOrderElementsOf(expected);
+    }
+
+    @Test
+    @Order(2)
+    void portableTraceCorpusRetainsExactCompatibilityMarker() throws Exception
+    {
+        String expectedVersion = com.lokiscale.loomspan.internal.release.LoomspanReleaseVersion.load();
+        assertThat(expectedVersion).isEqualTo("0.1.0-SNAPSHOT");
+        for (String name : VALID)
+        {
+            List<JsonNode> records = parseLines(fixtureRoot().resolve("traces").resolve(name + ".ndjson"));
+            assertThat(records.getFirst().path("recordType").asText()).isEqualTo("TRACE_STARTED");
+            assertThat(records.getFirst().at("/metadata/consoleCompatibilityVersion").asText())
+                    .as(name)
+                    .isEqualTo(expectedVersion);
+        }
     }
 
     @Test
@@ -838,9 +854,9 @@ class ConsoleTraceFixtureCorpusTest
                     executor,
                     new NoOpSessionUsageService(),
                     (ignoredSession, ignoredDefinition, objective, ignoredInput) ->
-                            new RenderedMissionInput(objective, List.of(), Map.of()),
-                    (chatClient, systemPrompt, renderedInput, visibleTools, skillName,
-                            executionConfiguration, modelTraceContext) ->
+                            new RenderedMissionInput(objective, List.of(), Map.of()));
+
+            com.lokiscale.loomspan.internal.model.ModelInteraction modelInteraction = request ->
                     {
                         ExecutionFrame modelFrame = session.peekFrame();
                         Map<String, Object> metadata = attempt("retry-1", "attempt-1", 1, Map.of());
@@ -860,7 +876,7 @@ class ConsoleTraceFixtureCorpusTest
                             Thread.currentThread().interrupt();
                         }
                         throw failure;
-                    });
+                    };
 
             try
             {
@@ -869,7 +885,7 @@ class ConsoleTraceFixtureCorpusTest
                         runtimeFixtureDefinition(),
                         "fixture objective",
                         null,
-                        mock(ChatClient.class),
+                        modelInteraction,
                         List.of(),
                         false,
                         null);
@@ -1387,16 +1403,16 @@ class ConsoleTraceFixtureCorpusTest
         List<String> nonFinal = new ArrayList<>(base);
         JsonNode completion = JSON.readTree(nonFinal.getLast());
         long next = completion.path("sequence").asLong() + 1;
-        com.fasterxml.jackson.databind.node.ObjectNode trailing = completion.deepCopy();
+        tools.jackson.databind.node.ObjectNode trailing = (tools.jackson.databind.node.ObjectNode) completion.deepCopy();
         trailing.put("sequence", next);
         trailing.put("recordType", "ERROR_RECORDED");
-        com.fasterxml.jackson.databind.node.ObjectNode metadata = JSON.createObjectNode();
+        tools.jackson.databind.node.ObjectNode metadata = JSON.createObjectNode();
         metadata.put("failureId", "failure-after-completion");
         trailing.set("metadata", metadata);
-        com.fasterxml.jackson.databind.node.ObjectNode data = JSON.createObjectNode();
+        tools.jackson.databind.node.ObjectNode data = JSON.createObjectNode();
         data.put("exceptionType", "java.lang.IllegalStateException");
         data.put("message", "failure after completion");
-        com.fasterxml.jackson.databind.node.ObjectNode diagnostic = JSON.createObjectNode();
+        tools.jackson.databind.node.ObjectNode diagnostic = JSON.createObjectNode();
         diagnostic.put("kind", "JAVA_STACK_TRACE");
         diagnostic.put("contentType", "text/plain; charset=utf-8");
         diagnostic.put("text", "java.lang.IllegalStateException: failure after completion\n");

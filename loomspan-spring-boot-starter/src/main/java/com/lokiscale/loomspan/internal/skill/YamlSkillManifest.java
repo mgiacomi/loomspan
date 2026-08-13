@@ -6,11 +6,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.ValueDeserializer;
+import tools.jackson.databind.annotation.JsonDeserialize;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -359,16 +359,16 @@ public class YamlSkillManifest
         }
     }
 
-    public static final class StrictStringScalarDeserializer extends JsonDeserializer<String>
+    public static final class StrictStringScalarDeserializer extends ValueDeserializer<String>
     {
         @Override
-        public String deserialize(JsonParser parser, DeserializationContext context) throws IOException
+        public String deserialize(JsonParser parser, DeserializationContext context)
         {
             if (parser.currentToken() != JsonToken.VALUE_STRING)
             {
                 return (String) context.handleUnexpectedToken(String.class, parser);
             }
-            return parser.getText();
+            return parser.getString();
         }
     }
 

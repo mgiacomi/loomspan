@@ -20,7 +20,7 @@ import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
 import com.lokiscale.loomspan.internal.runtime.usage.MicrometerUsageMetricsRecorder;
 import com.lokiscale.loomspan.internal.runtime.usage.NoOpUsageMetricsRecorder;
 import com.lokiscale.loomspan.internal.provider.*;
-import com.lokiscale.loomspan.internal.springai.v1_1.SpringAiV11ProviderIntegration;
+import com.lokiscale.loomspan.internal.springai.SpringAiProviderIntegration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -34,6 +34,9 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.function.FunctionToolCallback;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -138,6 +141,78 @@ class ModelAttemptCallAdvisorIntegrationTest
     }
 
     @Test
+    void semanticRetriesWrapOneObservableAi2ToolLoop() throws Exception
+    {
+        try (MockWebServer server = new MockWebServer())
+        {
+            server.enqueue(openAiToolCall("call-1", "first"));
+            server.enqueue(openAiText("invalid"));
+            server.enqueue(openAiToolCall("call-2", "second"));
+            server.enqueue(openAiText("OK: corrected"));
+            LoomspanProperties.ConnectionProperties properties = new LoomspanProperties.ConnectionProperties();
+            properties.setDriver(AiDriver.OPENAI);
+            properties.setApiKey("test-key");
+            properties.setBaseUrl(server.url("/v1").toString());
+            properties.getProviderRetry().setEnabled(false);
+            ProviderConnectionRuntime runtime = new SpringAiProviderIntegration(new DefaultResourceLoader())
+                    .create("openai", properties);
+            DefaultSessionUsageService usageService = usageService();
+            DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
+            LoomspanSession session = TestLoomspanSessions.withId("advisor-recursion", "test.entry", 4);
+            stateService.openMissionFrame(session, "test.skill", Map.of());
+            stateService.openFrame(session, TraceFrameType.MODEL_CALL, "test.skill#model", Map.of());
+            AtomicInteger toolExecutions = new AtomicInteger();
+            List<String> toolValues = new ArrayList<>();
+            ToolCallback tool = FunctionToolCallback.<Map<String, Object>, String>builder(
+                            "lookup",
+                            (arguments, context) ->
+                            {
+                                toolExecutions.incrementAndGet();
+                                toolValues.add(String.valueOf(arguments.get("value")));
+                                return "looked-up-" + arguments.get("value");
+                            })
+                    .description("Look up a value")
+                    .inputType(new ParameterizedTypeReference<Map<String, Object>>() { })
+                    .inputSchema("{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}")
+                    .build();
+            LinterCallAdvisor semanticPolicy = new LinterCallAdvisor(
+                    "test.skill", "regex", Pattern.compile("^OK:.*$"),
+                    "Return an OK response.", 1, ignored -> { });
+            ChatClient client = ChatClient.builder(runtime.chatModel())
+                    .defaultAdvisors(semanticPolicy,
+                            new ProviderAttemptCallAdvisor(runtime, stateService,
+                                    new ModelUsageExtractor(), usageService))
+                    .build();
+
+            String content = SessionContextRunner.callWithSession(session, () -> client.prompt()
+                    .user("user")
+                    .options(OpenAiChatOptions.builder().model("gpt-test"))
+                    .toolCallbacks(tool)
+                    .advisors(spec -> spec.param(ModelTraceContext.REQUEST_CONTEXT_KEY, traceContext()))
+                    .call()
+                    .content());
+
+            assertThat(content).isEqualTo("OK: corrected");
+            assertThat(server.getRequestCount()).isEqualTo(4);
+            assertThat(toolExecutions).hasValue(2);
+            assertThat(toolValues).containsExactly("first", "second");
+            assertThat(server.takeRequest().getBody().readUtf8()).contains("\"name\":\"lookup\"");
+            assertThat(server.takeRequest().getBody().readUtf8()).contains("\"tool_call_id\":\"call-1\"");
+            assertThat(server.takeRequest().getBody().readUtf8()).contains("\"name\":\"lookup\"");
+            assertThat(server.takeRequest().getBody().readUtf8()).contains("\"tool_call_id\":\"call-2\"");
+
+            // Semantic validation wraps the AI 2 tool advisor; every inner model turn crosses the
+            // physical-attempt advisor exactly once.
+            assertThat(session.getSessionUsage().orElseThrow().providerAttempts()).isEqualTo(4);
+            assertThat(session.getSessionUsage().orElseThrow().modelCalls()).isEqualTo(4);
+            assertThat(records(session).stream()
+                    .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT)).hasSize(4);
+            assertThat(records(session).stream()
+                    .filter(record -> record.recordType() == TraceRecordType.MODEL_RESPONSE_RECEIVED)).hasSize(4);
+        }
+    }
+
+    @Test
     void recordsPreparedAndSentButNoResponseWhenProviderThrows()
     {
         DefaultSessionUsageService usageService = usageService();
@@ -207,6 +282,10 @@ class ModelAttemptCallAdvisorIntegrationTest
         assertThat(calls).hasValue(2);
         assertThat(session.getSessionUsage().orElseThrow().providerAttempts()).isEqualTo(2);
         assertThat(session.getSessionUsage().orElseThrow().modelCalls()).isEqualTo(1);
+        assertThat(records(session).stream()
+                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED)).hasSize(2);
+        assertThat(records(session).stream()
+                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT)).hasSize(2);
         List<TraceRecord> attemptFailures = records(session).stream()
                 .filter(record -> record.recordType() == TraceRecordType.MODEL_ATTEMPT_FAILED)
                 .toList();
@@ -220,6 +299,85 @@ class ModelAttemptCallAdvisorIntegrationTest
                 .findFirst().orElseThrow().metadata())
                 .containsEntry("attemptReason", "PROVIDER_RETRY")
                 .containsEntry("providerAttemptNumber", 2);
+    }
+
+    @Test
+    void exhaustedProviderRetriesRetainExactAttemptQuotaMetricAndTerminalFacts()
+    {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        DefaultSessionUsageService usageService = new DefaultSessionUsageService(
+                new LoomspanProperties().getSession().getQuotas(),
+                new MicrometerUsageMetricsRecorder(meterRegistry));
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
+        LoomspanSession session = TestLoomspanSessions.withId("provider-exhaustion", "test.entry", 4);
+        stateService.openMissionFrame(session, "test.skill", Map.of());
+        stateService.openFrame(session, TraceFrameType.MODEL_CALL, "test.skill#model", Map.of());
+        AtomicInteger calls = new AtomicInteger();
+        IllegalStateException terminal = new IllegalStateException("provider remained unavailable");
+        ChatModel model = prompt ->
+        {
+            calls.incrementAndGet();
+            throw terminal;
+        };
+        ProviderFailureDetails transientFailure = new ProviderFailureDetails(
+                ProviderFailureClassification.TRANSIENT,
+                ProviderFailureCategory.SERVER_ERROR,
+                503,
+                null,
+                null,
+                null,
+                "Provider temporarily unavailable",
+                List.of());
+        ProviderConnectionRuntime runtime = new ProviderConnectionRuntime(
+                model,
+                AiDriver.OPENAI,
+                AttemptOwnership.EXACT_ATTEMPT_OWNERSHIP,
+                new ProviderRetryPolicy(true, 3, java.time.Duration.ZERO, 2.0d,
+                        java.time.Duration.ZERO, 0.0d),
+                ignored -> transientFailure);
+        ChatClient client = ChatClient.builder(model)
+                .defaultAdvisors(new ProviderAttemptCallAdvisor(runtime, stateService,
+                        new ModelUsageExtractor(), usageService))
+                .build();
+
+        assertThatThrownBy(() -> SessionContextRunner.callWithSession(session, () -> client.prompt()
+                .user("user")
+                .advisors(spec -> spec.param(ModelTraceContext.REQUEST_CONTEXT_KEY, traceContext()))
+                .call()
+                .content()))
+                .isSameAs(terminal);
+
+        assertThat(calls).hasValue(3);
+        assertThat(session.getSessionUsage().orElseThrow().providerAttempts()).isEqualTo(3);
+        assertThat(session.getSessionUsage().orElseThrow().modelCalls()).isZero();
+        List<TraceRecord> records = records(session);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED))
+                .hasSize(3);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT))
+                .hasSize(3);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_RESPONSE_RECEIVED))
+                .isEmpty();
+        List<TraceRecord> failures = records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.MODEL_ATTEMPT_FAILED)
+                .toList();
+        assertThat(failures).hasSize(3);
+        assertThat(failures).extracting(record -> record.metadata().get("providerAttemptNumber"))
+                .containsExactly(1, 2, 3);
+        assertThat(failures).extracting(record -> record.metadata().get("retryDecision"))
+                .containsExactly("RETRY", "RETRY", "ATTEMPTS_EXHAUSTED");
+        assertThat(failures).extracting(record -> record.metadata().get("retrySequenceId"))
+                .containsOnly(failures.getFirst().metadata().get("retrySequenceId"));
+        assertThat(meterRegistry.get("loomspan.provider.attempts")
+                .tag("skill", "test.skill")
+                .tag("connection", "test-connection")
+                .tag("driver", "openai")
+                .tag("outcome", "failed")
+                .tag("category", "server_error")
+                .meters()).hasSize(2);
+        assertThat(meterRegistry.get("loomspan.provider.attempts")
+                .tag("decision", "retry").counter().count()).isEqualTo(2.0d);
+        assertThat(meterRegistry.get("loomspan.provider.attempts")
+                .tag("decision", "attempts_exhausted").counter().count()).isEqualTo(1.0d);
     }
 
     @Test
@@ -386,7 +544,7 @@ class ModelAttemptCallAdvisorIntegrationTest
             properties.getProviderRetry().setInitialBackoff(java.time.Duration.ZERO);
             properties.getProviderRetry().setMaxBackoff(java.time.Duration.ZERO);
             properties.getProviderRetry().setJitter(0.0d);
-            ProviderConnectionRuntime runtime = new SpringAiV11ProviderIntegration(new DefaultResourceLoader())
+            ProviderConnectionRuntime runtime = new SpringAiProviderIntegration(new DefaultResourceLoader())
                     .create("openrouter", properties);
             DefaultSessionUsageService usageService = usageService();
             DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
@@ -400,7 +558,7 @@ class ModelAttemptCallAdvisorIntegrationTest
 
             String content = SessionContextRunner.callWithSession(session, () -> client.prompt()
                     .user("hello")
-                    .options(OpenAiChatOptions.builder().model("routed-model").build())
+                    .options(OpenAiChatOptions.builder().model("routed-model"))
                     .advisors(spec -> spec.param(ModelTraceContext.REQUEST_CONTEXT_KEY, traceContext))
                     .call().content());
 
@@ -466,6 +624,26 @@ class ModelAttemptCallAdvisorIntegrationTest
                 ChatResponseMetadata.builder()
                         .usage(new DefaultUsage(promptUnits, completionUnits, promptUnits + completionUnits))
                         .build());
+    }
+
+    private static MockResponse openAiToolCall(String callId, String value)
+    {
+        return new MockResponse().setHeader("Content-Type", "application/json").setBody("""
+                {"id":"chatcmpl-tool","object":"chat.completion","created":1,"model":"gpt-test",
+                 "choices":[{"index":0,"message":{"role":"assistant","content":null,
+                   "tool_calls":[{"id":"%s","type":"function","function":{"name":"lookup","arguments":"{\\\"value\\\":\\\"%s\\\"}"}}]},
+                   "finish_reason":"tool_calls"}],
+                 "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+                """.formatted(callId, value));
+    }
+
+    private static MockResponse openAiText(String text)
+    {
+        return new MockResponse().setHeader("Content-Type", "application/json").setBody("""
+                {"id":"chatcmpl-text","object":"chat.completion","created":1,"model":"gpt-test",
+                 "choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],
+                 "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+                """.formatted(text));
     }
 
     private static List<TraceRecord> records(LoomspanSession session)

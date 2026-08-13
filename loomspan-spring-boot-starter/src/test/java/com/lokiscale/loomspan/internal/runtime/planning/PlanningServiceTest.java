@@ -17,6 +17,7 @@ import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
 import com.lokiscale.loomspan.internal.runtime.SimpleChatClient;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
@@ -76,7 +77,7 @@ class PlanningServiceTest {
         ExecutionPlan plan = plan("plan-1", PlanTaskStatus.PENDING);
 
         assertThat(session.getExecutionPlan()).isEmpty();
-        assertThat(planningService.initializePlan(session, "hello", null, rootDefinition(), new SimpleChatClient(plan, "done"), List.<ToolCallback>of()))
+        assertThat(planningService.initializePlan(session, "hello", null, rootDefinition(), new SimpleChatClient(plan, "done"), List.<BoundCapability>of()))
                 .contains(plan);
         assertThat(session.getExecutionPlan()).contains(plan);
     }
@@ -133,13 +134,37 @@ class PlanningServiceTest {
                         null,
                         rootDefinition("invoiceParser"),
                         new SimpleChatClient(null, YAML_PLAN_WITH_LLM_STATUSES),
-                        List.<ToolCallback>of())
+                        List.<BoundCapability>of())
                 .orElseThrow();
 
         assertThat(plan.planId()).isEqualTo("12345");
         assertThat(plan.status()).isEqualTo(PlanStatus.VALID);
         assertThat(plan.findTask("67890")).isPresent();
         assertThat(plan.findTask("67890").orElseThrow().status()).isEqualTo(PlanTaskStatus.COMPLETED);
+    }
+
+    @Test
+    void planningCodecRoleRejectsUnknownFieldsInJsonAndYaml()
+    {
+        for (String payload : List.of(
+                planJson("plan-json-unknown", PlanTaskStatus.PENDING)
+                        .replaceFirst("\\{", "{\"future\":true,"),
+                YAML_PLAN_WITH_LLM_STATUSES + "future: true\n"))
+        {
+            DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+            DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                    "session-plan-unknown-" + payload.charAt(0), "test.entry", 3);
+
+            assertThatThrownBy(() -> planningService.initializePlan(
+                    session,
+                    "parse invoice",
+                    null,
+                    rootDefinition(payload.startsWith("{") ? "rootVisibleSkill" : "invoiceParser"),
+                    new SimpleChatClient(null, payload),
+                    List.<BoundCapability>of()))
+                    .hasMessageContaining("Failed to parse planning response");
+        }
     }
 
     @Test
@@ -353,8 +378,8 @@ class PlanningServiceTest {
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-tool-names", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-tools", PlanTaskStatus.PENDING), "done");
 
-        ToolCallback tool1 = toolCallback("invoiceParser", "Extract invoice fields from source documents");
-        ToolCallback tool2 = toolCallback("expenseLookup", "Look up prior expenses for a parsed invoice");
+        BoundCapability tool1 = toolCallback("invoiceParser", "Extract invoice fields from source documents");
+        BoundCapability tool2 = toolCallback("expenseLookup", "Look up prior expenses for a parsed invoice");
 
         planningService.initializePlan(session, "check invoice", null, rootDefinition("duplicateInvoiceChecker"), chatClient, List.of(tool1, tool2));
 
@@ -374,7 +399,7 @@ class PlanningServiceTest {
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-planning-prompt", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(planJson("plan-prompt", PlanTaskStatus.PENDING));
 
-        ToolCallback tool = toolCallback("invoiceParser", "Short child tool description");
+        BoundCapability tool = toolCallback("invoiceParser", "Short child tool description");
         planningService.initializePlan(
                 session,
                 "check invoice",
@@ -401,8 +426,8 @@ class PlanningServiceTest {
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-evidence-constraints", "test.entry", 3);
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-tools", PlanTaskStatus.PENDING), "done");
 
-        ToolCallback tool1 = toolCallback("invoiceParser", "Extract invoice fields from source documents");
-        ToolCallback tool2 = toolCallback("expenseLookup", "Look up prior expenses for a parsed invoice");
+        BoundCapability tool1 = toolCallback("invoiceParser", "Extract invoice fields from source documents");
+        BoundCapability tool2 = toolCallback("expenseLookup", "Look up prior expenses for a parsed invoice");
 
         assertThatThrownBy(() -> planningService.initializePlan(session, "check invoice", null, duplicateInvoiceDefinition(), chatClient, List.of(tool1, tool2)))
                 .isInstanceOf(IllegalStateException.class);
@@ -422,7 +447,7 @@ class PlanningServiceTest {
         SimpleChatClient chatClient = new SimpleChatClient(plan("plan-tools-verbatim", PlanTaskStatus.PENDING), "done");
 
         String authoredDescription = "Reads invoice PDFs exactly as-authored. Keep JSON keys `invoice_id`, `vendor_name`, and \"line_items\".";
-        ToolCallback tool = toolCallback("invoiceParser", authoredDescription);
+        BoundCapability tool = toolCallback("invoiceParser", authoredDescription);
 
         planningService.initializePlan(
                 session,
@@ -445,8 +470,8 @@ class PlanningServiceTest {
                 weakSingleToolPlanJson(),
                 correctedMultiToolPlanJson());
 
-        ToolCallback invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
-        ToolCallback expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
+        BoundCapability invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
+        BoundCapability expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
 
         ExecutionPlan plan = planningService.initializePlan(
                         session,
@@ -478,8 +503,8 @@ class PlanningServiceTest {
                 weakSingleToolPlanJson(),
                 correctedMultiToolPlanJson());
 
-        ToolCallback invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
-        ToolCallback expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
+        BoundCapability invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
+        BoundCapability expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
 
         planningService.initializePlan(
                         session,
@@ -506,8 +531,8 @@ class PlanningServiceTest {
                 weakSingleToolPlanJson(),
                 weakSingleToolPlanJson());
 
-        ToolCallback invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
-        ToolCallback expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
+        BoundCapability invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
+        BoundCapability expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
 
         ExecutionPlan plan = planningService.initializePlan(
                         session,
@@ -549,8 +574,8 @@ class PlanningServiceTest {
         LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-repeated-tool-warning", "test.entry", 3);
         SequencePlanningChatClient chatClient = new SequencePlanningChatClient(repeatedExtractionPlanJson());
 
-        ToolCallback invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
-        ToolCallback expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
+        BoundCapability invoiceParser = toolCallback("invoiceParser", "Extract invoice fields from source documents");
+        BoundCapability expenseLookup = toolCallback("expenseLookup", "Look up related expenses for comparison");
 
         ExecutionPlan plan = planningService.initializePlan(
                         session,
@@ -663,11 +688,8 @@ class PlanningServiceTest {
                 .contains("invoiceParser", "expenseLookup");
     }
 
-    private static ToolCallback toolCallback(String name, String description) {
-        ToolCallback callback = mock(ToolCallback.class);
-        ToolDefinition definition = ToolDefinition.builder().name(name).description(description).inputSchema("{}").build();
-        when(callback.getToolDefinition()).thenReturn(definition);
-        return callback;
+    private static BoundCapability toolCallback(String name, String description) {
+        return com.lokiscale.loomspan.testkit.TestBoundCapabilities.describedCapability(name, description);
     }
 
     private static String weakSingleToolPlanJson() {
@@ -966,7 +988,7 @@ class PlanningServiceTest {
         }
     }
 
-    private static final class SequencePlanningChatClient implements org.springframework.ai.chat.client.ChatClient {
+    private static final class SequencePlanningChatClient implements com.lokiscale.loomspan.internal.model.ModelInteraction {
 
         private final Deque<String> responses = new ArrayDeque<>();
         private final List<String> systemMessagesSeen = new ArrayList<>();
@@ -990,203 +1012,18 @@ class PlanningServiceTest {
         }
 
         @Override
-        public ChatClientRequestSpec prompt() {
-            return new SequenceRequestSpec();
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt(String content) {
-            return prompt();
-        }
-
-        @Override
-        public ChatClientRequestSpec prompt(org.springframework.ai.chat.prompt.Prompt prompt) {
-            return prompt();
-        }
-
-        @Override
-        public Builder mutate() {
-            throw new UnsupportedOperationException();
-        }
-
-        private final class SequenceRequestSpec implements ChatClientRequestSpec {
-
-            @Override
-            public Builder mutate() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(java.util.function.Consumer<AdvisorSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(org.springframework.ai.chat.client.advisor.api.Advisor... advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec advisors(List<org.springframework.ai.chat.client.advisor.api.Advisor> advisors) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(org.springframework.ai.chat.messages.Message... messages) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec messages(List<org.springframework.ai.chat.messages.Message> messages) {
-                return this;
-            }
-
-            @Override
-            public <T extends org.springframework.ai.chat.prompt.ChatOptions> ChatClientRequestSpec options(T options) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolNames(String... toolNames) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec tools(Object... tools) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(ToolCallback... toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(List<ToolCallback> toolCallbacks) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolCallbacks(org.springframework.ai.tool.ToolCallbackProvider... providers) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec toolContext(Map<String, Object> toolContext) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(String text) {
-                systemMessagesSeen.add(text);
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec system(java.util.function.Consumer<PromptSystemSpec> consumer) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(String text) {
-                userMessagesSeen.add(text);
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource, java.nio.charset.Charset charset) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(org.springframework.core.io.Resource resource) {
-                return this;
-            }
-
-            @Override
-            public ChatClientRequestSpec user(java.util.function.Consumer<PromptUserSpec> consumer) {
+        public com.lokiscale.loomspan.internal.model.ModelInteractionResult call(
+                com.lokiscale.loomspan.internal.model.ModelInteractionRequest request) {
+            systemMessagesSeen.add(request.systemPrompt());
+            userMessagesSeen.add(request.input().userText());
+            if (!request.input().attachments().isEmpty()) {
                 userConsumerCalls++;
-                return this;
             }
-
-            @Override
-            public ChatClientRequestSpec templateRenderer(org.springframework.ai.template.TemplateRenderer renderer) {
-                return this;
+            String next = responses.pollFirst();
+            if (next == null) {
+                throw new IllegalStateException("No more queued chat responses");
             }
-
-            @Override
-            public CallResponseSpec call() {
-                String next = responses.pollFirst();
-                if (next == null) {
-                    throw new IllegalStateException("No more queued chat responses");
-                }
-                return new ResponseSpec(next);
-            }
-
-            @Override
-            public StreamResponseSpec stream() {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        private record ResponseSpec(String content) implements CallResponseSpec {
-
-            @Override
-            public <T> T entity(org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> T entity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.client.ChatClientResponse chatClientResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public org.springframework.ai.chat.model.ChatResponse chatResponse() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public String content() {
-                return content;
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(Class<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.core.ParameterizedTypeReference<T> type) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> org.springframework.ai.chat.client.ResponseEntity<org.springframework.ai.chat.model.ChatResponse, T> responseEntity(
-                    org.springframework.ai.converter.StructuredOutputConverter<T> converter) {
-                throw new UnsupportedOperationException();
-            }
+            return com.lokiscale.loomspan.internal.model.ModelInteractionResult.content(next);
         }
     }
 }

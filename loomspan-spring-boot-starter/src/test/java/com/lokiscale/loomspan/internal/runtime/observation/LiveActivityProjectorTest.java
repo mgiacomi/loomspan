@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.runtime.observation;
 
-import com.fasterxml.jackson.databind.node.TextNode;
+import tools.jackson.databind.node.StringNode;
 import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
@@ -108,7 +108,7 @@ class LiveActivityProjectorTest
                     "trace", "session", index + 1L, Instant.parse("2026-07-24T12:00:00Z"),
                     TraceRecordType.FRAME_OPENED, "frame-" + index, index == 0 ? null : "frame-" + (index - 1),
                     index == 0 ? TraceFrameType.ROOT_MISSION : TraceFrameType.SKILL_EXECUTION,
-                    route, "thread", Map.of(), TextNode.valueOf("SECRET-PAYLOAD")));
+                    route, "thread", Map.of(), StringNode.valueOf("SECRET-PAYLOAD")));
         }
 
         assertThat(projection).isNotNull();
@@ -220,7 +220,7 @@ class LiveActivityProjectorTest
                 1,
                 TraceFrameType.TOOL_INVOCATION,
                 Map.of("capabilityName", "lookupCustomer", "linkedTaskId", "task-1"),
-                TextNode.valueOf("{\"details\":{\"arguments\":{\"password\":\"must-not-render\"}}}")));
+                StringNode.valueOf("{\"details\":{\"arguments\":{\"password\":\"must-not-render\"}}}")));
 
         assertThat(projection.snapshot().usage().toolInvocations()).isEqualTo(1);
         assertThat(projection.activity().summary()).isEqualTo("Tool call started");
@@ -271,7 +271,7 @@ class LiveActivityProjectorTest
                         "failureClassification", "TRANSIENT", "failureCategory", "RATE_LIMITED",
                         "retryDecision", "RETRY", "retryDelayMillis", 750,
                         "retryDelaySource", "RETRY_AFTER", "summary", "secret provider body"),
-                TextNode.valueOf("secret provider body and partial assistant content")));
+                StringNode.valueOf("secret provider body and partial assistant content")));
 
         assertThat(projection.activity().summary()).isEqualTo("Provider attempt 2 failed; retrying in 750 ms");
         assertThat(projection.activity().details())
@@ -332,7 +332,7 @@ class LiveActivityProjectorTest
             long sequence,
             TraceFrameType frameType,
             Map<String, Object> metadata,
-            TextNode data)
+            StringNode data)
     {
         return new TraceRecord(
                 "trace", "session", sequence, Instant.parse("2026-07-24T12:00:00Z"), type,

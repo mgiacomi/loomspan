@@ -1,10 +1,10 @@
 package com.lokiscale.loomspan.internal.core;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.api.SkillMethod;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
@@ -176,7 +176,7 @@ class SkillMethodTargetDiscoveryIntegrationTests
     interface InterfaceSkill
     {
         @SkillMethod(description = "Interface target")
-        String execute(@ToolParam(description = "Interface optional input", required = false) String externalInput);
+        String execute(@SkillParam(description = "Interface optional input", required = false) String externalInput);
     }
 
     static class InterfaceSkillImpl implements InterfaceSkill
@@ -191,13 +191,13 @@ class SkillMethodTargetDiscoveryIntegrationTests
     interface FirstContractSkill
     {
         @SkillMethod(description = "Conflicting target")
-        String execute(@ToolParam(description = "First contract", required = false) String publicInput);
+        String execute(@SkillParam(description = "First contract", required = false) String publicInput);
     }
 
     interface SecondContractSkill
     {
         @SkillMethod(description = "Conflicting target")
-        String execute(@ToolParam(description = "Second contract") String alternateInput);
+        String execute(@SkillParam(description = "Second contract") String alternateInput);
     }
 
     static class ConflictingContractSkillImpl implements FirstContractSkill, SecondContractSkill
@@ -212,13 +212,13 @@ class SkillMethodTargetDiscoveryIntegrationTests
     interface FirstEquivalentContractSkill
     {
         @SkillMethod(description = "Equivalent target")
-        String execute(@ToolParam(description = "Public input") String publicInput);
+        String execute(@SkillParam(description = "Public input") String publicInput);
     }
 
     interface SecondEquivalentContractSkill
     {
         @SkillMethod(description = "Equivalent target")
-        String execute(@ToolParam(description = "Public input") String publicInput);
+        String execute(@SkillParam(description = "Public input") String publicInput);
     }
 
     static class EquivalentContractSkillImpl implements FirstEquivalentContractSkill, SecondEquivalentContractSkill

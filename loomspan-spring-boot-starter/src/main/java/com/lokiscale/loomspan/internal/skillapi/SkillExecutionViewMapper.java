@@ -1,8 +1,8 @@
 package com.lokiscale.loomspan.internal.skillapi;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.api.SkillExecutionEvent;
 import com.lokiscale.loomspan.api.SkillExecutionView;
 import com.lokiscale.loomspan.internal.core.LoomspanSession;

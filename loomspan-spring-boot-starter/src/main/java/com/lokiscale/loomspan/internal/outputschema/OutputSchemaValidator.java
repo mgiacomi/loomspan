@@ -1,8 +1,8 @@
 package com.lokiscale.loomspan.internal.outputschema;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.springframework.util.StringUtils;
 
@@ -19,7 +19,7 @@ public final class OutputSchemaValidator
 
     public OutputSchemaValidator()
     {
-        this(new ObjectMapper());
+        this(com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().schemaTree());
     }
 
     public OutputSchemaValidator(ObjectMapper objectMapper)
@@ -42,7 +42,7 @@ public final class OutputSchemaValidator
         {
             root = objectMapper.readTree(rawOutput);
         }
-        catch (JsonProcessingException ex)
+        catch (JacksonException ex)
         {
             return OutputSchemaValidationResult.failed(
                     OutputSchemaFailureMode.INVALID_JSON,
@@ -105,7 +105,7 @@ public final class OutputSchemaValidator
         schema.getProperties().keySet().forEach(property -> canonicalByLowercase.put(property.toLowerCase(Locale.ROOT), property));
 
         Map<String, List<String>> actualByLowercase = new LinkedHashMap<>();
-        node.fieldNames().forEachRemaining(fieldName -> actualByLowercase.computeIfAbsent(fieldName.toLowerCase(Locale.ROOT), ignored -> new ArrayList<>()).add(fieldName));
+        node.propertyNames().forEach(fieldName -> actualByLowercase.computeIfAbsent(fieldName.toLowerCase(Locale.ROOT), ignored -> new ArrayList<>()).add(fieldName));
 
         for (Map.Entry<String, List<String>> entry : actualByLowercase.entrySet())
         {

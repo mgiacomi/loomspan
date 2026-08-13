@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.skillapi;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.internal.core.ExecutionJournal;
 import com.lokiscale.loomspan.internal.core.JournalEntry;
 import com.lokiscale.loomspan.internal.core.JournalEntryType;
@@ -47,10 +47,10 @@ class SkillExecutionViewMapperTest
         assertThat(view.events().get(1).details().get("value")).isEqualTo(List.of("one", 2));
         assertThat(view.events())
                 .allSatisfy(event -> assertThat(event.details().values())
-                        .noneMatch(value -> value instanceof com.fasterxml.jackson.databind.JsonNode));
+                        .noneMatch(value -> value instanceof tools.jackson.databind.JsonNode));
     }
 
-    private JournalEntry entry(JournalLevel level, JournalEntryType type, com.fasterxml.jackson.databind.JsonNode payload)
+    private JournalEntry entry(JournalLevel level, JournalEntryType type, tools.jackson.databind.JsonNode payload)
     {
         return new JournalEntry(Instant.parse("2026-07-15T12:00:00Z"), level, type, payload, "frame-1", "route-1");
     }

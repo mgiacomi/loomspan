@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.skillapi;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.api.SkillException;
 import com.lokiscale.loomspan.api.SkillExecutionView;
 import com.lokiscale.loomspan.api.SkillInputValidationException;

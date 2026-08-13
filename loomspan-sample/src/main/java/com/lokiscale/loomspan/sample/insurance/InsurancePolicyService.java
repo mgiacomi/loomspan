@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.sample.insurance;
 
 import com.lokiscale.loomspan.api.SkillMethod;
-import org.springframework.ai.tool.annotation.ToolParam;
+import com.lokiscale.loomspan.api.SkillParam;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,8 +29,8 @@ public class InsurancePolicyService {
 
     @SkillMethod(description = "Retrieves policy limits, deductible, and product metadata for the claim scenario.")
     public Map<String, Object> getPolicy(
-            @ToolParam(description = "Fixture key that selects canned policy data.") String scenario,
-            @ToolParam(description = "Optional policy id override (e.g. POL-AUTO-1001).", required = false)
+            @SkillParam(description = "Fixture key that selects canned policy data.") String scenario,
+            @SkillParam(description = "Optional policy id override (e.g. POL-AUTO-1001).", required = false)
             String policyId) {
         Policy policy = resolvePolicy(scenario, policyId);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -47,10 +47,10 @@ public class InsurancePolicyService {
 
     @SkillMethod(description = "Lists matched policy exclusions for the claim scenario and optional loss type/keywords.")
     public Map<String, Object> checkExclusions(
-            @ToolParam(description = "Fixture key that selects canned exclusion rules.") String scenario,
-            @ToolParam(description = "Optional loss type hint (auto, property, theft, liability, other).",
+            @SkillParam(description = "Fixture key that selects canned exclusion rules.") String scenario,
+            @SkillParam(description = "Optional loss type hint (auto, property, theft, liability, other).",
                     required = false) String lossType,
-            @ToolParam(description = "Optional free-text keywords from the claim narrative.", required = false)
+            @SkillParam(description = "Optional free-text keywords from the claim narrative.", required = false)
             String keywords) {
         String key = normalize(scenario);
         List<String> matched = resolveMatchedExclusions(scenario, lossType, keywords);
@@ -66,12 +66,12 @@ public class InsurancePolicyService {
 
     @SkillMethod(description = "Estimates payable amount using min(claimed, limit) minus deductible; zero when excluded.")
     public Map<String, Object> estimatePayout(
-            @ToolParam(description = "Fixture key that selects canned policy data.") String scenario,
-            @ToolParam(description = "Claimed amount for the loss.") double claimedAmount,
-            @ToolParam(description = "Optional policy id override.", required = false) String policyId,
-            @ToolParam(description = "Optional loss type hint for exclusion matching.", required = false)
+            @SkillParam(description = "Fixture key that selects canned policy data.") String scenario,
+            @SkillParam(description = "Claimed amount for the loss.") double claimedAmount,
+            @SkillParam(description = "Optional policy id override.", required = false) String policyId,
+            @SkillParam(description = "Optional loss type hint for exclusion matching.", required = false)
             String lossType,
-            @ToolParam(description = "Optional free-text keywords for exclusion matching.", required = false)
+            @SkillParam(description = "Optional free-text keywords for exclusion matching.", required = false)
             String keywords) {
         Policy policy = resolvePolicy(scenario, policyId);
         List<String> exclusions = resolveMatchedExclusions(scenario, lossType, keywords);

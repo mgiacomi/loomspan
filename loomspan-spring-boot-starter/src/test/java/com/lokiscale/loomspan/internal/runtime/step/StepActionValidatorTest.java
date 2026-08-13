@@ -4,48 +4,37 @@ import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.core.PlanStatus;
 import com.lokiscale.loomspan.internal.core.PlanTask;
 import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
-import com.lokiscale.loomspan.internal.runtime.tool.ContractAwareToolCallbacks;
+import tools.jackson.databind.json.JsonMapper;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static com.lokiscale.loomspan.testkit.TestBoundCapabilities.capability;
+import static com.lokiscale.loomspan.testkit.TestBoundCapabilities.contractAware;
 
 class StepActionValidatorTest {
 
     private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();
 
     private ExecutionPlan plan;
-    private List<ToolCallback> visibleTools;
+    private List<BoundCapability> visibleTools;
 
-    private static ToolCallback mockTool(String name) {
-        ToolCallback callback = mock(ToolCallback.class);
-        ToolDefinition definition = ToolDefinition.builder().name(name).description(name).inputSchema("{}").build();
-        when(callback.getToolDefinition()).thenReturn(definition);
-        return callback;
+    private static BoundCapability mockTool(String name) {
+        return capability(name);
     }
 
-    private static ToolCallback mockTool(String name, String inputSchema) {
-        ToolCallback callback = mock(ToolCallback.class);
-        ToolDefinition definition = ToolDefinition.builder().name(name).description(name).inputSchema(inputSchema).build();
-        when(callback.getToolDefinition()).thenReturn(definition);
-        return callback;
+    private static BoundCapability mockTool(String name, String inputSchema) {
+        return capability(name, inputSchema);
     }
 
-    private static ToolCallback contractAwareTool(String name, String inputSchema, String contractSchema) {
-        return ContractAwareToolCallbacks.wrap(
-                mockTool(name, inputSchema),
-                new SkillInputContractResolver().resolveFromToolSchema(contractSchema));
+    private static BoundCapability contractAwareTool(String name, String inputSchema, String contractSchema) {
+        return contractAware(name, inputSchema, contractSchema);
     }
 
     @BeforeEach
@@ -90,7 +79,7 @@ class StepActionValidatorTest {
 
         @Test
         void bareObjectToolSchemaRemainsPermissive() {
-            List<ToolCallback> genericObjectTools = List.of(mockTool("invoiceParser", "{}"));
+            List<BoundCapability> genericObjectTools = List.of(mockTool("invoiceParser", "{}"));
 
             StepAction action = StepAction.callTool("t-1", "invoiceParser", Map.of("input", "text"));
             StepValidationResult result = StepActionValidator.validate(action, plan, genericObjectTools, true);
@@ -191,7 +180,7 @@ class StepActionValidatorTest {
 
         @Test
         void missingRequiredArgumentsFromConcreteToolSchemaRejected() {
-            List<ToolCallback> schemaAwareTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> schemaAwareTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {
@@ -210,7 +199,7 @@ class StepActionValidatorTest {
 
         @Test
         void requiredArgumentsFromConcreteToolSchemaPassWhenPresent() {
-            List<ToolCallback> schemaAwareTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> schemaAwareTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {
@@ -227,7 +216,7 @@ class StepActionValidatorTest {
 
         @Test
         void genericObjectSchemaDoesNotTriggerRequiredArgumentRejection() {
-            List<ToolCallback> genericTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> genericTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {},
@@ -241,7 +230,7 @@ class StepActionValidatorTest {
 
         @Test
         void nestedAndTypedToolArgumentsUseSharedValidator() {
-            List<ToolCallback> schemaAwareTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> schemaAwareTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {
@@ -269,7 +258,7 @@ class StepActionValidatorTest {
 
         @Test
         void nestedObjectWithoutAdditionalPropertiesKeywordRemainsOpen() {
-            List<ToolCallback> schemaAwareTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> schemaAwareTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {
@@ -295,7 +284,7 @@ class StepActionValidatorTest {
 
         @Test
         void contractAwareToolRejectsMissingArgumentsEvenWhenPublishedSchemaIsGeneric() {
-            List<ToolCallback> tools = List.of(contractAwareTool("invoiceParser", """
+            List<BoundCapability> tools = List.of(contractAwareTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {},
@@ -322,7 +311,7 @@ class StepActionValidatorTest {
 
         @Test
         void placeholderToolArgumentsAreRejectedEvenWhenTypeValid() {
-            List<ToolCallback> schemaAwareTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> schemaAwareTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "properties": {
@@ -345,7 +334,7 @@ class StepActionValidatorTest {
 
         @Test
         void typedMapToolSchemaIsNotTreatedAsGeneric() {
-            List<ToolCallback> typedMapTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> typedMapTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "additionalProperties": {
@@ -363,7 +352,7 @@ class StepActionValidatorTest {
 
         @Test
         void strictEmptyObjectToolSchemaRejectsInventedArguments() {
-            List<ToolCallback> strictEmptyTools = List.of(mockTool("invoiceParser", """
+            List<BoundCapability> strictEmptyTools = List.of(mockTool("invoiceParser", """
                     {
                       "type": "object",
                       "additionalProperties": false

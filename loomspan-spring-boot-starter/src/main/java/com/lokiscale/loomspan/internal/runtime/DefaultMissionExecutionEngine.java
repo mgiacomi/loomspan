@@ -6,11 +6,12 @@ import com.lokiscale.loomspan.internal.core.ExecutionFrame;
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.core.ModelTraceContext;
 import com.lokiscale.loomspan.internal.core.ModelExecutionIdentity;
+import com.lokiscale.loomspan.internal.model.ModelInteraction;
+import com.lokiscale.loomspan.internal.model.ModelInteractionRequest;
 import com.lokiscale.loomspan.internal.runtime.attachment.DefaultMissionInputMaterializer;
 import com.lokiscale.loomspan.internal.runtime.attachment.MissionInputMaterializer;
-import com.lokiscale.loomspan.internal.runtime.attachment.MissionUserMessageSender;
 import com.lokiscale.loomspan.internal.runtime.attachment.RenderedMissionInput;
-import com.lokiscale.loomspan.internal.runtime.attachment.SpringAiMissionUserMessageSender;
+import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
 import com.lokiscale.loomspan.internal.core.SessionContextRunner;
 import com.lokiscale.loomspan.internal.core.TraceFrameType;
@@ -25,13 +26,6 @@ import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguratio
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.vfs.DefaultRefResolver;
 import com.lokiscale.loomspan.internal.vfs.SessionLocalVirtualFileSystem;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.messages.AbstractMessage;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 
@@ -66,7 +60,6 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
     private final ExecutorService missionExecutor;
     private final SessionUsageService sessionUsageService;
     private final MissionInputMaterializer missionInputMaterializer;
-    private final MissionUserMessageSender missionUserMessageSender;
 
     public DefaultMissionExecutionEngine(PlanningService planningService,
             ExecutionStateService executionStateService,
@@ -83,7 +76,7 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
             SessionUsageService sessionUsageService)
     {
         this(planningService, executionStateService, missionTimeout, missionExecutor, sessionUsageService,
-                defaultMaterializer(), new SpringAiMissionUserMessageSender());
+                defaultMaterializer());
     }
 
     public DefaultMissionExecutionEngine(PlanningService planningService,
@@ -91,8 +84,7 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
             Duration missionTimeout,
             ExecutorService missionExecutor,
             SessionUsageService sessionUsageService,
-            MissionInputMaterializer missionInputMaterializer,
-            MissionUserMessageSender missionUserMessageSender)
+            MissionInputMaterializer missionInputMaterializer)
     {
         this.planningService = Objects.requireNonNull(planningService, "planningService must not be null");
         this.executionStateService = Objects.requireNonNull(executionStateService, "executionStateService must not be null");
@@ -100,22 +92,21 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
         this.missionExecutor = Objects.requireNonNull(missionExecutor, "missionExecutor must not be null");
         this.sessionUsageService = Objects.requireNonNull(sessionUsageService, "sessionUsageService must not be null");
         this.missionInputMaterializer = Objects.requireNonNull(missionInputMaterializer, "missionInputMaterializer must not be null");
-        this.missionUserMessageSender = Objects.requireNonNull(missionUserMessageSender, "missionUserMessageSender must not be null");
     }
 
     public String executeMission(LoomspanSession session,
             YamlSkillDefinition definition,
             String objective,
             @Nullable Map<String, Object> missionInput,
-            ChatClient chatClient,
-            List<ToolCallback> visibleTools,
+            ModelInteraction modelInteraction,
+            List<BoundCapability> visibleTools,
             boolean planningEnabled,
             @Nullable Authentication authentication)
     {
         Objects.requireNonNull(session, "session must not be null");
         Objects.requireNonNull(definition, "definition must not be null");
         Objects.requireNonNull(objective, "objective must not be null");
-        Objects.requireNonNull(chatClient, "chatClient must not be null");
+        Objects.requireNonNull(modelInteraction, "modelInteraction must not be null");
         Objects.requireNonNull(visibleTools, "visibleTools must not be null");
         String skillName = definition.manifest().getName();
         EffectiveSkillExecutionConfiguration executionConfiguration = definition.requireExecutionConfiguration();
@@ -133,7 +124,7 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
                 String userMessage = renderedInput.userText();
                 if (planningEnabled)
                 {
-                    planningService.initializePlan(session, objective, planningInput(missionInput, renderedInput), definition, chatClient, visibleTools);
+                    planningService.initializePlan(session, objective, planningInput(missionInput, renderedInput), definition, modelInteraction, visibleTools);
                 }
 
                 SkillPromptComposition promptComposition = executionStateService.currentPlan(session)
@@ -158,24 +149,8 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
                             skillName,
                             "mission");
 
-                    ChatClient.CallResponseSpec responseSpec = missionUserMessageSender.send(
-                            chatClient,
-                            executionPrompt,
-                            renderedInput,
-                            visibleTools,
-                            skillName,
-                            executionConfiguration,
-                            modelTraceContext);
-
-                    try
-                    {
-                        ChatClientResponse clientResponse = responseSpec.chatClientResponse();
-                        return extractContentFromChatResponse(clientResponse.chatResponse());
-                    }
-                    catch (UnsupportedOperationException ignored)
-                    {
-                        return responseSpec.content();
-                    }
+                    return modelInteraction.call(new ModelInteractionRequest(
+                            executionPrompt, renderedInput, modelTraceContext, visibleTools, false)).content();
                 }
                 catch (RuntimeException | Error ex)
                 {
@@ -185,6 +160,18 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
                     if (!callerOwnsCleanup)
                     {
                         executionStateService.recordFailure(session, ex, Map.of("message", "Model invocation failed"));
+                    }
+                    if (ex instanceof RuntimeException runtimeException && !renderedInput.attachments().isEmpty())
+                    {
+                        String mediaDetails = renderedInput.attachments().stream()
+                                .map(attachment -> attachment.mediaType() + "/" + attachment.contentType())
+                                .collect(java.util.stream.Collectors.joining(", "));
+                        throw new IllegalStateException("Model call for skill '" + skillName + "' using framework model '"
+                                + executionConfiguration.frameworkModel() + "' through connection '" + executionConfiguration.connection()
+                                + "' (driver " + executionConfiguration.driver().name() + ", provider model '"
+                                + executionConfiguration.providerModel() + "') failed with " + renderedInput.attachments().size()
+                                + " attachment(s) [" + mediaDetails
+                                + "]. Use a model/driver that supports the declared attachment media.", runtimeException);
                     }
                     throw ex;
                 }
@@ -267,14 +254,6 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
 
     private RuntimeException unwrapMissionFailure(RuntimeException runtimeException)
     {
-        if (runtimeException instanceof ToolExecutionException toolExecutionException
-                && toolExecutionException.getCause() instanceof RuntimeException nestedRuntimeException
-                && (nestedRuntimeException instanceof LoomspanStackOverflowException
-                        || nestedRuntimeException instanceof LoomspanMissionTimeoutException))
-        {
-            return nestedRuntimeException;
-        }
-
         return runtimeException;
     }
 
@@ -352,43 +331,6 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
         return metadata;
     }
 
-    private Map<String, Object> buildMissionPreparedPayload(SkillPromptComposition composition,
-            RenderedMissionInput renderedInput)
-    {
-        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
-        payload.put("system", composition.systemPrompt());
-        payload.put("user", renderedInput.userText());
-        payload.put("attachments", attachmentDescriptors(renderedInput));
-        payload.put("attachmentCount", renderedInput.attachments().size());
-        payload.putAll(composition.traceMetadata());
-        return Map.copyOf(payload);
-    }
-
-    private Map<String, Object> buildMissionSentPayload(SkillPromptComposition composition,
-            RenderedMissionInput renderedInput,
-            List<ToolCallback> visibleTools)
-    {
-        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
-        payload.put("system", composition.systemPrompt());
-        payload.put("user", renderedInput.userText());
-        payload.put("attachments", attachmentDescriptors(renderedInput));
-        payload.put("attachmentCount", renderedInput.attachments().size());
-        payload.put("toolCallbackCount", visibleTools.size());
-        payload.putAll(composition.traceMetadata());
-
-        payload.put("toolNames", visibleTools.stream()
-                .map(callback ->
-                {
-                    if (callback == null)
-                        return "<null>";
-                    var def = callback.getToolDefinition();
-                    return def != null ? def.name() : "<unknown>";
-                })
-                .toList());
-
-        return Map.copyOf(payload);
-    }
-
     private List<Map<String, Object>> attachmentDescriptors(RenderedMissionInput renderedInput)
     {
         return renderedInput.attachments().stream()
@@ -406,16 +348,6 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
     {
         return new DefaultMissionInputMaterializer(new DefaultRefResolver(
                 new SessionLocalVirtualFileSystem(Paths.get(System.getProperty("java.io.tmpdir"), "loomspan-vfs"))));
-    }
-
-    @Nullable
-    private static String extractContentFromChatResponse(@Nullable ChatResponse chatResponse)
-    {
-        return Optional.ofNullable(chatResponse)
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getText)
-                .orElse(null);
     }
 
     private String buildPlannedExecutionPrompt(ExecutionPlan plan)
@@ -449,7 +381,4 @@ public class DefaultMissionExecutionEngine implements MissionExecutionEngine
                 """.formatted(plan.planId(), plan.capabilityName(), plan.status(), activeTask, readyTaskLines, blockedTaskLines);
     }
 
-    private record MissionTraceResult(String content, @Nullable ChatResponse chatResponse)
-    {
-    }
 }

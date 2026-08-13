@@ -1,11 +1,11 @@
 package com.lokiscale.loomspan.internal.skill;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.DatabindException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
+import tools.jackson.dataformat.yaml.YAMLMapper;
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import org.slf4j.Logger;
@@ -80,7 +80,7 @@ public class YamlSkillCatalog implements InitializingBean
         this.yamlObjectMapper = Objects.requireNonNull(yamlObjectMapper, "yamlObjectMapper must not be null");
     }
 
-    YamlSkillCatalog(LoomspanProperties properties,
+    public YamlSkillCatalog(LoomspanProperties properties,
             ResourcePatternResolver resourcePatternResolver,
             ObjectMapper yamlObjectMapper)
     {
@@ -305,7 +305,7 @@ public class YamlSkillCatalog implements InitializingBean
                 }
                 throw invalidSkill(resource, toFieldPath(ex), "unknown field");
             }
-            catch (JsonMappingException ex)
+            catch (DatabindException ex)
             {
                 if (mappingDeclared)
                 {
@@ -315,7 +315,7 @@ public class YamlSkillCatalog implements InitializingBean
                 throw invalidSkill(resource, toFieldPath(ex), describeMappingFailure(ex));
             }
         }
-        catch (JsonMappingException ex)
+        catch (DatabindException ex)
         {
             throw invalidSkill(resource, toFieldPath(ex), describeMappingFailure(ex));
         }
@@ -348,7 +348,7 @@ public class YamlSkillCatalog implements InitializingBean
             }
         }
 
-        mapping.fieldNames().forEachRemaining(fieldName ->
+        mapping.propertyNames().forEach(fieldName ->
         {
             if (!"target_id".equals(fieldName))
             {
@@ -955,21 +955,21 @@ public class YamlSkillCatalog implements InitializingBean
 
     private String toFieldPath(UnrecognizedPropertyException ex)
     {
-        return toFieldPath((JsonMappingException) ex, ex.getPropertyName());
+        return toFieldPath((DatabindException) ex, ex.getPropertyName());
     }
 
-    private String toFieldPath(JsonMappingException ex)
+    private String toFieldPath(DatabindException ex)
     {
         return toFieldPath(ex, "manifest");
     }
 
-    private String toFieldPath(JsonMappingException ex, String fallbackField)
+    private String toFieldPath(DatabindException ex, String fallbackField)
     {
         StringBuilder fieldPath = new StringBuilder();
 
-        for (JsonMappingException.Reference reference : ex.getPath())
+        for (DatabindException.Reference reference : ex.getPath())
         {
-            if (reference.getFieldName() == null)
+            if (reference.getPropertyName() == null)
             {
                 continue;
             }
@@ -977,7 +977,7 @@ public class YamlSkillCatalog implements InitializingBean
             {
                 fieldPath.append('.');
             }
-            fieldPath.append(reference.getFieldName());
+            fieldPath.append(reference.getPropertyName());
         }
 
         if (fieldPath.isEmpty())
@@ -988,7 +988,7 @@ public class YamlSkillCatalog implements InitializingBean
         return fieldPath.toString();
     }
 
-    private String describeMappingFailure(JsonMappingException ex)
+    private String describeMappingFailure(DatabindException ex)
     {
         String originalMessage = ex.getOriginalMessage();
         if (!StringUtils.hasText(originalMessage))
@@ -1012,8 +1012,6 @@ public class YamlSkillCatalog implements InitializingBean
 
     private static ObjectMapper defaultYamlObjectMapper()
     {
-        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
-        return mapper;
+        return com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().skillYaml();
     }
 }

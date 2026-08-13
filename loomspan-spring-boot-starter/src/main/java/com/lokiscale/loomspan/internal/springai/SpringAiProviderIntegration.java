@@ -1,7 +1,7 @@
-package com.lokiscale.loomspan.internal.springai.v1_1;
+package com.lokiscale.loomspan.internal.springai;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.lokiscale.loomspan.autoconfigure.AiDriver;
 import com.lokiscale.loomspan.autoconfigure.LoomspanProperties;
 import com.lokiscale.loomspan.internal.autoconfigure.SafeAiConnectionConfigurationException;
@@ -14,22 +14,25 @@ import com.lokiscale.loomspan.internal.provider.ProviderRetryPolicy;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.genai.Client;
 import com.google.genai.errors.ApiException;
+import com.anthropic.errors.AnthropicServiceException;
+import io.micrometer.observation.ObservationRegistry;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 import org.springframework.ai.anthropic.AnthropicChatModel;
-import org.springframework.ai.anthropic.api.AnthropicApi;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.retry.backoff.NoBackOffPolicy;
-import org.springframework.retry.policy.SimpleRetryPolicy;
-import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
@@ -56,23 +59,52 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Spring AI 1.1.x integration boundary. */
-public final class SpringAiV11ProviderIntegration
+/** Official Spring AI provider integration boundary. */
+public final class SpringAiProviderIntegration
 {
     static final int DIAGNOSTIC_LIMIT_BYTES = 1024 * 1024;
     private final ResourceLoader resourceLoader;
     private final Clock clock;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObservationRegistry observationRegistry;
+    private final ObjectMapper objectMapper;
 
-    public SpringAiV11ProviderIntegration(ResourceLoader resourceLoader)
+    public SpringAiProviderIntegration(ResourceLoader resourceLoader)
     {
-        this(resourceLoader, Clock.systemUTC());
+        this(resourceLoader, ObservationRegistry.NOOP);
     }
 
-    SpringAiV11ProviderIntegration(ResourceLoader resourceLoader, Clock clock)
+    public SpringAiProviderIntegration(ResourceLoader resourceLoader, ObservationRegistry observationRegistry)
+    {
+        this(resourceLoader, Clock.systemUTC(), observationRegistry,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().schemaTree());
+    }
+
+    public SpringAiProviderIntegration(ResourceLoader resourceLoader, ObservationRegistry observationRegistry,
+            ObjectMapper objectMapper)
+    {
+        this(resourceLoader, Clock.systemUTC(), observationRegistry, objectMapper);
+    }
+
+    SpringAiProviderIntegration(ResourceLoader resourceLoader, Clock clock)
+    {
+        this(resourceLoader, clock, ObservationRegistry.NOOP,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().schemaTree());
+    }
+
+    SpringAiProviderIntegration(ResourceLoader resourceLoader, Clock clock, ObservationRegistry observationRegistry)
+    {
+        this(resourceLoader, clock, observationRegistry,
+                com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs.defaults().schemaTree());
+    }
+
+    SpringAiProviderIntegration(ResourceLoader resourceLoader, Clock clock, ObservationRegistry observationRegistry,
+            ObjectMapper objectMapper)
     {
         this.resourceLoader = resourceLoader;
         this.clock = clock;
+        this.observationRegistry = java.util.Objects.requireNonNull(observationRegistry,
+                "observationRegistry must not be null");
+        this.objectMapper = java.util.Objects.requireNonNull(objectMapper, "objectMapper must not be null");
     }
 
     public ProviderConnectionRuntime create(String connectionName, LoomspanProperties.ConnectionProperties properties)
@@ -89,43 +121,36 @@ public final class SpringAiV11ProviderIntegration
 
     private OpenAiChatModel openAi(LoomspanProperties.ConnectionProperties properties)
     {
-        OpenAiApi.Builder builder = OpenAiApi.builder().apiKey(properties.getApiKey());
-        if (StringUtils.hasText(properties.getBaseUrl())) builder.baseUrl(properties.getBaseUrl());
-        MultiValueMap<String, String> headers = new LinkedMultiValueMap<>();
-        properties.getHeaders().forEach(headers::add);
+        Map<String, String> headers = new java.util.LinkedHashMap<>(properties.getHeaders());
+        OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
+                .apiKey(properties.getApiKey())
+                .maxRetries(0);
+        if (StringUtils.hasText(properties.getBaseUrl())) optionsBuilder.baseUrl(properties.getBaseUrl());
         LoomspanProperties.OpenAiOptions options = properties.getOpenai();
         if (options != null)
         {
-            if (StringUtils.hasText(options.getOrganizationId())) headers.add("OpenAI-Organization", options.getOrganizationId());
-            if (StringUtils.hasText(options.getProjectId())) headers.add("OpenAI-Project", options.getProjectId());
-            if (StringUtils.hasText(options.getChatCompletionsPath())) builder.completionsPath(options.getChatCompletionsPath());
-            if (options.getCompatibilityProfile() == LoomspanProperties.OpenAiCompatibilityProfile.OPENROUTER)
-            {
-                ClientHttpRequestInterceptor interceptor = (request, body, execution) ->
-                        inspectOpenRouter(execution.execute(request, body));
-                builder.restClientBuilder(org.springframework.web.client.RestClient.builder().requestInterceptor(interceptor));
-            }
+            if (StringUtils.hasText(options.getOrganizationId())) optionsBuilder.organizationId(options.getOrganizationId());
+            if (StringUtils.hasText(options.getProjectId())) headers.put("OpenAI-Project", options.getProjectId());
         }
-        if ((options == null || !StringUtils.hasText(options.getChatCompletionsPath()))
-                && baseUrlAlreadyEndsWithV1(properties.getBaseUrl())) builder.completionsPath("/chat/completions");
-        if (!headers.isEmpty()) builder.headers(headers);
-        builder.responseErrorHandler(new CapturingResponseErrorHandler());
-        return OpenAiChatModel.builder().openAiApi(builder.build()).retryTemplate(oneAttemptTemplate()).build();
+        if (!headers.isEmpty()) optionsBuilder.customHeaders(headers);
+        OpenAiChatModel.Builder builder = OpenAiChatModel.builder().options(optionsBuilder.build())
+                .observationRegistry(observationRegistry);
+        if (options != null && options.getCompatibilityProfile() == LoomspanProperties.OpenAiCompatibilityProfile.OPENROUTER)
+        {
+            builder.httpClientBuilderCustomizer(http -> http.interceptor(chain -> inspectOpenRouter(chain.proceed(chain.request()))));
+        }
+        return builder.build();
     }
 
     private AnthropicChatModel anthropic(LoomspanProperties.ConnectionProperties properties)
     {
-        AnthropicApi.Builder builder = AnthropicApi.builder().apiKey(properties.getApiKey());
-        if (StringUtils.hasText(properties.getBaseUrl())) builder.baseUrl(properties.getBaseUrl());
-        LoomspanProperties.AnthropicOptions options = properties.getAnthropic();
-        if (options != null)
-        {
-            if (StringUtils.hasText(options.getCompletionsPath())) builder.completionsPath(options.getCompletionsPath());
-            if (StringUtils.hasText(options.getVersion())) builder.anthropicVersion(options.getVersion());
-            if (StringUtils.hasText(options.getBetaVersion())) builder.anthropicBetaFeatures(options.getBetaVersion());
-        }
-        builder.responseErrorHandler(new CapturingResponseErrorHandler());
-        return AnthropicChatModel.builder().anthropicApi(builder.build()).retryTemplate(oneAttemptTemplate()).build();
+        AnthropicChatOptions.Builder optionsBuilder = AnthropicChatOptions.builder()
+                .apiKey(properties.getApiKey())
+                .maxRetries(0)
+                .customHeaders(properties.getHeaders());
+        if (StringUtils.hasText(properties.getBaseUrl())) optionsBuilder.baseUrl(properties.getBaseUrl());
+        return AnthropicChatModel.builder().options(optionsBuilder.build())
+                .observationRegistry(observationRegistry).build();
     }
 
     private GoogleGenAiChatModel gemini(String connectionName, LoomspanProperties.ConnectionProperties properties)
@@ -138,14 +163,19 @@ public final class SpringAiV11ProviderIntegration
             builder.vertexAI(true).project(options.getProjectId()).location(options.getLocation());
             if (StringUtils.hasText(options.getCredentialsUri())) builder.credentials(loadCredentials(connectionName, options.getCredentialsUri()));
         }
-        return GoogleGenAiChatModel.builder().genAiClient(builder.build()).retryTemplate(oneAttemptTemplate()).build();
+        return GoogleGenAiChatModel.builder().genAiClient(builder.build()).retryTemplate(oneAttemptTemplate())
+                .observationRegistry(observationRegistry).build();
     }
 
     private OllamaChatModel ollama(LoomspanProperties.ConnectionProperties properties)
     {
+        RestClient.Builder oneSendRestClient = RestClient.builder()
+                .requestFactory(new SimpleClientHttpRequestFactory());
         OllamaApi api = OllamaApi.builder().baseUrl(properties.getBaseUrl())
+                .restClientBuilder(oneSendRestClient)
                 .responseErrorHandler(new CapturingResponseErrorHandler()).build();
-        return OllamaChatModel.builder().ollamaApi(api).retryTemplate(oneAttemptTemplate()).build();
+        return OllamaChatModel.builder().ollamaApi(api).retryTemplate(oneAttemptTemplate())
+                .observationRegistry(observationRegistry).build();
     }
 
     static HttpOptions oneAttemptGoogleHttpOptions()
@@ -155,10 +185,46 @@ public final class SpringAiV11ProviderIntegration
 
     private RetryTemplate oneAttemptTemplate()
     {
-        RetryTemplate template = new RetryTemplate();
-        template.setRetryPolicy(new SimpleRetryPolicy(1));
-        template.setBackOffPolicy(new NoBackOffPolicy());
-        return template;
+        return new RetryTemplate(RetryPolicy.withMaxRetries(0));
+    }
+
+    okhttp3.Response inspectOpenRouter(okhttp3.Response response) throws IOException
+    {
+        okhttp3.ResponseBody body = response.body();
+        if (!response.isSuccessful() || body == null) return response;
+        okhttp3.MediaType contentType = body.contentType();
+        byte[] bytes;
+        try (body; InputStream stream = body.byteStream())
+        {
+            bytes = stream.readNBytes(DIAGNOSTIC_LIMIT_BYTES + 1);
+        }
+        if (bytes.length > DIAGNOSTIC_LIMIT_BYTES)
+        {
+            throw decodingFailure("OpenRouter response exceeded diagnostic capture limit", bytes, true);
+        }
+        inspectOpenRouterBody(bytes);
+        return response.newBuilder().body(okhttp3.ResponseBody.create(contentType, bytes)).build();
+    }
+
+    private void inspectOpenRouterBody(byte[] bytes)
+    {
+        JsonNode root = objectMapper.readTree(bytes);
+        for (JsonNode choice : root.path("choices"))
+        {
+            if (!"error".equals(choice.path("finish_reason").asText())) continue;
+            JsonNode error = choice.path("error");
+            if (!error.isObject()) throw decodingFailure("Malformed OpenRouter error completion", bytes, false);
+            String type = text(error.path("metadata").path("error_type"));
+            String code = text(error.path("code"));
+            if (code == null) code = text(error.path("provider_code"));
+            String summary = text(error.path("message"));
+            ProviderFailureCategory category = category(type);
+            ProviderFailureClassification classification = retryableOpenRouter(type)
+                    ? ProviderFailureClassification.TRANSIENT : ProviderFailureClassification.PERMANENT;
+            throw new ProviderCallException("OpenRouter returned an error completion",
+                    new ProviderFailureDetails(classification, category, 200, null, type, code, summary,
+                            List.of(diagnostic(bytes, false))));
+        }
     }
 
     private ProviderFailureDetails translate(Throwable failure)
@@ -171,6 +237,14 @@ public final class SpringAiV11ProviderIntegration
             if (current instanceof ApiException response)
             {
                 return googleHttpFailure(response);
+            }
+            if (current instanceof AnthropicServiceException response)
+            {
+                byte[] body = String.valueOf(response.body()).getBytes(StandardCharsets.UTF_8);
+                boolean truncated = body.length > DIAGNOSTIC_LIMIT_BYTES;
+                if (truncated) body = java.util.Arrays.copyOf(body, DIAGNOSTIC_LIMIT_BYTES);
+                String retryAfter = response.headers().values("Retry-After").stream().findFirst().orElse(null);
+                return httpFailure(response.statusCode(), retryAfter, body, truncated);
             }
             if (current instanceof RestClientResponseException response)
             {
@@ -210,7 +284,7 @@ public final class SpringAiV11ProviderIntegration
                     "status", response.status() == null ? "" : response.status(),
                     "message", response.message() == null ? "" : response.message()));
         }
-        catch (IOException impossible)
+        catch (tools.jackson.core.JacksonException impossible)
         {
             bytes = new byte[0];
         }
@@ -241,12 +315,13 @@ public final class SpringAiV11ProviderIntegration
                 List.of(diagnostic(bytes, truncated)));
     }
 
-    private ClientHttpResponse inspectOpenRouter(ClientHttpResponse response) throws IOException
+    ClientHttpResponse inspectOpenRouter(ClientHttpResponse response) throws IOException
     {
         if (!response.getStatusCode().is2xxSuccessful()) return response;
         byte[] bytes = response.getBody().readNBytes(DIAGNOSTIC_LIMIT_BYTES + 1);
         if (bytes.length > DIAGNOSTIC_LIMIT_BYTES)
         {
+            response.close();
             throw decodingFailure("OpenRouter response exceeded diagnostic capture limit", bytes, true);
         }
         try
@@ -265,6 +340,7 @@ public final class SpringAiV11ProviderIntegration
                     ProviderFailureCategory category = category(type);
                     ProviderFailureClassification classification = retryableOpenRouter(type)
                             ? ProviderFailureClassification.TRANSIENT : ProviderFailureClassification.PERMANENT;
+                    response.close();
                     throw new ProviderCallException("OpenRouter returned an error completion",
                             new ProviderFailureDetails(classification, category, 200, null, type, code, summary,
                                     List.of(diagnostic(bytes, false))));
@@ -272,8 +348,9 @@ public final class SpringAiV11ProviderIntegration
             }
         }
         catch (ProviderCallException ex) { throw ex; }
-        catch (IOException | RuntimeException ex)
+        catch (RuntimeException ex)
         {
+            response.close();
             throw decodingFailure("Unable to decode OpenRouter response", bytes, false);
         }
         return new BufferedClientHttpResponse(response, bytes);

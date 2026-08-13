@@ -1,7 +1,7 @@
 package com.lokiscale.loomspan.internal.core;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.lokiscale.loomspan.internal.linter.LinterOutcome;
 import com.lokiscale.loomspan.internal.linter.LinterOutcomeStatus;
 import org.junit.jupiter.api.Test;
