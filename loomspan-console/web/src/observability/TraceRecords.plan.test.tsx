@@ -40,7 +40,7 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderPlanRecord(value = record) {
-  render(<TraceRecords traceId="trace-1" records={[value]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[value]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
 }
 
@@ -117,7 +117,7 @@ test("summarizes a plan update against the latest earlier snapshot with the same
     return Promise.resolve(range(JSON.stringify({ data: plan })));
   });
 
-  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "View changes" }));
 
   const changes = await screen.findByRole("region", { name: "Plan changes" });

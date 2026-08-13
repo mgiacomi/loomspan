@@ -4,16 +4,10 @@ import {
   BrowserAPIError,
   getPayloadRange,
   getTraceAnalysisSummary,
-  getTraceAttempts,
   getTraceFailures,
   getTraceFrames,
-  getTraceGaps,
-  getTracePayloads,
   getTraceRecords,
-  getTraceRetries,
-  getTraceUncertainties,
   getTraceUsage,
-  getTraceValidationLinks,
   listSkills,
   searchTraceEvidence,
   type TraceFrameFilter,
@@ -21,18 +15,12 @@ import {
 import type {
   TraceAnalysisPage,
   TraceAnalysisSummary,
-  TraceAttempt,
   TraceFailure,
   TraceFrame,
-  TraceGap,
-  TracePayload,
   TraceRange,
   TraceRecord,
-  TraceRetry,
   TraceSearchResult,
-  TraceUncertainty,
   TraceUsage as Usage,
-  TraceValidation,
   SkillSummary,
 } from "../api/contracts";
 import { useTarget } from "../target/TargetProvider";
@@ -67,17 +55,12 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   const [summary, setSummary] = useState<TraceAnalysisSummary>();
   const [frames, setFrames] = useState<TraceAnalysisPage<TraceFrame>>();
   const [records, setRecords] = useState<TraceAnalysisPage<TraceRecord>>();
-  const [attempts, setAttempts] = useState<TraceAnalysisPage<TraceAttempt>>();
-  const [retries, setRetries] = useState<TraceAnalysisPage<TraceRetry>>();
   const [failures, setFailures] = useState<TraceAnalysisPage<TraceFailure>>();
-  const [validations, setValidations] = useState<TraceAnalysisPage<TraceValidation>>();
-  const [gaps, setGaps] = useState<TraceAnalysisPage<TraceGap>>();
-  const [uncertainties, setUncertainties] = useState<TraceAnalysisPage<TraceUncertainty>>();
-  const [payloads, setPayloads] = useState<TraceAnalysisPage<TracePayload>>();
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState<TraceAnalysisPage<TraceSearchResult>>();
   const [usage, setUsage] = useState<Usage>();
   const [usageFrames, setUsageFrames] = useState<TraceAnalysisPage<TraceFrame>>();
+  const [usageResponseRecords, setUsageResponseRecords] = useState<TraceRecord[]>();
   const [registeredSkills, setRegisteredSkills] = useState<Set<string>>();
   const [range, setRange] = useState<TraceRange>();
   const [rangeRequest, setRangeRequest] = useState<{ payloadId: string }>();
@@ -124,16 +107,11 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     setSummary(undefined);
     setFrames(undefined);
     setRecords(undefined);
-    setAttempts(undefined);
-    setRetries(undefined);
     setFailures(undefined);
-    setValidations(undefined);
-    setGaps(undefined);
-    setUncertainties(undefined);
-    setPayloads(undefined);
     setSearchResults(undefined);
     setUsage(undefined);
     setUsageFrames(undefined);
+    setUsageResponseRecords(undefined);
     setRegisteredSkills(undefined);
     setRange(undefined);
     setRangeRequest(undefined);
@@ -150,33 +128,33 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     begin("record-facts");
     Promise.all([
       getTraceRecords(traceId).then(verifyScope),
-      getTraceAttempts(traceId).then(verifyScope),
-      getTraceRetries(traceId).then(verifyScope),
       getTraceFailures(traceId).then(verifyScope),
-      getTraceValidationLinks(traceId).then(verifyScope),
-      getTraceGaps(traceId).then(verifyScope),
-      getTraceUncertainties(traceId).then(verifyScope),
-      getTracePayloads(traceId).then(verifyScope),
-    ]).then(([recordPage, attemptPage, retryPage, failurePage, validationPage, gapPage, uncertaintyPage, payloadPage]) => {
+    ]).then(([recordPage, failurePage]) => {
       setRecords(recordPage);
-      setAttempts(attemptPage);
-      setRetries(retryPage);
       setFailures(failurePage);
-      setValidations(validationPage);
-      setGaps(gapPage);
-      setUncertainties(uncertaintyPage);
-      setPayloads(payloadPage);
     }).catch((value) => reportError(value, true)).finally(() => end("record-facts"));
   }, [pending, records, reportError, scopeMismatch, traceId, verifyScope]);
   const loadUsage = useCallback(() => {
     if (!scopeMismatch && !usage && !pending.has("usage")) {
       begin("usage");
+      const loadResponseRecords = async () => {
+        const items: TraceRecord[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await getTraceRecords(traceId, cursor, { types: ["MODEL_RESPONSE_RECEIVED"] }).then(verifyScope);
+          items.push(...page.items);
+          cursor = page.hasMore && page.nextCursor ? page.nextCursor : undefined;
+        } while (cursor);
+        return items;
+      };
       void Promise.all([
         getTraceUsage(traceId).then(verifyScope),
         getTraceFrames(traceId, undefined, {}, "USAGE_DESC").then(verifyScope),
-      ]).then(([usageResult, contributorPage]) => {
+        loadResponseRecords(),
+      ]).then(([usageResult, contributorPage, responseRecords]) => {
         setUsage(usageResult);
         setUsageFrames(contributorPage);
+        setUsageResponseRecords(responseRecords);
       }).catch((value) => reportError(value, true)).finally(() => end("usage"));
     }
   }, [pending, reportError, scopeMismatch, traceId, usage, verifyScope]);
@@ -327,9 +305,6 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     begin("deep-failure");
     void getTraceFailures(traceId, failures.nextCursor).then(verifyScope).then((next) => setFailures(appendPage(failures, next))).catch((value) => reportError(value, true)).finally(() => end("deep-failure"));
   }, [effectiveFailureId, failures, pending, reportError, traceId, verifyScope]);
-  const factContinuation = <T,>(label: string, key: string, page: TraceAnalysisPage<T> | undefined, request: (cursor: string) => Promise<TraceAnalysisPage<T>>, setter: (value: TraceAnalysisPage<T>) => void) => page?.hasMore && page.nextCursor ? (
-    <button type="button" disabled={pending.has(key)} onClick={() => loadMore(key, page, request, setter)}>{pending.has(key) ? "Loading…" : `Load more ${label}`}</button>
-  ) : null;
   const handleTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex: number | undefined;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % views.length;
@@ -384,20 +359,16 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
       <div id={`trace-panel-${state.view}`} role="tabpanel" aria-labelledby={`trace-tab-${state.view}`} tabIndex={0}>
         {state.view === "hierarchy" && <><TraceHierarchy frames={frames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />{frames?.hasMore && <button type="button" disabled={pending.has("frames")} onClick={() => loadMore("frames", frames, (cursor) => getTraceFrames(traceId, cursor), setFrames)}>Load more frames</button>}</>}
         {state.view === "timeline" && <TraceTimeline frames={frames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />}
-        {state.view === "usage" && <TraceUsage usage={usage} frame={selectedFrame} summary={summary} contributors={usageFrames?.items} onSelectFrame={selectFrame} />}
+        {state.view === "usage" && <TraceUsage usage={usage} frame={selectedFrame} summary={summary} contributors={usageFrames?.items} responseRecords={usageResponseRecords} recordHref={(record) => {
+          const target = setTraceExplorerSelection(params, { view: "records", frameId: record.frameId || undefined, recordSequence: record.sequence, failureId: undefined });
+          return `?${target.toString()}`;
+        }} />}
         {state.view === "records" && <>
           <form onSubmit={(event) => { event.preventDefault(); search(); }}><label>Literal search <input value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label><button type="submit" disabled={!searchText || pending.has("search")}>Search</button></form>
           {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p><ol>{searchResults.items.map((match) => <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> · {match.searchedField} bytes {match.matchOffset}–{match.matchOffset + match.matchLength}</li>)}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => loadMore("search-page", searchResults, (cursor) => searchTraceEvidence(traceId, searchText, cursor), setSearchResults)}>Load more matches</button>}</section>}
-          <TraceRecords traceId={traceId} records={records?.items ?? []} attempts={attempts?.items ?? []} retries={retries?.items ?? []} failures={failures?.items ?? []} validations={validations?.items ?? []} gaps={gaps?.items ?? []} uncertainties={uncertainties?.items ?? []} payloads={payloads?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onPayload={readPayload} />
+          <TraceRecords traceId={traceId} records={records?.items ?? []} failures={failures?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onPayload={readPayload} />
           <div className="trace-continuations" role="group" aria-label="Additional evidence pages">
             {records?.hasMore && <button type="button" disabled={pending.has("records")} onClick={() => loadMore("records", records, (cursor) => getTraceRecords(traceId, cursor), setRecords)}>Load more records</button>}
-            {factContinuation("attempts", "attempts", attempts, (cursor) => getTraceAttempts(traceId, cursor), setAttempts)}
-            {factContinuation("retries", "retries", retries, (cursor) => getTraceRetries(traceId, cursor), setRetries)}
-            {factContinuation("failures", "failures", failures, (cursor) => getTraceFailures(traceId, cursor), setFailures)}
-            {factContinuation("validation links", "validations", validations, (cursor) => getTraceValidationLinks(traceId, cursor), setValidations)}
-            {factContinuation("gaps", "gaps", gaps, (cursor) => getTraceGaps(traceId, cursor), setGaps)}
-            {factContinuation("uncertainties", "uncertainties", uncertainties, (cursor) => getTraceUncertainties(traceId, cursor), setUncertainties)}
-            {factContinuation("payloads", "payloads", payloads, (cursor) => getTracePayloads(traceId, cursor), setPayloads)}
           </div>
         </>}
       </div>

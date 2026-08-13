@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { ReactNode } from "react";
-import type { AcquiredArtifact, Trace } from "../api/contracts";
+import type { Trace } from "../api/contracts";
 
 const route = vi.hoisted(() => ({
   scope: "scope-1",
@@ -106,20 +106,20 @@ test("trace detail leads with a terminal outcome rather than a live status", asy
   expect(screen.queryByText(trace.applicationTraceExpiresAt)).toBeNull();
 });
 
-test("trace detail states artifact state beside the actions that change it", async () => {
-  vi.mocked(getTraceDetail).mockResolvedValue(trace);
+test("trace detail places the trace download in the summary and omits artifact metadata", async () => {
+  vi.mocked(getTraceDetail).mockResolvedValue({ ...trace, localAvailable: true });
   render(<TraceDetailView />);
   await screen.findByText("trace-1");
-  const artifactState = screen.getByLabelText("Artifact state");
-  const actions = artifactState.closest(".trace-actions");
-  expect(actions).not.toBeNull();
-  expect(actions?.querySelector("h3")?.textContent).toBe("Artifact actions");
-  for (const label of ["Local artifact", "Size (bytes)", "Application availability at acquisition"]) {
-    expect(artifactState).toHaveTextContent(label);
-  }
   const summary = screen.getByLabelText("Finalized trace summary");
+  const download = screen.getByRole("link", { name: "Download Trace" });
+  expect(summary).toContainElement(download);
+  expect(download).toHaveAttribute("download");
+  expect(download.getAttribute("href")).toContain(encodeURIComponent("trace-1"));
+  expect(screen.queryByRole("heading", { name: "Artifact actions" })).toBeNull();
   expect(summary).not.toHaveTextContent("Local artifact");
+  expect(summary).not.toHaveTextContent("Size (bytes)");
   expect(summary).not.toHaveTextContent("Application availability at acquisition");
+  expect(screen.queryByRole("button", { name: "Open explorer" })).toBeNull();
 });
 
 test("trace detail renders entry skill as inert text before acquisition", async () => {
@@ -147,7 +147,7 @@ test("trace detail renders error state", async () => {
   });
 });
 
-const acquiredArtifact: AcquiredArtifact = {
+const acquiredArtifact = {
   artifactHandle: "handle-abc",
   traceId: "trace-1",
   sessionId: "session-1",
@@ -160,35 +160,21 @@ const acquiredArtifact: AcquiredArtifact = {
   hasIdleExpiry: true,
 };
 
-test("trace detail requires confirmation before raw download", async () => {
+test("trace detail exposes a direct trace download", async () => {
   vi.mocked(getTraceDetail).mockResolvedValue(trace);
   render(<TraceDetailView />);
   await vi.waitFor(() => {
     expect(screen.getByText("trace-1")).toBeInTheDocument();
   });
   expect(screen.getByRole("button", { name: "Acquire for analysis" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Download raw attachment" }));
-  const link = screen.getByRole("link", { name: "Confirm raw attachment download" });
+  const link = screen.getByRole("link", { name: "Download Trace" });
   expect(link).toHaveAttribute("download");
   expect(link.getAttribute("href")).toContain(encodeURIComponent("trace-1"));
-});
-
-test("raw download cancellation does not navigate", async () => {
-  vi.mocked(getTraceDetail).mockResolvedValue(trace);
-  render(<TraceDetailView />);
-  await screen.findByText("trace-1");
-  fireEvent.click(screen.getByRole("button", { name: "Download raw attachment" }));
-  const cancel = screen.getByRole("button", { name: "Cancel" });
-  expect(cancel).toHaveFocus();
-  fireEvent.keyDown(cancel, { key: "Tab" });
-  expect(screen.getByRole("link", { name: "Confirm raw attachment download" })).toHaveFocus();
-  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
-  await vi.waitFor(() => expect(screen.getByRole("button", { name: "Download raw attachment" })).toHaveFocus());
   expect(route.navigate).not.toHaveBeenCalled();
 });
 
-test("acquire button calls acquireArtifact and shows success state", async () => {
+test("acquire button calls acquireArtifact and opens analysis without success metadata", async () => {
   vi.mocked(getTraceDetail).mockResolvedValue(trace);
   vi.mocked(acquireArtifact).mockResolvedValue(acquiredArtifact);
   render(<TraceDetailView />);
@@ -196,12 +182,10 @@ test("acquire button calls acquireArtifact and shows success state", async () =>
     expect(screen.getByText("trace-1")).toBeInTheDocument();
   });
   fireEvent.click(screen.getByRole("button", { name: "Acquire for analysis" }));
-  await vi.waitFor(() => {
-    expect(screen.getByText("Artifact acquired successfully.")).toBeInTheDocument();
-  });
+  await screen.findByRole("heading", { name: "Trace explorer" });
   expect(acquireArtifact).toHaveBeenCalledWith("trace-1", { tabId: "test-tab", csrfToken: "test-token" });
-  expect(screen.queryByText("handle-abc")).not.toBeInTheDocument();
-  expect(screen.getAllByText("4096").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Artifact acquired successfully.")).toBeNull();
+  expect(screen.queryByText("Local bytes")).toBeNull();
 });
 
 test("expired explorer artifact returns trace detail to reacquisition state", async () => {
@@ -241,10 +225,10 @@ test("rejected analysis explicitly preserves raw download guidance", async () =>
   render(<TraceDetailView />);
   await screen.findByText("trace-1");
   fireEvent.click(screen.getByRole("button", { name: "Acquire for analysis" }));
-  expect(await screen.findByText(/raw attachment remains available/)).toBeVisible();
+  expect(await screen.findByText(/trace remains available through Download Trace/)).toBeVisible();
 });
 
-test("trace detail shows application availability and local artifact status", async () => {
+test("trace detail hides application availability and local artifact status", async () => {
   const traceWithAvailability: Trace = {
     ...trace,
     applicationAvailability: "AVAILABLE",
@@ -252,16 +236,14 @@ test("trace detail shows application availability and local artifact status", as
   };
   vi.mocked(getTraceDetail).mockResolvedValue(traceWithAvailability);
   render(<TraceDetailView />);
-  await vi.waitFor(() => {
-    expect(screen.getByText("AVAILABLE")).toBeInTheDocument();
-  });
-  expect(screen.getByText("Available")).toBeInTheDocument();
+  await screen.findByText("trace-1");
+  expect(screen.queryByText("AVAILABLE")).toBeNull();
+  expect(screen.queryByText("Local artifact")).toBeNull();
 });
 
-test("trace detail shows that local acquisition availability was not observed", async () => {
+test("trace detail hides unobserved acquisition availability", async () => {
   vi.mocked(getTraceDetail).mockResolvedValue(trace);
   render(<TraceDetailView />);
-  await vi.waitFor(() => {
-    expect(screen.getByText("Not observed locally")).toBeInTheDocument();
-  });
+  await screen.findByText("trace-1");
+  expect(screen.queryByText("Not observed locally")).toBeNull();
 });

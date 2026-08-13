@@ -50,7 +50,7 @@ function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
 }
 
 function renderRecord(current: TraceRecord) {
-  render(<TraceRecords traceId="trace-1" records={[current]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Action details" }));
 }
 

@@ -45,7 +45,7 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderRecord(value: TraceRecord) {
-  render(<TraceRecords traceId="trace-1" records={[value]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[value]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
 }
 
 beforeEach(() => getRawRecordRangeMock.mockReset());

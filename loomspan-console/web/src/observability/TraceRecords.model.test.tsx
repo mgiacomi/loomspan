@@ -46,7 +46,7 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderRecords(records: TraceRecord[]) {
-  render(<TraceRecords traceId="trace-1" records={records} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={records} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
 }
 
 beforeEach(() => {

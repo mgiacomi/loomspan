@@ -1,13 +1,13 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { getPayloadRange, getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRange } from "../api/contracts";
-import type { TraceAttempt, TraceFailure, TraceGap, TracePayload, TraceRecord, TraceRetry, TraceUncertainty, TraceValidation } from "../api/contracts";
+import type { TraceFailure, TraceRecord } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
 import { comparePlans, toPlanSnapshot } from "./planComparison";
 import type { PlanComparison, PlanSnapshot } from "./planComparison";
 
-type Props = { traceId?: string; records: TraceRecord[]; attempts: TraceAttempt[]; retries: TraceRetry[]; failures: TraceFailure[]; validations: TraceValidation[]; gaps: TraceGap[]; uncertainties: TraceUncertainty[]; payloads: TracePayload[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onPayload: (payloadId: string) => void };
+type Props = { traceId?: string; records: TraceRecord[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onPayload: (payloadId: string) => void };
 
 type PlanCacheEntry = {
   loading: boolean;
@@ -30,6 +30,23 @@ type RawCacheEntry = { loading: boolean; error?: string; json?: string };
 type StepDetail = { stepNumber: number; readyTasks: number; planStatus: string; skillName: string };
 type StepCacheEntry = { loading: boolean; error?: string; detail?: StepDetail };
 type StepActionKind = "proposed" | "validated" | "rejected";
+type RecordSeverity = "normal" | "warning" | "error";
+
+const warningRecordTypes = new Set([
+  "MODEL_ATTEMPT_FAILED",
+  "PLAN_VALIDATION_FAILED",
+  "PLAN_RETRY_REQUESTED",
+  "PLAN_QUALITY_WARNING",
+  "EVIDENCE_VALIDATION_FAILED",
+  "STEP_ACTION_REJECTED",
+]);
+
+const errorRecordTypes = new Set(["ERROR_RECORDED", "TOOL_CALL_FAILED"]);
+
+function recordSeverity(record: TraceRecord, linkedFailure?: TraceFailure): RecordSeverity {
+  if (linkedFailure || errorRecordTypes.has(record.type)) return "error";
+  return warningRecordTypes.has(record.type) ? "warning" : "normal";
+}
 type StepActionDetail = {
   kind: StepActionKind;
   skillName: string;
@@ -932,7 +949,7 @@ function PlanChanges({ comparison, previousSequence }: { comparison: PlanCompari
   </section>;
 }
 
-export function TraceRecords({ traceId, records, attempts, retries, failures, validations, gaps, uncertainties, payloads, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onPayload }: Props) {
+export function TraceRecords({ traceId, records, failures, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onPayload }: Props) {
   const related = onRelatedFrame ?? (() => undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cache, setCache] = useState<Record<string, PlanCacheEntry>>({});
@@ -942,6 +959,11 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
   const [stepActionCache, setStepActionCache] = useState<Record<string, StepActionCacheEntry>>({});
   const [recordDetailCache, setRecordDetailCache] = useState<Record<string, RecordDetailCacheEntry>>({});
   const [planView, setPlanView] = useState<"changes" | "full">("full");
+
+  useEffect(() => {
+    if (!selectedRecordSequence) return;
+    document.getElementById(`trace-record-${selectedRecordSequence}`)?.focus();
+  }, [records, selectedRecordSequence]);
 
   const handleTogglePlan = (record: TraceRecord) => {
     const seq = record.sequence;
@@ -1156,10 +1178,12 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
       const stepActionEntry = stepActionCache[key];
       const recordDetailEntry = recordDetailCache[key];
       const linkedFailure = failures.find((failure) => failure.sequence === record.sequence);
+      const severity = recordSeverity(record, linkedFailure);
+      const severityLabel = severity === "error" ? "Failure" : severity === "warning" ? "Retry or warning" : undefined;
       return (
         <Fragment key={record.sequence}>
-          <tr className={linkedFailure ? "trace-record-error" : undefined} aria-current={selectedRecordSequence === record.sequence ? "true" : undefined}>
-            <td><button type="button" onClick={() => onSelectRecord(record)}>{record.sequence}: {record.type}</button></td>
+          <tr className={severity === "normal" ? undefined : `trace-record-${severity}`} aria-label={severityLabel ? `${severityLabel}: record ${record.sequence}, ${record.type}` : undefined} aria-current={selectedRecordSequence === record.sequence ? "true" : undefined}>
+            <td><button id={`trace-record-${record.sequence}`} type="button" onClick={() => onSelectRecord(record)}>{record.sequence}: {record.type}</button></td>
             <td>{record.type}</td>
             <td>{record.frameId && <button type="button" onClick={() => related({ frameIds: [record.frameId] })}>{record.frameId}</button>}</td>
             <td>{record.timestampMillis}</td>
@@ -1305,23 +1329,5 @@ export function TraceRecords({ traceId, records, attempts, retries, failures, va
         </Fragment>
       );
     })}</tbody></table></div>
-    <h4>Attempts, retries, and validation</h4><ul>{attempts.map((attempt) => {
-      const linkedFailure = failures.find((failure) => failure.attemptId === attempt.attemptId);
-      const reason = attempt.attemptReason.toLowerCase().replaceAll("_", " ");
-      return <li key={attempt.attemptId}>
-        <button type="button" onClick={() => related({ attemptId: attempt.attemptId })}>{attempt.attemptId}</button>
-        {` (attempt ${attempt.attemptNumber}, ${reason}, provider ${attempt.providerAttemptNumber}) — ${attempt.outcome}`}
-        {attempt.failureCategory && `: ${attempt.failureCategory}`}
-        {attempt.retryDecision && `; ${attempt.retryDecision}`}
-        {attempt.retryDecision === "RETRY" && ` in ${attempt.retryDelayMillis} ms (${attempt.retryDelaySource})`}
-        {attempt.httpStatus ? `; HTTP ${attempt.httpStatus}` : ""}
-        {attempt.providerErrorType ? `; type ${attempt.providerErrorType}` : ""}
-        {attempt.payloadId && <button type="button" onClick={() => onPayload(attempt.payloadId!)}>Read failed-attempt payload</button>}
-        {linkedFailure && <button type="button" onClick={() => onSelectFailure(linkedFailure.failureId)}>Open linked failure</button>}
-        {!attempt.usageComplete && " — usage incomplete"}
-      </li>;
-    })}{retries.map((retry) => <li key={retry.retrySequenceId}><button type="button" onClick={() => related({ retrySequenceId: retry.retrySequenceId })}>Retry {retry.retrySequenceId}</button>{!retry.usageComplete && " — usage incomplete"}</li>)}{validations.map((validation) => <li key={`${validation.attemptId}-${validation.status}`}><button type="button" onClick={() => related({ validationStatus: validation.status, attemptId: validation.attemptId })}>{validation.status}: {validation.attemptId}</button></li>)}</ul>
-    <h4>Failures and uncertainty</h4><ul>{failures.map((failure) => <li key={failure.failureId}><button type="button" aria-pressed={selectedFailureId === failure.failureId} onClick={() => { onSelectFailure(failure.failureId); related({ failureId: failure.failureId }); }}>{failure.failureId}{failure.terminal && " (terminal)"}</button>{failure.attemptId && <button type="button" onClick={() => related({ attemptId: failure.attemptId })}>Open linked attempt</button>}</li>)}{gaps.map((gap, index) => <li key={`gap-${index}`}>{gap.kind}{gap.frameId && <>: <button type="button" onClick={() => related({ frameIds: [gap.frameId] })}>{gap.frameId}</button></>}</li>)}{uncertainties.map((uncertainty, index) => <li key={`uncertainty-${index}`}>{uncertainty.kind}{uncertainty.frameId && <>: <button type="button" onClick={() => related({ frameIds: [uncertainty.frameId] })}>{uncertainty.frameId}</button></>}</li>)}</ul>
-    <h4>Payloads</h4><ul>{payloads.map((payload) => <li key={payload.payloadId}><button type="button" onClick={() => onPayload(payload.payloadId)}>{payload.payloadId}</button> ({payload.contentType}, {payload.storeLength} bytes)</li>)}</ul>
   </div>;
 }

@@ -732,13 +732,103 @@ input,
   margin-block: 0.5rem;
 }
 
+.trace-timeline-chart {
+  position: relative;
+  min-inline-size: 0;
+}
+
 .trace-timeline-row svg {
+  display: block;
   inline-size: 100%;
   block-size: 1.5rem;
 }
 
 .trace-timeline-track { fill: var(--bf-border); }
-.trace-timeline-bar { fill: var(--bf-accent); stroke: var(--bf-text); }
+.trace-timeline-bar { stroke: var(--bf-text); }
+.trace-timeline-bar-normal { fill: var(--bf-accent); }
+.trace-timeline-bar-warning { fill: color-mix(in srgb, var(--bf-warning) 68%, #ffd7a1); }
+.trace-timeline-bar-error { fill: var(--bf-danger); }
+.trace-timeline-hit-target { fill: transparent; cursor: help; }
+
+.trace-timeline-tooltip {
+  position: absolute;
+  z-index: 10;
+  bottom: calc(100% + 0.35rem);
+  transform: translateX(-50%);
+  max-inline-size: min(24rem, 90vw);
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--bf-border-strong);
+  border-radius: var(--bf-radius);
+  background: var(--bf-text);
+  box-shadow: var(--bf-shadow-2);
+  color: var(--bf-surface);
+  font-family: var(--bf-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.trace-timeline-tooltip::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border: 0.35rem solid transparent;
+  border-top-color: var(--bf-text);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.trace-timeline-tooltip-warning { border-color: var(--bf-warning); }
+.trace-timeline-tooltip-error { border-color: var(--bf-danger); }
+
+.trace-usage-contributors {
+  margin-block-start: 1.25rem;
+}
+
+.trace-usage-contributors > h4 {
+  margin-block-end: 0.25rem;
+}
+
+.trace-usage-contributors > p {
+  margin-block: 0 0.75rem;
+  color: var(--bf-muted);
+  font-size: 0.8125rem;
+}
+
+.trace-usage-contributor-table caption {
+  text-align: start;
+}
+
+.trace-usage-contributor-table tbody th {
+  background: var(--bf-surface);
+  color: var(--bf-text);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+
+.trace-usage-contributor-table tbody th a {
+  color: var(--bf-accent-strong);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.trace-usage-contributor-table tbody th a:hover {
+  text-decoration-thickness: 0.14em;
+}
+
+.trace-usage-contributor-table td {
+  font-family: var(--bf-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .trace-table-region {
   max-inline-size: 100%;
@@ -781,6 +871,15 @@ input,
   border-left: 0.25rem solid var(--bf-danger);
 }
 
+.trace-table-region tr.trace-record-warning > td {
+  border-bottom-color: color-mix(in srgb, var(--bf-warning) 40%, var(--bf-border));
+  background: color-mix(in srgb, var(--bf-warning) 14%, var(--bf-surface));
+}
+
+.trace-table-region tr.trace-record-warning > td:first-child {
+  border-left: 0.25rem solid var(--bf-warning);
+}
+
 .trace-table-region tr:last-child td,
 .trace-explorer table tr:last-child td {
   border-bottom: 0;
@@ -811,10 +910,14 @@ input,
   }
   .trace-timeline-track { fill: Canvas; stroke: CanvasText; }
   .trace-timeline-bar { fill: Highlight; stroke: HighlightText; }
+  .trace-timeline-hit-target { fill: transparent; }
+  .trace-timeline-tooltip { border-color: CanvasText; background: Canvas; color: CanvasText; }
+  .trace-timeline-tooltip::after { border-top-color: CanvasText; }
   .trace-explorer [role="treeitem"][aria-selected="true"],
   .trace-explorer tr[aria-current="true"],
   .trace-timeline-row[aria-current="true"] { outline-color: Highlight; }
   .trace-failure-panel,
+  .trace-table-region tr.trace-record-warning > td,
   .trace-table-region tr.trace-record-error > td {
     border-color: CanvasText;
   }
@@ -1460,6 +1563,21 @@ input,
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+}
+
+.summary-action {
+  margin-inline-start: auto;
+}
+
+.trace-download-link {
+  color: var(--bf-accent-strong);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.trace-analysis-unavailable {
+  margin-block: 1rem;
 }
 
 .summary-status {

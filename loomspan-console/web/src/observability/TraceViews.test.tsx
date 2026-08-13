@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 import { TraceHierarchy } from "./TraceHierarchy";
 import { TraceTimeline } from "./TraceTimeline";
@@ -47,6 +48,33 @@ test("hierarchy and timeline select returned frames without recalculating them",
   expect(
     screen.getByRole("img", { name: "5 ms, self timing unavailable" }),
   ).toBeInTheDocument();
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+test("timeline bar tooltip formats readable and exact inclusive duration", () => {
+  render(
+    <TraceTimeline
+      frames={[{ ...frame, inclusiveDurationMillis: 119535 }]}
+      onSelect={vi.fn()}
+    />,
+  );
+  fireEvent.pointerEnter(document.querySelector('[data-frame-id="frame-1"]') as Element);
+  expect(screen.getByRole("tooltip")).toHaveTextContent(
+    "Duration: 1m 59.535s (119,535 ms)",
+  );
+  fireEvent.pointerLeave(document.querySelector('[data-frame-id="frame-1"]') as Element);
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+test("timeline bars expose retry warnings and failures with distinct states", () => {
+  const retry = { ...frame, frameId: "retry", frameType: "RETRY", route: "retry", openedTimestampMillis: 15, closedTimestampMillis: 20 };
+  const failed = { ...frame, frameId: "failed", route: "failed", openedTimestampMillis: 20, closedTimestampMillis: 25, outcomes: ["FAILED"], failureIds: ["failure-1"] };
+  render(<TraceTimeline frames={[frame, retry, failed]} onSelect={vi.fn()} />);
+  expect(document.querySelector('[data-frame-id="frame-1"]')?.previousElementSibling).toHaveClass("trace-timeline-bar-normal");
+  expect(document.querySelector('[data-frame-id="retry"]')?.previousElementSibling).toHaveClass("trace-timeline-bar-warning");
+  expect(document.querySelector('[data-frame-id="failed"]')?.previousElementSibling).toHaveClass("trace-timeline-bar-error");
+  expect(screen.getByRole("img", { name: /retry or warning/ })).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: /error or failure/ })).toBeInTheDocument();
+  fireEvent.pointerEnter(document.querySelector('[data-frame-id="failed"]') as Element);
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Error or failure");
 });
 test("hierarchy supports semantic expansion and parent keyboard navigation", () => {
   const child = {
@@ -101,7 +129,7 @@ test("timeline and selected-frame usage preserve unknown and incomplete returned
     "Selected frame direct (incomplete)",
   );
 });
-test("usage preserves returned values and records keep evidence actions deliberate", () => {
+test("usage preserves returned values and record-row evidence actions remain deliberate", () => {
   const payload = vi.fn();
   const selectRecord = vi.fn();
   const selectFailure = vi.fn();
@@ -137,31 +165,6 @@ test("usage preserves returned values and records keep evidence actions delibera
             payloadId: "payload-1",
           },
         ]}
-        attempts={[
-          {
-            retrySequenceId: "retry",
-            attemptId: "attempt",
-            attemptNumber: 1,
-            attemptReason: "INITIAL",
-            providerAttemptNumber: 1,
-            outcome: "FAILED",
-            failureClassification: "TRANSIENT",
-            failureCategory: "RATE_LIMITED",
-            retryDecision: "RETRY",
-            retryDelayMillis: 750,
-            retryDelaySource: "RETRY_AFTER",
-            payloadId: "payload-failed",
-            usage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
-            usageComplete: false,
-          },
-        ]}
-        retries={[
-          {
-            retrySequenceId: "retry",
-            usage: { promptUnits: 1, completionUnits: 0, totalUnits: 1 },
-            usageComplete: false,
-          },
-        ]}
         failures={[
           {
             failureId: "failure",
@@ -174,25 +177,6 @@ test("usage preserves returned values and records keep evidence actions delibera
             attemptId: "attempt",
             retrySequenceId: "retry",
             validationStatus: "",
-          },
-        ]}
-        validations={[
-          {
-            status: "VALID",
-            retrySequenceId: "retry",
-            attemptId: "attempt",
-            attemptNumber: 1,
-          },
-        ]}
-        gaps={[{ kind: "GAP", frameId: "", attemptId: "" }]}
-        uncertainties={[{ kind: "UNKNOWN", frameId: "" }]}
-        payloads={[
-          {
-            payloadId: "payload-2",
-            sequence: 1,
-            contentType: "text/plain",
-            chunkCount: 1,
-            storeLength: 3,
           },
         ]}
         onSelectRecord={selectRecord}
@@ -211,20 +195,10 @@ test("usage preserves returned values and records keep evidence actions delibera
   );
   expect(payload).toHaveBeenCalledWith("payload-1");
   fireEvent.click(screen.getByRole("button", { name: "1: PAYLOAD" }));
-  fireEvent.click(screen.getByRole("button", { name: "failure (terminal)" }));
   expect(selectRecord).toHaveBeenCalled();
-  expect(selectFailure).toHaveBeenCalledWith("failure");
-  fireEvent.click(screen.getByRole("button", { name: "payload-2" }));
-  expect(payload).toHaveBeenLastCalledWith("payload-2");
-  expect(
-    screen.getByText(/provider 1.*FAILED.*RATE_LIMITED.*RETRY in 750 ms/),
-  ).toBeInTheDocument();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Read failed-attempt payload" }),
-  );
-  expect(payload).toHaveBeenLastCalledWith("payload-failed");
-  fireEvent.click(screen.getByRole("button", { name: "Open linked failure" }));
-  expect(selectFailure).toHaveBeenLastCalledWith("failure");
+  expect(selectFailure).not.toHaveBeenCalled();
+  expect(screen.queryByText("payload-2")).toBeNull();
+  expect(screen.queryByText(/provider 1.*FAILED.*RATE_LIMITED/)).toBeNull();
 });
 test("evidence detail renders text inertly and exposes continuation", () => {
   const next = vi.fn();
@@ -316,34 +290,34 @@ test("usage compares only supported arithmetic facts and preserves zero and abse
     unframedAttributed: summary.unframedAttributedUsage,
     terminal: summary.terminalUsage,
   };
-  const select = vi.fn();
   const { rerender } = render(
     <TraceUsage
       usage={usage}
       summary={summary}
       contributors={[frame]}
-      onSelectFrame={select}
     />,
   );
   expect(
     screen.getByRole("region", { name: "Configured limit comparison" }),
   ).toBeInTheDocument();
   expect(
-    screen.getByRole("row", { name: /Model calls unavailable 4 unavailable/ }),
-  ).toBeInTheDocument();
-  expect(
-    screen.getByRole("row", { name: /Provider attempts 1 12 8.33%/ }),
+    screen.getByRole("row", { name: /Provider attempts 1 12 8%/ }),
   ).toBeInTheDocument();
   expect(
     screen.getByRole("row", { name: /Usage units 3 0 undefined/ }),
   ).toBeInTheDocument();
-  expect(
-    screen.getByRole("row", {
-      name: /Skill invocations unavailable 7 unavailable/,
-    }),
-  ).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "frame-1" }));
-  expect(select).toHaveBeenCalledWith("frame-1");
+  expect(screen.queryByText("Skill invocations")).toBeNull();
+  expect(screen.queryByText("Tool invocations")).toBeNull();
+  expect(screen.queryByText("Linter retries")).toBeNull();
+  expect(screen.queryByText("Model calls")).toBeNull();
+  const contributorsTable = screen.getByRole("table", { name: "Operations with directly attributed model usage" });
+  expect(contributorsTable).toHaveTextContent("OperationPromptCompletionTotalShare of trace");
+  expect(contributorsTable).toHaveTextContent("hello");
+  expect(contributorsTable).not.toHaveTextContent("frame-1");
+  expect(contributorsTable).toHaveTextContent("67%");
+  expect(contributorsTable).not.toHaveTextContent("Descendants");
+  expect(contributorsTable).not.toHaveTextContent("Inclusive");
+  expect(screen.queryByRole("button", { name: "hello" })).toBeNull();
   rerender(
     <TraceUsage
       usage={usage}
@@ -357,4 +331,76 @@ test("usage compares only supported arithmetic facts and preserves zero and abse
   expect(
     screen.getByText(/Monetary cost is not calculated/),
   ).toBeInTheDocument();
+});
+
+test("usage contributors show only non-overlapping direct consumption ordered by total", () => {
+  const usage = {
+    targetScopeId: "scope-1",
+    attributed: { promptUnits: 10, completionUnits: 5, totalUnits: 15 },
+    unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+    unframedAttributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+    terminal: { promptUnits: 10, completionUnits: 5, totalUnits: 15 },
+  };
+  const structural = { ...frame, frameId: "root", route: "handleIncident", directUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, descendantUsage: usage.attributed, inclusiveUsage: usage.attributed };
+  const smaller = { ...frame, frameId: "smaller", route: "handleIncident#planning-model", directUsage: { promptUnits: 2, completionUnits: 1, totalUnits: 3 }, inclusiveUsage: { promptUnits: 2, completionUnits: 1, totalUnits: 3 } };
+  const larger = { ...frame, frameId: "larger", route: "handleIncident#step-2-model", directUsage: { promptUnits: 8, completionUnits: 4, totalUnits: 12 }, inclusiveUsage: { promptUnits: 8, completionUnits: 4, totalUnits: 12 } };
+  render(<TraceUsage usage={usage} contributors={[structural, smaller, larger]} />);
+  const table = screen.getByRole("table", { name: "Operations with directly attributed model usage" });
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toHaveTextContent("handleIncident · step 2 · model");
+  expect(rows[0]).toHaveTextContent("80%");
+  expect(rows[1]).toHaveTextContent("handleIncident · planning · model");
+  expect(table).not.toHaveTextContent("root");
+});
+
+test("usage percentages round half up to whole numbers", () => {
+  render(
+    <TraceUsage
+      usage={{
+        targetScopeId: "scope-1",
+        attributed: { promptUnits: 1, completionUnits: 0, totalUnits: 1 },
+        unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+        unframedAttributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+        terminal: { promptUnits: 8, completionUnits: 0, totalUnits: 8 },
+      }}
+      contributors={[{ ...frame, directUsage: { promptUnits: 1, completionUnits: 0, totalUnits: 1 } }]}
+    />,
+  );
+  expect(screen.getByRole("table", { name: "Operations with directly attributed model usage" })).toHaveTextContent("13%");
+});
+
+test("usage distinguishes repeated operations by chronological call number", () => {
+  const usage = {
+    targetScopeId: "scope-1",
+    attributed: { promptUnits: 5, completionUnits: 5, totalUnits: 10 },
+    unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+    unframedAttributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+    terminal: { promptUnits: 5, completionUnits: 5, totalUnits: 10 },
+  };
+  const firstCall = { ...frame, frameId: "first", route: "handleIncident#planning-model", openedTimestampMillis: 10, directUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 } };
+  const secondCall = { ...frame, frameId: "second", route: "handleIncident#planning-model", openedTimestampMillis: 20, directUsage: { promptUnits: 3, completionUnits: 3, totalUnits: 6 } };
+  render(<TraceUsage usage={usage} contributors={[firstCall, secondCall]} />);
+  const rows = Array.from(screen.getByRole("table", { name: "Operations with directly attributed model usage" }).querySelectorAll("tbody tr"));
+  expect(rows[0]).toHaveTextContent("handleIncident · planning · model · call 2 of 2");
+  expect(rows[1]).toHaveTextContent("handleIncident · planning · model · call 1 of 2");
+});
+
+test("usage operation links identify the exact model response record", () => {
+  const usage = {
+    targetScopeId: "scope-1",
+    attributed: { promptUnits: 2, completionUnits: 2, totalUnits: 4 },
+    unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+    unframedAttributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
+    terminal: { promptUnits: 2, completionUnits: 2, totalUnits: 4 },
+  };
+  const contributor = { ...frame, frameId: "model-frame", route: "handleIncident#planning-model", directUsage: usage.attributed };
+  const response = { sequence: 23, type: "MODEL_RESPONSE_RECEIVED", frameId: "model-frame", parentFrameId: "root", frameType: "MODEL_CALL", route: contributor.route, threadName: "main", timestampMillis: 20, representation: "LOGICAL", isChunk: false, isEnvelope: false, payloadId: "response-payload" };
+
+  const recordHref = (record: typeof response) => `?view=records&frameId=${record.frameId}&recordSequence=${record.sequence}`;
+  const { rerender } = render(<MemoryRouter><TraceUsage usage={usage} contributors={[contributor]} responseRecords={[response]} recordHref={recordHref} /></MemoryRouter>);
+
+  expect(screen.getByRole("link", { name: "handleIncident · planning · model" })).toHaveAttribute("href", "/?view=records&frameId=model-frame&recordSequence=23");
+  rerender(<MemoryRouter><TraceUsage usage={usage} contributors={[contributor]} responseRecords={[response, { ...response, sequence: 24 }]} recordHref={recordHref} /></MemoryRouter>);
+  expect(screen.queryByRole("link", { name: "handleIncident · planning · model" })).toBeNull();
 });

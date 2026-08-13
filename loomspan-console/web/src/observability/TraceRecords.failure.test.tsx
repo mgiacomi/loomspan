@@ -33,21 +33,16 @@ function record(sequence: number, type: string): TraceRecord {
   };
 }
 
-test("highlights the exact failure record and provides a view-error action", () => {
+test("distinguishes recoverable warnings from failure records and removes detached fact indexes", () => {
   const selectFailure = vi.fn();
   render(
     <TraceRecords
       records={[
         record(14, "MODEL_ATTEMPT_FAILED"),
         record(15, "ERROR_RECORDED"),
+        record(16, "PLAN_VALIDATION_FAILED"),
       ]}
-      attempts={[]}
-      retries={[]}
       failures={[failure]}
-      validations={[]}
-      gaps={[]}
-      uncertainties={[]}
-      payloads={[]}
       selectedFailureId="failure-15"
       onSelectRecord={vi.fn()}
       onSelectFailure={selectFailure}
@@ -61,8 +56,17 @@ test("highlights the exact failure record and provides a view-error action", () 
   const attemptRow = screen
     .getByRole("button", { name: "14: MODEL_ATTEMPT_FAILED" })
     .closest("tr");
+  const badPlanRow = screen
+    .getByRole("button", { name: "16: PLAN_VALIDATION_FAILED" })
+    .closest("tr");
   expect(errorRow).toHaveClass("trace-record-error");
-  expect(attemptRow).not.toHaveClass("trace-record-error");
+  expect(errorRow).toHaveAccessibleName("Failure: record 15, ERROR_RECORDED");
+  expect(attemptRow).toHaveClass("trace-record-warning");
+  expect(badPlanRow).toHaveClass("trace-record-warning");
+  expect(attemptRow).toHaveAccessibleName("Retry or warning: record 14, MODEL_ATTEMPT_FAILED");
+  expect(screen.queryByRole("heading", { name: "Attempts, retries, and validation" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Failures and uncertainty" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Payloads" })).toBeNull();
 
   const action = screen.getByRole("button", { name: "View error" });
   expect(action).toHaveAttribute("aria-pressed", "true");

@@ -5,7 +5,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 const api = vi.hoisted(() => ({
   BrowserAPIError: class BrowserAPIError extends Error { constructor(readonly code: string, message: string) { super(message); } },
   getTraceAnalysisSummary: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "FAILED", terminalFailureId: null, recordCount: 1, frameCount: 1, rootFrameIds: ["f-1"], usageComplete: false }),
-  getTraceFrames: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: null, selfDurationMillis: null }], hasMore: false, nextCursor: null }),
+  getTraceFrames: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: null, selfDurationMillis: null, directUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, directUsageComplete: true, descendantUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, descendantUsageComplete: true, inclusiveUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, inclusiveUsageComplete: true, outcomes: [], attemptIds: [], retrySequenceIds: [], validationStatuses: [], failureIds: [] }], hasMore: false, nextCursor: null }),
   getTraceRecords: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", items: [{ sequence: 1, type: "PAYLOAD", frameId: "f-1", route: "hello", timestampMillis: 1, representation: "LOGICAL", payloadId: "p-1" }], hasMore: false, nextCursor: null }),
   getTraceUsage: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", attributed: { totalUnits: 4 } }),
   getTraceAttempts: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
@@ -44,6 +44,28 @@ test("loads hierarchy and deliberately reads inert evidence", async () => {
   expect(screen.queryByRole("link", { name: "x" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
   await screen.findByLabelText("Usage facts");
+});
+
+test("usage operations deep-link to and focus their exact model response record", async () => {
+  const rootFrame = { frameId: "root", parentFrameId: null, childFrameIds: ["model-frame"], frameType: "SKILL", route: "handleIncident", openedTimestampMillis: 1, closedTimestampMillis: 30, inclusiveDurationMillis: 29, selfDurationMillis: 1, directUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, directUsageComplete: true, descendantUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 }, descendantUsageComplete: true, inclusiveUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 }, inclusiveUsageComplete: true, outcomes: [], attemptIds: [], retrySequenceIds: [], validationStatuses: [], failureIds: [] };
+  const modelFrame = { ...rootFrame, frameId: "model-frame", parentFrameId: "root", childFrameIds: [], frameType: "MODEL_CALL", route: "handleIncident#planning-model", openedTimestampMillis: 10, closedTimestampMillis: 20, directUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 }, descendantUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, inclusiveUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 } };
+  const response = { sequence: 23, type: "MODEL_RESPONSE_RECEIVED", frameId: "model-frame", route: modelFrame.route, timestampMillis: 20, representation: "LOGICAL", payloadId: "response-payload" };
+  const page = (items: unknown[], hasMore = false, nextCursor: string | null = null) => ({ targetScopeId: "scope-1", items, hasMore, nextCursor });
+  api.getTraceFrames.mockResolvedValueOnce(page([rootFrame])).mockResolvedValueOnce(page([modelFrame]));
+  api.getTraceUsage.mockResolvedValueOnce({ targetScopeId: "scope-1", attributed: modelFrame.directUsage, unattributed: rootFrame.directUsage, unframedAttributed: rootFrame.directUsage, terminal: modelFrame.directUsage });
+  api.getTraceRecords.mockResolvedValueOnce(page([], true, "responses-next")).mockResolvedValueOnce(page([response])).mockResolvedValueOnce(page([response]));
+
+  render(<MemoryRouter initialEntries={["/?view=usage"]}><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
+  const operation = await screen.findByRole("link", { name: "handleIncident · planning · model" });
+  fireEvent.click(operation);
+
+  await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("view=records"));
+  expect(screen.getByLabelText("location")).toHaveTextContent("frameId=model-frame");
+  expect(screen.getByLabelText("location")).toHaveTextContent("recordSequence=23");
+  const selectedResponse = await screen.findByRole("button", { name: "23: MODEL_RESPONSE_RECEIVED" });
+  await vi.waitFor(() => expect(selectedResponse).toHaveFocus());
+  expect(api.getTraceRecords).toHaveBeenCalledWith("trace-1", undefined, { types: ["MODEL_RESPONSE_RECEIVED"] });
+  expect(api.getTraceRecords).toHaveBeenCalledWith("trace-1", "responses-next", { types: ["MODEL_RESPONSE_RECEIVED"] });
 });
 
 test("continues a finite payload range using the returned opaque cursor", async () => {
@@ -124,36 +146,20 @@ test("response scope mismatch clears explorer selection and refreshes target", a
   expect(screen.getByLabelText("location")).not.toHaveTextContent("failureId");
 });
 
-test("all fact collections expose and consume their own continuations", async () => {
-  const page = (items: unknown[], hasMore: boolean, nextCursor: string | null) => ({ targetScopeId: "scope-1", items, hasMore, nextCursor });
-  api.getTraceAttempts.mockResolvedValueOnce(page([], true, "attempts-next")).mockResolvedValueOnce(page([{ retrySequenceId: "retry", attemptId: "attempt-2", attemptNumber: 2, attemptReason: "PROVIDER_RETRY", providerAttemptNumber: 2, outcome: "SUCCEEDED", retryDelayMillis: 0, usage: { promptUnits: 1, completionUnits: 1, totalUnits: 2 }, usageComplete: true }], false, null));
-  api.getTraceRetries.mockResolvedValueOnce(page([], true, "retries-next"));
-  api.getTraceFailures.mockResolvedValueOnce(page([], true, "failures-next"));
-  api.getTraceValidationLinks.mockResolvedValueOnce(page([], true, "validations-next"));
-  api.getTraceGaps.mockResolvedValueOnce(page([], true, "gaps-next"));
-  api.getTraceUncertainties.mockResolvedValueOnce(page([], true, "uncertainties-next"));
-  api.getTracePayloads.mockResolvedValueOnce(page([], true, "payloads-next"));
+test("records omit detached fact indexes and do not load their collections", async () => {
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
-  await screen.findByRole("button", { name: "Load more attempts" });
-  for (const label of ["retries", "failures", "validation links", "gaps", "uncertainties", "payloads"]) {
-    expect(screen.getByRole("button", { name: `Load more ${label}` })).toBeInTheDocument();
-  }
-  fireEvent.click(screen.getByRole("button", { name: "Load more attempts" }));
-  for (const label of ["retries", "failures", "validation links", "gaps", "uncertainties", "payloads"]) {
-    fireEvent.click(screen.getByRole("button", { name: `Load more ${label}` }));
-  }
-  await screen.findByRole("button", { name: "attempt-2" });
-  expect(api.getTraceAttempts).toHaveBeenLastCalledWith("trace-1", "attempts-next");
-  await vi.waitFor(() => {
-    expect(api.getTraceRetries).toHaveBeenLastCalledWith("trace-1", "retries-next");
-    expect(api.getTraceFailures).toHaveBeenLastCalledWith("trace-1", "failures-next");
-    expect(api.getTraceValidationLinks).toHaveBeenLastCalledWith("trace-1", "validations-next");
-    expect(api.getTraceGaps).toHaveBeenLastCalledWith("trace-1", "gaps-next");
-    expect(api.getTraceUncertainties).toHaveBeenLastCalledWith("trace-1", "uncertainties-next");
-    expect(api.getTracePayloads).toHaveBeenLastCalledWith("trace-1", "payloads-next");
-  });
+  await screen.findByRole("heading", { name: "Records" });
+  expect(screen.queryByRole("heading", { name: "Attempts, retries, and validation" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Failures and uncertainty" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Payloads" })).toBeNull();
+  expect(api.getTraceAttempts).not.toHaveBeenCalled();
+  expect(api.getTraceRetries).not.toHaveBeenCalled();
+  expect(api.getTraceValidationLinks).not.toHaveBeenCalled();
+  expect(api.getTraceGaps).not.toHaveBeenCalled();
+  expect(api.getTraceUncertainties).not.toHaveBeenCalled();
+  expect(api.getTracePayloads).not.toHaveBeenCalled();
 });
 
 test("failure deep links continue pages until the selected fact is found", async () => {
@@ -161,7 +167,7 @@ test("failure deep links continue pages until the selected fact is found", async
     .mockResolvedValueOnce({ targetScopeId: "scope-1", items: [], hasMore: true, nextCursor: "failures-next" })
     .mockResolvedValueOnce({ targetScopeId: "scope-1", items: [{ failureId: "failure-late", terminal: false }], hasMore: false, nextCursor: null });
   render(<MemoryRouter initialEntries={["/?view=records&failureId=failure-late"]}><TraceExplorer traceId="trace-1" /></MemoryRouter>);
-  await screen.findByRole("button", { name: "failure-late" });
+  await screen.findByRole("heading", { name: "Recovered failure" });
   expect(api.getTraceFailures).toHaveBeenLastCalledWith("trace-1", "failures-next");
 });
 

@@ -32,7 +32,7 @@ function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
 }
 
 function renderRecord(current: TraceRecord, onSelectRecord = vi.fn(), onSelectFailure = vi.fn()) {
-  render(<TraceRecords traceId="trace-1" records={[current]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={onSelectRecord} onSelectFailure={onSelectFailure} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={onSelectRecord} onSelectFailure={onSelectFailure} onPayload={vi.fn()} />);
   return onSelectRecord;
 }
 

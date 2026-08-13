@@ -42,7 +42,7 @@ function range(content: string): TraceRange {
 }
 
 function renderStep() {
-  render(<TraceRecords traceId="trace-1" records={[stepRecord]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[stepRecord]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
 }
 
 beforeEach(() => getRawRecordRangeMock.mockReset());

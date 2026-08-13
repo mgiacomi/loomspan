@@ -1,7 +1,8 @@
+import type { ReactNode } from "react";
 import type { Trace } from "../api/contracts";
 import { formatDateTime } from "../activity/activityPresentation";
 
-export function TraceSummary({ trace }: { trace: Trace }) {
+export function TraceSummary({ trace, action }: { trace: Trace; action?: ReactNode }) {
   return (
     <div className="trace-summary" aria-label="Finalized trace summary">
       <div className="summary-header">
@@ -11,6 +12,7 @@ export function TraceSummary({ trace }: { trace: Trace }) {
         <span className="summary-finalized">
           Finalized {formatDateTime(trace.finalizedAt)}
         </span>
+        {action && <span className="summary-action">{action}</span>}
       </div>
       <dl className="summary-facts">
         <div className="summary-fact">

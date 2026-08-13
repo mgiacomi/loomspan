@@ -56,7 +56,7 @@ function page(items: TraceRecord[], overrides: Partial<TraceAnalysisPage<TraceRe
 }
 
 function renderToolInput(current = record()) {
-  render(<TraceRecords traceId="trace-1" records={[current]} attempts={[]} retries={[]} failures={[]} validations={[]} gaps={[]} uncertainties={[]} payloads={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
 }
 
 beforeEach(() => {
