@@ -111,7 +111,8 @@ func writeDomainError(response http.ResponseWriter, domain *consolecore.Error) {
 		status = http.StatusForbidden
 	case consolecore.CodeNotFound:
 		status = http.StatusNotFound
-	case consolecore.CodeIncompatibleTarget, consolecore.CodeTargetChanged, consolecore.CodeStaleCursor,
+	case consolecore.CodeIncompatibleTarget, consolecore.CodeIncompatibleArtifact,
+		consolecore.CodeArtifactAlreadyExists, consolecore.CodeTargetChanged, consolecore.CodeStaleCursor,
 		consolecore.CodeArtifactExpired, consolecore.CodeArtifactInUse, consolecore.CodeLiveMonitoringUnavailable:
 		status = http.StatusConflict
 	case consolecore.CodeInvalidArtifact:

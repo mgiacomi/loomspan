@@ -282,9 +282,9 @@ via ARIA live regions. The SSE decoder handles split UTF-8 chunks
 incrementally and validates event names against the `loomspan.activity` and
 `console.*` namespaces.
 
-## Artifact cache and raw download
+## Artifact cache, saving, and opening trace files
 
-Console maintains a local artifact cache beneath the verified workspace
+Console maintains one local evidence cache beneath the verified workspace
 `transient/` subtree. Acquiring a trace artifact downloads the finalized
 NDJSON trace from the upstream application, validates it through the trace
 analysis processor, and installs one randomly named immutable bundle directory
@@ -297,7 +297,7 @@ removal until the last lease closes.
 ### Capacity and eviction
 
 The `trace-workspace.max-bytes` setting bounds the aggregate bytes charged
-across all partial reservations and complete installed bundles. The charged
+across target and imported partial reservations and complete installed bundles. The charged
 byte count for one entry is the sum of its raw artifact bytes and all derived
 component bytes. When the cache is full, expired unused entries are evicted
 first, followed by least-recently-successfully-used (LRU) unpinned entries.
@@ -315,28 +315,32 @@ cleanup.
 
 ### Lifecycle and cleanup
 
-All local artifacts are bound to their acquiring target scope. When the
-target scope rotates (new target selected, credential replaced, or instance
-identity changes), every entry for the prior scope is invalidated and its
-installed bundle directory is removed. On process shutdown the entire
+Each local artifact is explicitly labeled `TARGET` or `IMPORTED`. Target
+entries are bound to their acquiring target scope, and rotation invalidates
+only entries for the prior scope. Imported entries use one process-local owner
+and remain available across target rotation. On process shutdown the entire
 `transient/` subtree is cleaned. On restart, any prior-process bundle
 directories beneath `transient/` are removed before the workspace is served;
 no prior-process cache metadata is adopted.
 
 ### Handles and paths
 
-Artifact handles are opaque, process-local, and scope-bound identifiers.
+Artifact handles are opaque, process-local, and evidence-owner-bound identifiers.
 They are never durable across restarts, never shared between processes, and
 never derived from filesystem paths. Local filesystem paths never appear in
 handles, browser DTOs, HTTP headers, error messages, fixtures, or logs.
 
 ### Browser API operations
 
-The browser API exposes five artifact operations:
+The browser API exposes six artifact operations:
 
 - **Acquire** (`POST /api/console/v1/artifacts/acquire`) — installs or joins
   an existing local copy for a trace ID. Returns the opaque handle, local
   byte count, and expiry facts. Requires session cookie, tab ID, and CSRF.
+- **Import** (`POST /api/console/v1/artifacts/import`) — accepts one raw
+  `application/x-ndjson` request body, validates the complete trace through the
+  same processor, and installs it as `IMPORTED` evidence. It requires session,
+  tab, and CSRF authentication and accepts no multipart metadata or query.
 - **Storage snapshot** (`POST /api/console/v1/artifacts/storage`) — returns a
   side-effect-free view of the cache including charged bytes, entry count,
   and per-entry metadata. Requires session cookie only (no CSRF).
@@ -349,9 +353,9 @@ The browser API exposes five artifact operations:
   removes all unused entries regardless of expiry. Pinned entries are
   preserved. Requires session cookie, tab ID, and CSRF.
 
-### Raw download
+### Save and open trace files
 
-A **raw download** (`GET /api/console/v1/artifacts/{traceId}/raw`) streams a
+**Save trace file** uses `GET /api/console/v1/artifacts/{traceId}/raw` to stream a
 finalized trace artifact directly from the upstream application without
 consulting or mutating the local cache. It requires a valid `SameSite=Strict`
 session cookie and exact Host match but no CSRF token. Cross-site and
@@ -363,6 +367,23 @@ rejected. The response is
 filename and `no-store` cache control. Raw download is separate from
 analysis acquisition: it never installs, handles, pins, or charges bytes,
 and it performs a fresh authenticated upstream stream each time.
+
+**Open trace file** streams the selected file directly from the browser to the
+import route; React does not parse it or load it through `FileReader`. A file is
+portable only when its first `TRACE_STARTED` record has the exact same nonblank
+`consoleCompatibilityVersion` as Console. Two `development` values are allowed
+only as a best-effort current-checkout match; released/development pairs and
+unequal releases are rejected. The request ceiling is 4 GiB, further reduced
+by a finite `trace-workspace.max-bytes`. Derived indexes share that same global
+capacity, so an otherwise valid raw file can still fail installation. Importing
+the same trace ID twice in one Console process returns
+`ARTIFACT_ALREADY_EXISTS`; it never replaces the installed copy.
+
+Saved trace files may contain sensitive diagnostics, tool arguments, stack
+text, and application paths. The compatibility marker establishes reader
+compatibility only—not authenticity, integrity, or provenance. Imported copies,
+handles, indexes, and cursors remain transient and are discarded at shutdown
+or restart.
 
 ### Trace enrichment
 

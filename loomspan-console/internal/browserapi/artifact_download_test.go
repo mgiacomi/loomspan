@@ -15,6 +15,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/browserauth"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 )
@@ -868,6 +869,7 @@ func TestArtifactJSONRoutesRejectMethodBodyAndScopeVariants(t *testing.T) {
 func TestAcquireAndStorageSnapshotReturnOpaquePathFreeDTOs(t *testing.T) {
 	fake := &fakeArtifactService{
 		acquireResult: artifact.AcquiredArtifact{
+			Owner:      evidence.Target(target.ScopeID("scope-1")),
 			Handle:     artifact.Handle("opaque-handle-abc"),
 			Metadata:   artifact.TraceMetadata{TraceID: "trace-1", SessionID: "s-1", Outcome: "SUCCEEDED"},
 			LocalBytes: 100,
@@ -921,11 +923,10 @@ func TestAcquireAndStorageSnapshotReturnOpaquePathFreeDTOs(t *testing.T) {
 	if strings.Contains(body, "transient") || strings.Contains(body, "C:\\") || strings.Contains(body, "/tmp/") {
 		t.Fatalf("storage response leaked filesystem path: %s", body)
 	}
-	// The storage snapshot DTO must carry the current target scope ID so the
-	// TypeScript StorageSnapshot contract (which declares targetScopeId as a
-	// required field) is satisfied by the real backend response.
-	if !strings.Contains(body, `"targetScopeId":"scope-1"`) {
-		t.Fatalf("storage response missing targetScopeId: %s", body)
+	// Storage is global across target and imported evidence; each row identifies
+	// its own source instead of publishing one snapshot-level target scope.
+	if !strings.Contains(body, `"source":"TARGET"`) || strings.Contains(body, `"targetScopeId":"scope-1","workspaceLabel"`) {
+		t.Fatalf("storage response does not use row-level evidence ownership: %s", body)
 	}
 }
 
@@ -989,6 +990,8 @@ func artifactStorageSnapshotForTest() artifact.StorageSnapshot {
 		AcquiredCount:  1,
 		Entries: []artifact.StoredEntry{
 			{
+				Source:                  evidence.SourceTarget,
+				TargetScopeID:           "scope-1",
 				TraceID:                 "trace-1",
 				SessionID:               "s-1",
 				Outcome:                 "SUCCEEDED",

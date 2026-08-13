@@ -22,6 +22,7 @@ import type {
   TraceSearchResult,
   TraceUsage as Usage,
   SkillSummary,
+	TraceSource,
 } from "../api/contracts";
 import { useTarget } from "../target/TargetProvider";
 import { TraceEvidenceDetail } from "./TraceEvidenceDetail";
@@ -46,7 +47,7 @@ function mergeFrames(current: TraceAnalysisPage<TraceFrame> | undefined, added: 
   return { ...current, items: [...current.items, ...added.filter((frame) => !known.has(frame.frameId))] };
 }
 
-export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: string; onArtifactUnavailable?: (error: BrowserAPIError) => void }) {
+export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailable }: { traceId: string; source?: TraceSource; onArtifactUnavailable?: (error: BrowserAPIError) => void }) {
   const { target, scopeGeneration, refresh } = useTarget();
   const [params, setParams] = useSearchParams();
   const setParamsRef = useRef(setParams);
@@ -71,14 +72,23 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   const select = useCallback((values: Record<string, string | number | undefined>) => {
     setParamsRef.current((current) => setTraceExplorerSelection(current, values), { replace: true });
   }, []);
-  const verifyScope = useCallback(async <T extends { targetScopeId: string }>(response: T) => {
-    if (!response.targetScopeId || response.targetScopeId !== currentScopeID) {
+	const verifyImportedResponse = useCallback(async <T extends { source: TraceSource; targetScopeId?: string }>(response: T) => {
+		if (response.source !== "IMPORTED" || response.targetScopeId) {
+			setScopeMismatch(true);
+			select({ frameId: undefined, recordSequence: undefined, failureId: undefined });
+		}
+		return response;
+	}, [select]);
+	const verifyTargetResponse = useCallback(async <T extends { source: TraceSource; targetScopeId?: string }>(response: T) => {
+		if (response.source !== "TARGET" || !response.targetScopeId || response.targetScopeId !== currentScopeID) {
       setScopeMismatch(true);
       select({ frameId: undefined, recordSequence: undefined, failureId: undefined });
     }
-    await requireCurrentTargetScope(response.targetScopeId, currentScopeID, refresh);
+		await requireCurrentTargetScope(response.targetScopeId ?? "", currentScopeID, refresh);
     return response;
-  }, [currentScopeID, refresh, select]);
+	}, [currentScopeID, refresh, select]);
+	const verifyScope = source === "TARGET" ? verifyTargetResponse : verifyImportedResponse;
+	const evidenceScopeKey = source === "TARGET" ? currentScopeID : "";
   const reportError = useCallback((value: unknown, artifactLookup = false) => {
     const normalized = value instanceof Error ? value : new Error("The trace evidence could not be loaded.");
     const browserError = normalized instanceof BrowserAPIError || "code" in normalized ? normalized as BrowserAPIError : undefined;
@@ -102,7 +112,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     if (!state.valid) select({ view: undefined, frameId: undefined, recordSequence: undefined, failureId: undefined });
   }, [select, state.valid]);
   useEffect(() => {
-    if (!state.valid || !currentScopeID) return;
+		if (!state.valid || (source === "TARGET" && !currentScopeID)) return;
     let stopped = false;
     setSummary(undefined);
     setFrames(undefined);
@@ -117,23 +127,23 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     setRangeRequest(undefined);
     setError(undefined);
     setScopeMismatch(false);
-    Promise.all([getTraceAnalysisSummary(traceId).then(verifyScope), getTraceFrames(traceId).then(verifyScope)])
+		Promise.all([getTraceAnalysisSummary(traceId, source).then(verifyScope), getTraceFrames(traceId, undefined, {}, "CANONICAL", source).then(verifyScope)])
       .then(([summaryResult, framePage]) => { if (!stopped) { setSummary(summaryResult); setFrames(framePage); } })
       .catch((value) => { if (!stopped) reportError(value, true); });
     return () => { stopped = true; };
-  }, [currentScopeID, reportError, scopeGeneration, state.valid, traceId, verifyScope]);
+	}, [evidenceScopeKey, reportError, source === "TARGET" ? scopeGeneration : 0, state.valid, traceId, verifyScope, source]);
 
   const loadRecords = useCallback(() => {
     if (scopeMismatch || records || pending.has("record-facts")) return;
     begin("record-facts");
     Promise.all([
-      getTraceRecords(traceId).then(verifyScope),
-      getTraceFailures(traceId).then(verifyScope),
+      getTraceRecords(traceId, undefined, {}, source).then(verifyScope),
+      getTraceFailures(traceId, undefined, source).then(verifyScope),
     ]).then(([recordPage, failurePage]) => {
       setRecords(recordPage);
       setFailures(failurePage);
     }).catch((value) => reportError(value, true)).finally(() => end("record-facts"));
-  }, [pending, records, reportError, scopeMismatch, traceId, verifyScope]);
+  }, [pending, records, reportError, scopeMismatch, source, traceId, verifyScope]);
   const loadUsage = useCallback(() => {
     if (!scopeMismatch && !usage && !pending.has("usage")) {
       begin("usage");
@@ -141,15 +151,15 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
         const items: TraceRecord[] = [];
         let cursor: string | undefined;
         do {
-          const page = await getTraceRecords(traceId, cursor, { types: ["MODEL_RESPONSE_RECEIVED"] }).then(verifyScope);
+          const page = await getTraceRecords(traceId, cursor, { types: ["MODEL_RESPONSE_RECEIVED"] }, source).then(verifyScope);
           items.push(...page.items);
           cursor = page.hasMore && page.nextCursor ? page.nextCursor : undefined;
         } while (cursor);
         return items;
       };
       void Promise.all([
-        getTraceUsage(traceId).then(verifyScope),
-        getTraceFrames(traceId, undefined, {}, "USAGE_DESC").then(verifyScope),
+        getTraceUsage(traceId, source).then(verifyScope),
+        getTraceFrames(traceId, undefined, {}, "USAGE_DESC", source).then(verifyScope),
         loadResponseRecords(),
       ]).then(([usageResult, contributorPage, responseRecords]) => {
         setUsage(usageResult);
@@ -157,7 +167,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
         setUsageResponseRecords(responseRecords);
       }).catch((value) => reportError(value, true)).finally(() => end("usage"));
     }
-  }, [pending, reportError, scopeMismatch, traceId, usage, verifyScope]);
+  }, [pending, reportError, scopeMismatch, source, traceId, usage, verifyScope]);
   useEffect(() => {
     if (!summary) return;
     if (state.view === "records") loadRecords();
@@ -170,7 +180,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   useEffect(() => {
     if (!summary || !effectiveFailureId || failures || scopeMismatch || state.view === "records") return;
     begin("failure-focus");
-    void getTraceFailures(traceId).then(verifyScope).then(setFailures)
+    void getTraceFailures(traceId, undefined, source).then(verifyScope).then(setFailures)
       .catch((value) => reportError(value, true)).finally(() => end("failure-focus"));
   }, [effectiveFailureId, failures, reportError, scopeMismatch, state.view, summary, traceId, verifyScope]);
 
@@ -181,7 +191,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
       ?? usageFrames?.items.find((item) => item.frameId === frameId);
     select({ frameId, failureId: frame?.failureIds?.[0] });
   }, [frames, select, usageFrames]);
-  useEffect(() => setRegisteredSkills(undefined), [scopeGeneration, selectedFrame?.frameId]);
+	useEffect(() => setRegisteredSkills(undefined), [source === "TARGET" ? scopeGeneration : 0, selectedFrame?.frameId, source]);
   useEffect(() => {
     if (effectiveFailureId && selectedFailure?.frameId && selectedFailure.frameId !== state.frameId) {
       select({ frameId: selectedFailure.frameId, failureId: effectiveFailureId });
@@ -189,14 +199,19 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   }, [effectiveFailureId, select, selectedFailure, state.frameId]);
 
   useEffect(() => {
-    const names = selectedFrame?.skillNames ?? [];
-    if (names.length === 0 || registeredSkills || scopeMismatch) return;
+	const names = selectedFrame?.skillNames ?? [];
+	if (names.length === 0 || registeredSkills || scopeMismatch) return;
+	if (source === "IMPORTED") {
+		setRegisteredSkills(new Set());
+		return;
+	}
     let stopped = false;
     const load = async () => {
       const found = new Set<string>();
       let cursor: string | undefined;
       do {
-        const page = await listSkills(cursor, 100).then(verifyScope);
+		const page = await listSkills(cursor, 100);
+		await requireCurrentTargetScope(page.targetScopeId, currentScopeID, refresh);
         for (const skill of page.items as SkillSummary[]) {
           if (names.includes(skill.registeredName)) found.add(skill.registeredName);
         }
@@ -206,7 +221,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     };
     void load().catch((value) => { if (!stopped) reportError(value); });
     return () => { stopped = true; };
-  }, [registeredSkills, reportError, scopeMismatch, selectedFrame, verifyScope]);
+	}, [currentScopeID, refresh, registeredSkills, reportError, scopeMismatch, selectedFrame, source]);
   const loadAncestry = useCallback(async (startingFrame: TraceFrame) => {
     const known = new Map((frames?.items ?? []).map((frame) => [frame.frameId, frame]));
     known.set(startingFrame.frameId, startingFrame);
@@ -218,7 +233,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
       visited.add(parentFrameId);
       let parent = known.get(parentFrameId);
       if (!parent) {
-        const page: TraceAnalysisPage<TraceFrame> = await getTraceFrames(traceId, undefined, { frameIds: [parentFrameId] }).then(verifyScope);
+        const page: TraceAnalysisPage<TraceFrame> = await getTraceFrames(traceId, undefined, { frameIds: [parentFrameId] }, "CANONICAL", source).then(verifyScope);
         parent = page.items[0];
         if (!parent) break;
         known.set(parent.frameId, parent);
@@ -228,11 +243,11 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
     }
     setFrames((value) => mergeFrames(value, added));
     return startingFrame;
-  }, [frames, traceId, verifyScope]);
+  }, [frames, source, traceId, verifyScope]);
   useEffect(() => {
     if (scopeMismatch || !frames || !state.frameId || selectedFrame || pending.has("deep-frame")) return;
     begin("deep-frame");
-    void getTraceFrames(traceId, undefined, { frameIds: [state.frameId] }).then(verifyScope).then((page) => {
+    void getTraceFrames(traceId, undefined, { frameIds: [state.frameId] }, "CANONICAL", source).then(verifyScope).then((page) => {
       const frame = page.items[0];
       if (frame) return loadAncestry(frame);
       select({ frameId: undefined, failureId: undefined });
@@ -242,12 +257,12 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   useEffect(() => {
     if (scopeMismatch || !records || !state.recordSequence || records.items.some((record) => record.sequence === state.recordSequence) || pending.has("deep-record")) return;
     begin("deep-record");
-    void getTraceRecords(traceId, undefined, { minSequence: state.recordSequence, maxSequence: state.recordSequence }).then(verifyScope).then((page) => {
+    void getTraceRecords(traceId, undefined, { minSequence: state.recordSequence, maxSequence: state.recordSequence }, source).then(verifyScope).then((page) => {
       const record = page.items[0];
       if (record) setRecords((current) => current ? { ...current, items: [...current.items, record] } : page);
       else select({ recordSequence: undefined });
     }).catch((value) => reportError(value, true)).finally(() => end("deep-record"));
-  }, [pending, records, reportError, scopeMismatch, select, state.recordSequence, traceId, verifyScope]);
+  }, [pending, records, reportError, scopeMismatch, select, source, state.recordSequence, traceId, verifyScope]);
   useEffect(() => {
     if (!scopeMismatch && failures && state.failureId && !failures.items.some((failure) => failure.failureId === state.failureId) && !failures.hasMore) {
       select({ failureId: undefined });
@@ -269,7 +284,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   const selectRelatedFrame = (filter: TraceFrameFilter) => {
     if (pending.has("related-frame")) return;
     begin("related-frame");
-    void getTraceFrames(traceId, undefined, filter).then(verifyScope).then((page) => {
+    void getTraceFrames(traceId, undefined, filter, "CANONICAL", source).then(verifyScope).then((page) => {
       const frame = page.items[0];
       if (!frame) {
         setError("No frame is mechanically related to that evidence.");
@@ -281,7 +296,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   const readPayload = (payloadId: string, cursor?: string) => {
     if (pending.has("range")) return;
     begin("range");
-    void getPayloadRange(traceId, payloadId, cursor).then(verifyScope).then((result) => {
+    void getPayloadRange(traceId, payloadId, cursor, source).then(verifyScope).then((result) => {
       setRangeRequest({ payloadId });
       setRange(result);
     }).catch((value) => reportError(value, false)).finally(() => end("range"));
@@ -293,7 +308,7 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   const search = () => {
     if (!searchText || pending.has("search")) return;
     begin("search");
-    void searchTraceEvidence(traceId, searchText).then(verifyScope).then(setSearchResults).catch((value) => reportError(value, true)).finally(() => end("search"));
+    void searchTraceEvidence(traceId, searchText, undefined, source).then(verifyScope).then(setSearchResults).catch((value) => reportError(value, true)).finally(() => end("search"));
   };
   const loadMore = <T,>(key: string, current: TraceAnalysisPage<T> | undefined, request: (cursor: string) => Promise<TraceAnalysisPage<T>>, setter: (value: TraceAnalysisPage<T>) => void) => {
     if (!current?.hasMore || !current.nextCursor || pending.has(key)) return;
@@ -303,8 +318,8 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   useEffect(() => {
     if (!failures || !effectiveFailureId || failures.items.some((failure) => failure.failureId === effectiveFailureId) || !failures.hasMore || !failures.nextCursor || pending.has("deep-failure")) return;
     begin("deep-failure");
-    void getTraceFailures(traceId, failures.nextCursor).then(verifyScope).then((next) => setFailures(appendPage(failures, next))).catch((value) => reportError(value, true)).finally(() => end("deep-failure"));
-  }, [effectiveFailureId, failures, pending, reportError, traceId, verifyScope]);
+    void getTraceFailures(traceId, failures.nextCursor, source).then(verifyScope).then((next) => setFailures(appendPage(failures, next))).catch((value) => reportError(value, true)).finally(() => end("deep-failure"));
+  }, [effectiveFailureId, failures, pending, reportError, source, traceId, verifyScope]);
   const handleTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex: number | undefined;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % views.length;
@@ -347,17 +362,17 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
   return <section className="trace-explorer" aria-labelledby="trace-explorer-title">
     <h3 id="trace-explorer-title">Trace explorer</h3>
     <div aria-live="polite" aria-atomic="true">{error && <p className="target-error" role="alert">{error}</p>}</div>
-    {!summary ? <p role="status">Loading trace evidence…</p> : <>
-      <p>{summary.outcome} · {summary.frameCount} frames · {summary.recordCount} records{!summary.usageComplete && " · usage incomplete"}</p>
+    {!summary ? <p role="status">Loading trace evidence&hellip;</p> : <>
+      <p>{summary.outcome} &middot; {summary.frameCount} frames &middot; {summary.recordCount} records{!summary.usageComplete && " · usage incomplete"}</p>
       {hasFailurePanel && <section id="trace-failure-panel" className="trace-failure-panel" aria-label="Trace failure details" tabIndex={-1}>
         <TraceFailureFocus summary={summary} failure={selectedFailure} frame={selectedFrame} onView={showFailureView} />
-        <TraceFailureDiagnostic traceId={traceId} failure={selectedFailure} scopeGeneration={scopeGeneration} verifyScope={verifyScope} />
+        <TraceFailureDiagnostic traceId={traceId} source={source} failure={selectedFailure} scopeGeneration={source === "TARGET" ? scopeGeneration : 0} verifyScope={verifyScope} />
       </section>}
       {breadcrumbs.length > 0 && <nav aria-label="Selected frame breadcrumbs">{breadcrumbs.map((frame, index) => <span key={frame.frameId}>{index > 0 && " / "}<button type="button" onClick={() => selectFrame(frame.frameId)}>{frame.route || frame.frameId}</button></span>)}</nav>}
       {selectedFrame && <section aria-labelledby="selected-frame-skills"><h4 id="selected-frame-skills">Recorded skill names</h4>{(selectedFrame.skillNames?.length ?? 0) === 0 ? <p>No recorded skill name is associated with this frame.</p> : <ul>{selectedFrame.skillNames.map((name) => <li key={name}>{registeredSkills?.has(name) ? <Link to={scopeBoundPath(`/skills/${encodeURIComponent(name)}`, currentScopeID)}>{name}</Link> : <><code>{name}</code> <span>not in current registered catalog</span></>}</li>)}</ul>}</section>}
       <div role="tablist" aria-label="Trace evidence views">{views.map((view, index) => <button id={`trace-tab-${view}`} aria-controls={`trace-panel-${view}`} key={view} type="button" role="tab" tabIndex={state.view === view ? 0 : -1} aria-selected={state.view === view} onKeyDown={(event) => handleTabKey(event, index)} onClick={() => select({ view })}>{view[0].toUpperCase() + view.slice(1)}</button>)}</div>
       <div id={`trace-panel-${state.view}`} role="tabpanel" aria-labelledby={`trace-tab-${state.view}`} tabIndex={0}>
-        {state.view === "hierarchy" && <><TraceHierarchy frames={frames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />{frames?.hasMore && <button type="button" disabled={pending.has("frames")} onClick={() => loadMore("frames", frames, (cursor) => getTraceFrames(traceId, cursor), setFrames)}>Load more frames</button>}</>}
+        {state.view === "hierarchy" && <><TraceHierarchy frames={frames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />{frames?.hasMore && <button type="button" disabled={pending.has("frames")} onClick={() => loadMore("frames", frames, (cursor) => getTraceFrames(traceId, cursor, {}, "CANONICAL", source), setFrames)}>Load more frames</button>}</>}
         {state.view === "timeline" && <TraceTimeline frames={frames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />}
         {state.view === "usage" && <TraceUsage usage={usage} frame={selectedFrame} summary={summary} contributors={usageFrames?.items} responseRecords={usageResponseRecords} recordHref={(record) => {
           const target = setTraceExplorerSelection(params, { view: "records", frameId: record.frameId || undefined, recordSequence: record.sequence, failureId: undefined });
@@ -365,10 +380,10 @@ export function TraceExplorer({ traceId, onArtifactUnavailable }: { traceId: str
         }} />}
         {state.view === "records" && <>
           <form onSubmit={(event) => { event.preventDefault(); search(); }}><label>Literal search <input value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label><button type="submit" disabled={!searchText || pending.has("search")}>Search</button></form>
-          {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p><ol>{searchResults.items.map((match) => <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> · {match.searchedField} bytes {match.matchOffset}–{match.matchOffset + match.matchLength}</li>)}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => loadMore("search-page", searchResults, (cursor) => searchTraceEvidence(traceId, searchText, cursor), setSearchResults)}>Load more matches</button>}</section>}
-          <TraceRecords traceId={traceId} records={records?.items ?? []} failures={failures?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onPayload={readPayload} />
+          {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p><ol>{searchResults.items.map((match) => <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> &middot; {match.searchedField} bytes {match.matchOffset}&ndash;{match.matchOffset + match.matchLength}</li>)}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => loadMore("search-page", searchResults, (cursor) => searchTraceEvidence(traceId, searchText, cursor, source), setSearchResults)}>Load more matches</button>}</section>}
+          <TraceRecords traceId={traceId} source={source} records={records?.items ?? []} failures={failures?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onPayload={readPayload} />
           <div className="trace-continuations" role="group" aria-label="Additional evidence pages">
-            {records?.hasMore && <button type="button" disabled={pending.has("records")} onClick={() => loadMore("records", records, (cursor) => getTraceRecords(traceId, cursor), setRecords)}>Load more records</button>}
+            {records?.hasMore && <button type="button" disabled={pending.has("records")} onClick={() => loadMore("records", records, (cursor) => getTraceRecords(traceId, cursor, {}, source), setRecords)}>Load more records</button>}
           </div>
         </>}
       </div>

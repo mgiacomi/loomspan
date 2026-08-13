@@ -9,6 +9,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
@@ -19,6 +20,12 @@ const (
 	// for any artifact size.
 	streamBufferSize = 32 * 1024
 )
+
+type inputStream interface {
+	Body() io.Reader
+	DeclaredLength() int64
+	Close() error
+}
 
 // TraceLoader loads authoritative current-scope trace metadata for a trace ID.
 // The service uses it rather than browser-supplied size or path metadata.
@@ -62,7 +69,7 @@ func (service *Service) runAcquisition(entry *entry, scope target.Scope, traceID
 	}
 
 	// 3. Install the stream to the staging bundle and process it.
-	artifact, domain := service.installStream(entry, stream, metadata)
+	artifact, domain := service.installStream(entry, stream, metadata, 0)
 	if domain != nil {
 		service.failAcquisition(entry, domain)
 		return
@@ -77,7 +84,7 @@ func (service *Service) runAcquisition(entry *entry, scope target.Scope, traceID
 // the processor over the raw component, syncs all components, and atomically
 // renames the staging directory to the installed location. It returns the
 // acquired artifact on success or a domain error on failure.
-func (service *Service) installStream(entry *entry, stream *applicationclient.ArtifactStream, metadata TraceMetadata) (AcquiredArtifact, *consolecore.Error) {
+func (service *Service) installStream(entry *entry, stream inputStream, metadata TraceMetadata, rawLimit int64) (AcquiredArtifact, *consolecore.Error) {
 	declaredLength := stream.DeclaredLength()
 	knownSize := metadata.SizeBytes
 	if declaredLength > 0 && declaredLength > knownSize {
@@ -131,7 +138,7 @@ func (service *Service) installStream(entry *entry, stream *applicationclient.Ar
 	}
 
 	// Copy the stream to the raw component with a fixed buffer.
-	observed, domain := service.copyStream(entry, stream, rawFile, knownSize)
+	observed, domain := service.copyStream(entry, stream, rawFile, knownSize, rawLimit)
 	if domain != nil {
 		return copyCleanup(domain)
 	}
@@ -152,14 +159,14 @@ func (service *Service) installStream(entry *entry, stream *applicationclient.Ar
 		available := true
 		domain := consolecore.NewError(consolecore.CodeInvalidArtifact,
 			"The downloaded artifact byte count does not match the declared length.",
-			string(entry.key.scopeID), consolecore.Details{RawDownloadAvailable: &available}, nil)
+			entry.key.owner.ID(), consolecore.Details{RawDownloadAvailable: &available}, nil)
 		return cleanupBundle(domain)
 	}
 	if metadata.SizeBytes > 0 && observed != metadata.SizeBytes {
 		available := true
 		domain := consolecore.NewError(consolecore.CodeInvalidArtifact,
 			"The downloaded artifact byte count does not match the trace metadata.",
-			string(entry.key.scopeID), consolecore.Details{RawDownloadAvailable: &available}, nil)
+			entry.key.owner.ID(), consolecore.Details{RawDownloadAvailable: &available}, nil)
 		return cleanupBundle(domain)
 	}
 
@@ -197,6 +204,17 @@ func (service *Service) installStream(entry *entry, stream *applicationclient.Ar
 
 	// Publish aggregate raw plus derived bytes.
 	service.mu.Lock()
+	// Preserve target-only provenance and availability facts while replacing
+	// every canonical trace fact with the processor-derived value. Imports pass
+	// only the preflight identity here, so they cannot invent those target facts.
+	validatedMetadata := metadata
+	validatedMetadata.TraceID = processResult.Metadata.TraceID
+	validatedMetadata.SessionID = processResult.Metadata.SessionID
+	validatedMetadata.Outcome = processResult.Metadata.Outcome
+	validatedMetadata.FinalizedAt = processResult.Metadata.FinalizedAt
+	validatedMetadata.PersistencePolicy = processResult.Metadata.PersistencePolicy
+	validatedMetadata.SizeBytes = observed
+	entry.metadata = validatedMetadata
 	entry.installedDir = installedDir
 	entry.componentSizes = processResult.ComponentSizes
 	aggregate := entry.rawBytes
@@ -212,8 +230,9 @@ func (service *Service) installStream(entry *entry, stream *applicationclient.Ar
 		expiresAt = now.Add(service.ttlIdleTTL)
 	}
 	return AcquiredArtifact{
+		Owner:         entry.key.owner,
 		Handle:        entry.handle,
-		Metadata:      metadata,
+		Metadata:      validatedMetadata,
 		LocalBytes:    aggregate,
 		AcquiredAt:    entry.acquisitionTime,
 		LastUsedAt:    now,
@@ -294,16 +313,17 @@ func (service *Service) runProcessor(entry *entry, stagingDir string, metadata T
 	if !integrityOK {
 		return ProcessResult{}, consolecore.NewError(consolecore.CodeConsoleError,
 			"The artifact processor produced an inconsistent component bundle.",
-			string(entry.key.scopeID), consolecore.Details{}, nil)
+			entry.key.owner.ID(), consolecore.Details{}, nil)
 	}
-	return ProcessResult{ComponentSizes: authoritative}, nil
+	result.ComponentSizes = authoritative
+	return result, nil
 }
 
 // copyStream copies bytes from the upstream stream to the raw component with a
 // fixed-size buffer. For unknown-length streams it charges capacity
 // incrementally. It returns the observed byte count on success or a domain
 // error on failure (cancellation, short write, disk-full, or capacity).
-func (service *Service) copyStream(entry *entry, stream *applicationclient.ArtifactStream, file writableFile, knownSize int64) (int64, *consolecore.Error) {
+func (service *Service) copyStream(entry *entry, stream inputStream, file writableFile, knownSize, rawLimit int64) (int64, *consolecore.Error) {
 	buffer := make([]byte, streamBufferSize)
 	var observed int64
 	for {
@@ -314,11 +334,16 @@ func (service *Service) copyStream(entry *entry, stream *applicationclient.Artif
 		}
 		n, readErr := stream.Body().Read(buffer)
 		if n > 0 {
+			if rawLimit > 0 && (observed > rawLimit || int64(n) > rawLimit-observed) {
+				return observed, consolecore.NewError(consolecore.CodeLimitExceeded,
+					"The trace file exceeds the import limit.", entry.key.owner.ID(),
+					consolecore.Details{LimitName: "traceImportBytes", LimitValue: rawLimit}, nil)
+			}
 			if knownSize > 0 && (observed > knownSize || int64(n) > knownSize-observed) {
 				available := true
 				return observed, consolecore.NewError(consolecore.CodeInvalidArtifact,
 					"The downloaded artifact exceeds its declared size.",
-					string(entry.key.scopeID),
+					entry.key.owner.ID(),
 					consolecore.Details{RawDownloadAvailable: &available}, nil)
 			}
 			// Unknown-length bytes must be admitted before they reach disk so
@@ -355,7 +380,7 @@ func (service *Service) copyStream(entry *entry, stream *applicationclient.Artif
 				return observed, service.cancellationError(entry)
 			}
 			return observed, consolecore.NewError(consolecore.CodeTargetUnavailable,
-				"The artifact stream was interrupted.", string(entry.key.scopeID),
+				"The artifact stream was interrupted.", entry.key.owner.ID(),
 				consolecore.Details{}, readErr)
 		}
 	}
@@ -378,16 +403,16 @@ func (service *Service) cancellationError(entry *entry) *consolecore.Error {
 	service.mu.Unlock()
 	if closed {
 		return consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(entry.key.scopeID),
+			"The Console is shutting down.", entry.key.owner.ID(),
 			consolecore.Details{}, nil)
 	}
-	if currentScopeID != entry.key.scopeID {
+	if entry.key.owner.Source() == evidence.SourceTarget && currentScopeID != entry.key.owner.TargetScope() {
 		return consolecore.NewError(consolecore.CodeTargetChanged,
 			"The selected target changed. Start this operation again.",
-			string(entry.key.scopeID), consolecore.Details{}, nil)
+			entry.key.owner.ID(), consolecore.Details{}, nil)
 	}
 	return consolecore.NewError(consolecore.CodeTargetUnavailable,
-		"The operation was canceled.", string(entry.key.scopeID),
+		"The operation was canceled.", entry.key.owner.ID(),
 		consolecore.Details{}, nil)
 }
 
@@ -397,7 +422,7 @@ func (service *Service) cancellationError(entry *entry) *consolecore.Error {
 // to LOCAL_STORAGE_UNAVAILABLE.
 func (service *Service) storageError(err error, entry *entry) *consolecore.Error {
 	return consolecore.NewError(consolecore.CodeLocalStorageUnavailable,
-		"Local artifact storage is unavailable.", string(entry.key.scopeID),
+		"Local artifact storage is unavailable.", entry.key.owner.ID(),
 		consolecore.Details{}, err)
 }
 
@@ -412,12 +437,12 @@ func (service *Service) classifyArtifactFailure(domain *consolecore.Error, entry
 		return nil
 	})
 	if workspace.IsFatal(classified) {
-		slog.Error("artifact storage failure is fatal", "scopeId", entry.key.scopeID)
+		slog.Error("artifact storage failure is fatal", "ownerId", entry.key.owner.ID())
 		if service.fatal != nil {
 			service.fatal(classified)
 		}
 		return consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console workspace is no longer safe.", string(entry.key.scopeID),
+			"The Console workspace is no longer safe.", entry.key.owner.ID(),
 			consolecore.Details{}, classified)
 	}
 	if domainErr, ok := classified.(*consolecore.Error); ok {
@@ -468,7 +493,7 @@ func (service *Service) publishAcquisitionSuccess(entry *entry, artifact Acquire
 		domain := consolecore.NewError(
 			consolecore.CodeTargetChanged,
 			"The selected target changed. Start this operation again.",
-			string(entry.key.scopeID), consolecore.Details{}, nil)
+			entry.key.owner.ID(), consolecore.Details{}, nil)
 		if cleanupDomain := service.removeInstalledBundleLocked(entry); cleanupDomain != nil {
 			domain = cleanupDomain
 		}
@@ -479,16 +504,16 @@ func (service *Service) publishAcquisitionSuccess(entry *entry, artifact Acquire
 	}
 	if entry.acquireCtx.Err() != nil || entry.waiters <= 0 {
 		domain := consolecore.NewError(consolecore.CodeTargetUnavailable,
-			"The operation was canceled.", string(entry.key.scopeID),
+			"The operation was canceled.", entry.key.owner.ID(),
 			consolecore.Details{}, entry.acquireCtx.Err())
 		if service.closed {
 			domain = consolecore.NewError(consolecore.CodeConsoleError,
-				"The Console is shutting down.", string(entry.key.scopeID),
+				"The Console is shutting down.", entry.key.owner.ID(),
 				consolecore.Details{}, entry.acquireCtx.Err())
-		} else if service.currentScopeID != entry.key.scopeID {
+		} else if entry.key.owner.Source() == evidence.SourceTarget && service.currentScopeID != entry.key.owner.TargetScope() {
 			domain = consolecore.NewError(consolecore.CodeTargetChanged,
 				"The selected target changed. Start this operation again.",
-				string(entry.key.scopeID), consolecore.Details{}, entry.acquireCtx.Err())
+				entry.key.owner.ID(), consolecore.Details{}, entry.acquireCtx.Err())
 		}
 		if cleanupDomain := service.removeEntryLocked(entry); cleanupDomain != nil {
 			domain = cleanupDomain
@@ -559,7 +584,7 @@ func (sink *stagingSink) Create(ctx context.Context, name ComponentName) (Compon
 		sink.service.mu.Unlock()
 		return nil, consolecore.NewError(consolecore.CodeConsoleError,
 			"The raw artifact component is owned by the acquisition leader.",
-			string(sink.entry.key.scopeID), consolecore.Details{}, nil)
+			sink.entry.key.owner.ID(), consolecore.Details{}, nil)
 	}
 	sink.service.mu.Lock()
 	if sink.open[name] {
@@ -567,14 +592,14 @@ func (sink *stagingSink) Create(ctx context.Context, name ComponentName) (Compon
 		sink.service.mu.Unlock()
 		return nil, consolecore.NewError(consolecore.CodeConsoleError,
 			"The artifact processor opened the same component more than once.",
-			string(sink.entry.key.scopeID), consolecore.Details{}, nil)
+			sink.entry.key.owner.ID(), consolecore.Details{}, nil)
 	}
 	if _, exists := sink.components[name]; exists {
 		sink.invalid = true
 		sink.service.mu.Unlock()
 		return nil, consolecore.NewError(consolecore.CodeConsoleError,
 			"The artifact processor attempted to replace a completed component.",
-			string(sink.entry.key.scopeID), consolecore.Details{}, nil)
+			sink.entry.key.owner.ID(), consolecore.Details{}, nil)
 	}
 	sink.open[name] = true
 	sink.service.mu.Unlock()
@@ -584,7 +609,7 @@ func (sink *stagingSink) Create(ctx context.Context, name ComponentName) (Compon
 		delete(sink.open, name)
 		sink.service.mu.Unlock()
 		return nil, consolecore.NewError(consolecore.CodeLocalStorageUnavailable,
-			"Local artifact storage is unavailable.", string(sink.entry.key.scopeID),
+			"Local artifact storage is unavailable.", sink.entry.key.owner.ID(),
 			consolecore.Details{}, err)
 	}
 	writer := &sinkWriter{sink: sink, name: name, file: file, ctx: ctx}

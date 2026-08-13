@@ -2,15 +2,16 @@ package traceanalysis
 
 import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // TraceContext carries the target scope, artifact handle, trace ID, and session
 // ID on every reusable query result. Adapters map from these neutral types and
 // may not recalculate authoritative facts.
 type TraceContext struct {
-	// TargetScopeID is the current target scope that owns the artifact handle.
-	TargetScopeID target.ScopeID
+	// Evidence identifies TARGET or IMPORTED ownership without exposing the
+	// process-local imported owner ID.
+	Evidence evidence.Reference
 	// Handle is the opaque artifact handle the query was issued against.
 	Handle artifact.Handle
 	// TraceID is the stable trace identifier.

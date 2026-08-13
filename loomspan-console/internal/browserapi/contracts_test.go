@@ -11,6 +11,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 type fixtureBootstrap struct {
@@ -81,7 +82,6 @@ func TestBrowserTargetFixtureCorpusMatchesCommittedInventoryByteForByte(t *testi
 // contract is stable and the TypeScript contracts.ts types match the real
 // backend response shape.
 func TestBrowserArtifactFixtureCorpusMatchesCommittedInventoryByteForByte(t *testing.T) {
-	scope := "11111111-1111-4111-8111-111111111111"
 	finalizedAt := time.Date(2026, 7, 27, 10, 10, 0, 0, time.UTC)
 	acquiredAt := time.Date(2026, 7, 27, 10, 15, 0, 0, time.UTC)
 	expiresAt := time.Date(2026, 7, 27, 10, 20, 0, 0, time.UTC)
@@ -89,6 +89,7 @@ func TestBrowserArtifactFixtureCorpusMatchesCommittedInventoryByteForByte(t *tes
 
 	expected := map[string]any{
 		"acquire-response.json": acquiredArtifactDTO{
+			Source:        evidence.SourceTarget,
 			Handle:        "01-handletoken",
 			TraceID:       "trace-1",
 			SessionID:     "session-1",
@@ -101,7 +102,6 @@ func TestBrowserArtifactFixtureCorpusMatchesCommittedInventoryByteForByte(t *tes
 			HasIdleExpiry: true,
 		},
 		"storage-snapshot.json": storageSnapshotDTO{
-			TargetScopeID:  scope,
 			WorkspaceLabel: "work",
 			MaxBytes:       1048576,
 			Unlimited:      false,
@@ -111,6 +111,8 @@ func TestBrowserArtifactFixtureCorpusMatchesCommittedInventoryByteForByte(t *tes
 			AcquiredCount:  1,
 			Entries: []artifact.StoredEntry{
 				{
+					Source:                    evidence.SourceTarget,
+					TargetScopeID:             "11111111-1111-4111-8111-111111111111",
 					TraceID:                   "trace-1",
 					SessionID:                 "session-1",
 					Outcome:                   "SUCCEEDED",
@@ -121,7 +123,7 @@ func TestBrowserArtifactFixtureCorpusMatchesCommittedInventoryByteForByte(t *tes
 					ExpiresAt:                 expiresAt,
 					HasIdleExpiry:             true,
 					LocalBytes:                4096,
-					ApplicationTraceExpiresAt: appExpiresAt,
+					ApplicationTraceExpiresAt: &appExpiresAt,
 					ApplicationAvailability:   "AVAILABLE",
 					LocalAvailable:            true,
 					ActivePin:                 false,
@@ -140,20 +142,20 @@ func TestBrowserTraceAnalysisFixtureCorpusMatchesCommittedInventoryByteForByte(t
 	closed := int64(112)
 	next := "opaque-continuation"
 	expected := map[string]any{
-		"summary.json":                   summaryDTO{TargetScopeID: scope, TraceID: "trace-1", SessionID: "session-1", Outcome: "FAILED", ConfiguredLimits: &configuredLimitsDTO{MaxSkillInvocations: 7, MaxToolInvocations: 11, MaxLinterRetries: 3, MaxModelCalls: 5, MaxProviderAttempts: 15, MaxUsageUnits: 1234}, RecordCount: 4, FrameCount: 1, RootFrameIDs: []string{}, UsageComplete: false},
-		"frames.json":                    pageDTO[frameDTO]{TargetScopeID: scope, Items: []frameDTO{{FrameID: "frame-1", ChildFrameIDs: []string{}, FrameType: "SKILL", Route: "hello", OpenedTimestampMillis: opened, ClosedTimestampMillis: &closed, InclusiveDurationMillis: &duration, DirectUsage: usageValueDTO{PromptUnits: 10, CompletionUnits: 2, TotalUnits: 12}, DirectUsageComplete: true, InclusiveUsage: usageValueDTO{PromptUnits: 10, CompletionUnits: 2, TotalUnits: 12}, InclusiveUsageComplete: true, SkillNames: []string{"registered.skill"}, Outcomes: []string{"FAILED"}, AttemptIDs: []string{"attempt-1"}, RetrySequenceIDs: []string{"retry-1"}, ValidationStatuses: []string{"exhausted"}, FailureIDs: []string{"failure-1"}}}, HasMore: true, NextCursor: &next},
-		"records.json":                   pageDTO[recordDTO]{TargetScopeID: scope, Items: []recordDTO{{Sequence: 3, Type: "MODEL_RESPONSE_RECEIVED", FrameID: "frame-1", FrameType: "SKILL", Route: "hello", ThreadName: "worker-1", TimestampMillis: 112, Representation: "logical", IsEnvelope: true, PayloadID: "payload-1"}}, HasMore: false},
-		"usage.json":                     usageDTO{TargetScopeID: scope, Attributed: usageValueDTO{PromptUnits: 10, CompletionUnits: 2, TotalUnits: 12}},
-		"attempts.json":                  pageDTO[attemptDTO]{TargetScopeID: scope, Items: []attemptDTO{}, HasMore: false},
-		"retries.json":                   pageDTO[retryDTO]{TargetScopeID: scope, Items: []retryDTO{{RetrySequenceID: "retry-1", Usage: usageValueDTO{TotalUnits: 12}, UsageComplete: false}}, HasMore: true, NextCursor: &next},
-		"validation-links.json":          pageDTO[validationDTO]{TargetScopeID: scope, Items: []validationDTO{{Status: "VALID", RetrySequenceID: "retry-1", AttemptID: "attempt-1", AttemptNumber: 2}}, HasMore: false},
-		"failures.json":                  pageDTO[failureDTO]{TargetScopeID: scope, Items: []failureDTO{{FailureID: "failure-1", Terminal: true, Sequence: 42, TimestampMillis: 1000, RecordType: "ERROR_RECORDED", FrameID: "frame-1", Route: "hello", AttemptID: "attempt-1", RetrySequenceID: "retry-1", ValidationStatus: "exhausted"}}, HasMore: false},
-		"payloads.json":                  pageDTO[payloadDTO]{TargetScopeID: scope, Items: []payloadDTO{}, HasMore: false},
-		"gaps.json":                      pageDTO[gapDTO]{TargetScopeID: scope, Items: []gapDTO{{Kind: "MISSING_TIMESTAMP", FrameID: "frame-1"}}, HasMore: false},
-		"uncertainties.json":             pageDTO[uncertaintyDTO]{TargetScopeID: scope, Items: []uncertaintyDTO{{Kind: "INCOMPLETE_DURATION", FrameID: "frame-1"}}, HasMore: false},
-		"search.json":                    pageDTO[searchDTO]{TargetScopeID: scope, Items: []searchDTO{{Sequence: 3, RecordType: "MODEL_RESPONSE_RECEIVED", FrameID: "frame-1", MatchOffset: 2, MatchLength: 4, SearchedField: "payload"}}, HasMore: true, NextCursor: &next},
-		"range.json":                     map[string]any{"targetScopeId": scope, "actualStart": int64(0), "actualEnd": int64(4), "totalLength": int64(4), "contentType": "text/plain", "encoding": "TEXT", "content": "<a>", "hasMore": false, "nextCursor": nil},
-		"base64-range-continuation.json": map[string]any{"targetScopeId": scope, "actualStart": int64(4), "actualEnd": int64(8), "totalLength": int64(12), "contentType": "application/octet-stream", "encoding": "BASE64", "content": "AQIDBA==", "hasMore": true, "nextCursor": next},
+		"summary.json":                   summaryDTO{Source: evidence.SourceTarget, TargetScopeID: scope, TraceID: "trace-1", SessionID: "session-1", Outcome: "FAILED", ConfiguredLimits: &configuredLimitsDTO{MaxSkillInvocations: 7, MaxToolInvocations: 11, MaxLinterRetries: 3, MaxModelCalls: 5, MaxProviderAttempts: 15, MaxUsageUnits: 1234}, RecordCount: 4, FrameCount: 1, RootFrameIDs: []string{}, UsageComplete: false},
+		"frames.json":                    pageDTO[frameDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []frameDTO{{FrameID: "frame-1", ChildFrameIDs: []string{}, FrameType: "SKILL", Route: "hello", OpenedTimestampMillis: opened, ClosedTimestampMillis: &closed, InclusiveDurationMillis: &duration, DirectUsage: usageValueDTO{PromptUnits: 10, CompletionUnits: 2, TotalUnits: 12}, DirectUsageComplete: true, InclusiveUsage: usageValueDTO{PromptUnits: 10, CompletionUnits: 2, TotalUnits: 12}, InclusiveUsageComplete: true, SkillNames: []string{"registered.skill"}, Outcomes: []string{"FAILED"}, AttemptIDs: []string{"attempt-1"}, RetrySequenceIDs: []string{"retry-1"}, ValidationStatuses: []string{"exhausted"}, FailureIDs: []string{"failure-1"}}}, HasMore: true, NextCursor: &next},
+		"records.json":                   pageDTO[recordDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []recordDTO{{Sequence: 3, Type: "MODEL_RESPONSE_RECEIVED", FrameID: "frame-1", FrameType: "SKILL", Route: "hello", ThreadName: "worker-1", TimestampMillis: 112, Representation: "logical", IsEnvelope: true, PayloadID: "payload-1"}}, HasMore: false},
+		"usage.json":                     usageDTO{Source: evidence.SourceTarget, TargetScopeID: scope, Attributed: usageValueDTO{PromptUnits: 10, CompletionUnits: 2, TotalUnits: 12}},
+		"attempts.json":                  pageDTO[attemptDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []attemptDTO{}, HasMore: false},
+		"retries.json":                   pageDTO[retryDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []retryDTO{{RetrySequenceID: "retry-1", Usage: usageValueDTO{TotalUnits: 12}, UsageComplete: false}}, HasMore: true, NextCursor: &next},
+		"validation-links.json":          pageDTO[validationDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []validationDTO{{Status: "VALID", RetrySequenceID: "retry-1", AttemptID: "attempt-1", AttemptNumber: 2}}, HasMore: false},
+		"failures.json":                  pageDTO[failureDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []failureDTO{{FailureID: "failure-1", Terminal: true, Sequence: 42, TimestampMillis: 1000, RecordType: "ERROR_RECORDED", FrameID: "frame-1", Route: "hello", AttemptID: "attempt-1", RetrySequenceID: "retry-1", ValidationStatus: "exhausted"}}, HasMore: false},
+		"payloads.json":                  pageDTO[payloadDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []payloadDTO{}, HasMore: false},
+		"gaps.json":                      pageDTO[gapDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []gapDTO{{Kind: "MISSING_TIMESTAMP", FrameID: "frame-1"}}, HasMore: false},
+		"uncertainties.json":             pageDTO[uncertaintyDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []uncertaintyDTO{{Kind: "INCOMPLETE_DURATION", FrameID: "frame-1"}}, HasMore: false},
+		"search.json":                    pageDTO[searchDTO]{Source: evidence.SourceTarget, TargetScopeID: scope, Items: []searchDTO{{Sequence: 3, RecordType: "MODEL_RESPONSE_RECEIVED", FrameID: "frame-1", MatchOffset: 2, MatchLength: 4, SearchedField: "payload"}}, HasMore: true, NextCursor: &next},
+		"range.json":                     map[string]any{"source": evidence.SourceTarget, "targetScopeId": scope, "actualStart": int64(0), "actualEnd": int64(4), "totalLength": int64(4), "contentType": "text/plain", "encoding": "TEXT", "content": "<a>", "hasMore": false, "nextCursor": nil},
+		"base64-range-continuation.json": map[string]any{"source": evidence.SourceTarget, "targetScopeId": scope, "actualStart": int64(4), "actualEnd": int64(8), "totalLength": int64(12), "contentType": "application/octet-stream", "encoding": "BASE64", "content": "AQIDBA==", "hasMore": true, "nextCursor": next},
 	}
 	assertFixtureCorpus(t, filepath.Join("..", "..", "browser-fixtures", "trace-analysis"), expected)
 }

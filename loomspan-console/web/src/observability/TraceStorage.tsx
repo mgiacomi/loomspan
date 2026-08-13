@@ -1,31 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   BrowserAPIError,
   clearAllUnusedArtifacts,
   clearExpiredArtifacts,
   getStorageSnapshot,
+	importTraceFile,
   removeArtifact,
 } from "../api/client";
 import type { StorageSnapshot } from "../api/contracts";
-import { useTarget } from "../target/TargetProvider";
 import { useBrowserSession } from "../security/BrowserSessionProvider";
-import { recoverObservabilityError } from "./scope";
-import { useScopeBoundRoute } from "./useScopeBoundRoute";
 
 export function TraceStorage() {
-  const { target, scopeGeneration, refresh } = useTarget();
   const session = useBrowserSession();
+	const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<StorageSnapshot | null>(null);
   const [error, setError] = useState<BrowserAPIError | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<BrowserAPIError | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+	const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+	const [selectedFile, setSelectedFile] = useState<File | null>(null);
+	const [importing, setImporting] = useState(false);
   const [confirmClear, setConfirmClear] = useState<"expired" | "all-unused" | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const refreshTarget = useRef(refresh);
-  refreshTarget.current = refresh;
-  const routeIsCurrent = useScopeBoundRoute();
 
   useEffect(() => {
     heading.current?.focus();
@@ -44,29 +41,26 @@ export function TraceStorage() {
       const result = await getStorageSnapshot(security);
       setSnapshot(result);
     } catch (err) {
-      const recovered = await recoverObservabilityError(err, refreshTarget.current);
-      setError(recovered);
+		setError(err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "Storage could not be loaded.", 500));
     } finally {
       setLoading(false);
     }
   }, [session]);
 
   useEffect(() => {
-    if (!routeIsCurrent) return;
     void loadSnapshot();
-  }, [routeIsCurrent, scopeGeneration, target.status.targetScopeId, loadSnapshot]);
+  }, [loadSnapshot]);
 
-  const handleRemove = useCallback(async (traceId: string) => {
+  const handleRemove = useCallback(async (traceId: string, source: "TARGET" | "IMPORTED") => {
     const security = session.getSecurity();
     if (!security) return;
     setActionError(null);
     try {
-      await removeArtifact(traceId, security);
+		await removeArtifact(traceId, source, security);
       setConfirmRemove(null);
       await loadSnapshot();
     } catch (err) {
-      const recovered = await recoverObservabilityError(err, refreshTarget.current);
-      setActionError(recovered);
+		setActionError(err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "The artifact could not be removed.", 500));
     }
   }, [session, loadSnapshot]);
 
@@ -79,8 +73,7 @@ export function TraceStorage() {
       setConfirmClear(null);
       await loadSnapshot();
     } catch (err) {
-      const recovered = await recoverObservabilityError(err, refreshTarget.current);
-      setActionError(recovered);
+		setActionError(err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "Artifacts could not be cleared.", 500));
     }
   }, [session, loadSnapshot]);
 
@@ -93,15 +86,36 @@ export function TraceStorage() {
       setConfirmClear(null);
       await loadSnapshot();
     } catch (err) {
-      const recovered = await recoverObservabilityError(err, refreshTarget.current);
-      setActionError(recovered);
+		setActionError(err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "Artifacts could not be cleared.", 500));
     }
   }, [session, loadSnapshot]);
+
+	const handleImport = useCallback(async () => {
+		const security = session.getSecurity();
+		if (!security || !selectedFile) return;
+		setImporting(true);
+		setActionError(null);
+		try {
+			const result = await importTraceFile(selectedFile, security);
+			navigate(`/traces/imported/${encodeURIComponent(result.traceId)}`);
+		} catch (err) {
+			setActionError(err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "The trace file could not be opened.", 500));
+		} finally {
+			setImporting(false);
+		}
+	}, [navigate, selectedFile, session]);
 
   return (
     <section aria-labelledby="trace-storage-title" className="overview-card">
       <p className="eyebrow">Artifact cache</p>
       <h2 id="trace-storage-title" ref={heading} tabIndex={-1}>Trace Storage</h2>
+
+	  <div className="trace-import">
+		<p>Trace files may contain sensitive diagnostics and application paths. Only complete files from this exact Loomspan version can be opened.</p>
+		<label htmlFor="trace-file">Trace file</label>
+		<input id="trace-file" type="file" accept="application/x-ndjson,.ndjson" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+		<button type="button" disabled={!selectedFile || importing} onClick={() => void handleImport()}>{importing ? "Opening trace file…" : "Open trace file"}</button>
+	  </div>
 
       <p>
         <Link to="/traces">Back to Trace Catalog</Link>
@@ -116,6 +130,9 @@ export function TraceStorage() {
       {actionError && (
         <div className="target-error" role="alert">
           <strong>{actionError.message}</strong>
+		  {actionError.details?.expectedCompatibilityVersion && actionError.details?.observedCompatibilityVersion && (
+			<p>Expected {actionError.details.expectedCompatibilityVersion}; observed {actionError.details.observedCompatibilityVersion}.</p>
+		  )}
         </div>
       )}
 
@@ -176,7 +193,8 @@ export function TraceStorage() {
             <table className="storage-table">
               <thead>
                 <tr>
-                  <th scope="col">Trace ID</th>
+				  <th scope="col">Trace ID</th>
+				  <th scope="col">Source</th>
                   <th scope="col">Session ID</th>
                   <th scope="col">Outcome</th>
                   <th scope="col">Local bytes</th>
@@ -191,16 +209,17 @@ export function TraceStorage() {
               </thead>
               <tbody>
                 {snapshot.entries.map((entry) => (
-                  <tr key={entry.traceId}>
+				  <tr key={`${entry.source}:${entry.traceId}`}>
                     <td>
-                      <Link to={`/traces/${encodeURIComponent(entry.traceId)}`}>
+					  <Link to={entry.source === "IMPORTED" ? `/traces/imported/${encodeURIComponent(entry.traceId)}` : `/traces/${encodeURIComponent(entry.traceId)}`}>
                         {entry.traceId}
                       </Link>
-                    </td>
+					</td>
+					<td>{entry.source === "IMPORTED" ? "Imported" : "Target"}</td>
                     <td>{entry.sessionId}</td>
                     <td>{entry.outcome}</td>
                     <td>{String(entry.localBytes)}</td>
-                    <td>{entry.applicationAvailability}</td>
+					<td>{entry.applicationAvailability ?? "Not applicable"}</td>
                     <td>{entry.localAvailable ? "Yes" : "No"}</td>
                     <td>{entry.activePin ? "Yes" : "No"}</td>
                     <td>{entry.acquiredAt}</td>
@@ -209,11 +228,11 @@ export function TraceStorage() {
                     <td>
                       {entry.activePin ? (
                         <span aria-label="Cannot remove: artifact is in use">In use</span>
-                      ) : confirmRemove === entry.traceId ? (
+					  ) : confirmRemove === `${entry.source}:${entry.traceId}` ? (
                         <>
                           <button
                             type="button"
-                            onClick={() => void handleRemove(entry.traceId)}
+							onClick={() => void handleRemove(entry.traceId, entry.source)}
                             aria-label={`Confirm removal of ${entry.traceId}`}
                           >
                             Confirm
@@ -228,7 +247,7 @@ export function TraceStorage() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setConfirmRemove(entry.traceId)}
+						  onClick={() => setConfirmRemove(`${entry.source}:${entry.traceId}`)}
                         >
                           Remove
                         </button>

@@ -1,6 +1,7 @@
 package traceanalysis
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,7 +9,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // Service is the transport-neutral trace-analysis query service. It is both
@@ -59,14 +60,22 @@ func (service *Service) Process(req artifact.ProcessRequest) (artifact.ProcessRe
 // Compile-time assertion that Service satisfies artifact.Processor.
 var _ artifact.Processor = (*Service)(nil)
 
+// PreflightImport delegates the bounded import header pass to the same
+// processor instance used for complete validation.
+func (service *Service) PreflightImport(ctx context.Context, raw io.Reader) (artifact.ImportPreflight, *consolecore.Error) {
+	return service.processor.PreflightImport(ctx, raw)
+}
+
+var _ artifact.ImportProcessor = (*Service)(nil)
+
 // leaseForHandle acquires a lease for the given handle within the current
 // scope. It returns the lease and a domain error if the scope changed, the
 // handle expired, or the service is shutting down.
-func (service *Service) leaseForHandle(scopeID target.ScopeID, handle artifact.Handle) (*artifact.Lease, *consolecore.Error) {
+func (service *Service) leaseForHandle(scopeID evidence.Reference, handle artifact.Handle) (*artifact.Lease, *consolecore.Error) {
 	if service.artifacts == nil {
 		return nil, consolecore.NewError(consolecore.CodeConsoleError,
 			"The trace analysis service is not wired to an artifact service.",
-			string(scopeID), consolecore.Details{}, nil)
+			scopeID.ID(), consolecore.Details{}, nil)
 	}
 	lease, domain := service.artifacts.Use(scopeID, handle)
 	if domain != nil {
@@ -75,7 +84,7 @@ func (service *Service) leaseForHandle(scopeID target.ScopeID, handle artifact.H
 	return lease, nil
 }
 
-func (service *Service) leaseForCursor(scopeID target.ScopeID, handle artifact.Handle, token string, op cursorOp) (*artifact.Lease, cursor, int, *consolecore.Error) {
+func (service *Service) leaseForCursor(scopeID evidence.Reference, handle artifact.Handle, token string, op cursorOp) (*artifact.Lease, cursor, int, *consolecore.Error) {
 	lease, domain := service.leaseForHandle(scopeID, handle)
 	if domain != nil {
 		return nil, cursor{}, 0, domain
@@ -83,7 +92,7 @@ func (service *Service) leaseForCursor(scopeID target.ScopeID, handle artifact.H
 	if token == "" {
 		return lease, cursor{}, 0, nil
 	}
-	decoded, start, domain := prepareCursor(token, string(scopeID), op)
+	decoded, start, domain := prepareCursor(token, ownerCursorKey(lease.Owner()), scopeID.ID(), op)
 	if domain != nil {
 		_ = lease.Close(false)
 		return nil, cursor{}, 0, domain
@@ -209,63 +218,63 @@ func readRawRecordBytesFrom(reader artifact.ComponentReader, row recordIndexRow)
 	return buf, nil
 }
 
-func traceContextForLease(lease *artifact.Lease, scopeID target.ScopeID, handle artifact.Handle) (TraceContext, error) {
+func traceContextForLease(lease *artifact.Lease, scopeID evidence.Reference, handle artifact.Handle) (TraceContext, error) {
 	m, err := readManifest(lease)
 	if err != nil {
 		return TraceContext{}, err
 	}
-	return TraceContext{TargetScopeID: scopeID, Handle: handle, TraceID: m.TraceID, SessionID: m.SessionID}, nil
+	return TraceContext{Evidence: scopeID, Handle: handle, TraceID: m.TraceID, SessionID: m.SessionID}, nil
 }
 
 // validatePageSize applies the default and maximum page size bounds. It
 // returns the resolved page size or a LIMIT_EXCEEDED domain error.
-func validatePageSize(scopeID target.ScopeID, requested int) (int, *consolecore.Error) {
+func validatePageSize(scopeID evidence.Reference, requested int) (int, *consolecore.Error) {
 	if requested == 0 {
 		return defaultPageSize, nil
 	}
 	if requested < 0 {
 		return 0, consolecore.NewError(consolecore.CodeInvalidArgument,
 			"The page size must be positive.",
-			string(scopeID), consolecore.Details{}, nil)
+			scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if requested > maxPageSize {
 		return 0, consolecore.NewError(consolecore.CodeLimitExceeded,
 			"The requested page size exceeds the maximum allowed size.",
-			string(scopeID), consolecore.Details{LimitName: "pageSize", LimitValue: int64(maxPageSize)}, nil)
+			scopeID.ID(), consolecore.Details{LimitName: "pageSize", LimitValue: int64(maxPageSize)}, nil)
 	}
 	return requested, nil
 }
 
 // validateRangeSize applies the default and maximum range size bounds.
-func validateRangeSize(scopeID target.ScopeID, requested int) (int, *consolecore.Error) {
+func validateRangeSize(scopeID evidence.Reference, requested int) (int, *consolecore.Error) {
 	if requested == 0 {
 		return defaultRangeBytes, nil
 	}
 	if requested < 0 {
 		return 0, consolecore.NewError(consolecore.CodeInvalidArgument,
 			"The range size must be positive.",
-			string(scopeID), consolecore.Details{}, nil)
+			scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if requested > maxRangeBytes {
 		return 0, consolecore.NewError(consolecore.CodeLimitExceeded,
 			"The requested range size exceeds the maximum allowed size.",
-			string(scopeID), consolecore.Details{LimitName: "rangeBytes", LimitValue: int64(maxRangeBytes)}, nil)
+			scopeID.ID(), consolecore.Details{LimitName: "rangeBytes", LimitValue: int64(maxRangeBytes)}, nil)
 	}
 	return requested, nil
 }
 
 // validateLiteralText validates a literal search query against the byte and
 // code point limits.
-func validateLiteralText(scopeID target.ScopeID, text string) *consolecore.Error {
+func validateLiteralText(scopeID evidence.Reference, text string) *consolecore.Error {
 	if len(text) > maxLiteralTextBytes {
 		return consolecore.NewError(consolecore.CodeLimitExceeded,
 			"The search literal exceeds the maximum byte size.",
-			string(scopeID), consolecore.Details{LimitName: "literalTextBytes", LimitValue: int64(maxLiteralTextBytes)}, nil)
+			scopeID.ID(), consolecore.Details{LimitName: "literalTextBytes", LimitValue: int64(maxLiteralTextBytes)}, nil)
 	}
 	if count := runeCount(text); count > maxLiteralTextRunes {
 		return consolecore.NewError(consolecore.CodeLimitExceeded,
 			"The search literal exceeds the maximum code point count.",
-			string(scopeID), consolecore.Details{LimitName: "literalTextRunes", LimitValue: int64(maxLiteralTextRunes)}, nil)
+			scopeID.ID(), consolecore.Details{LimitName: "literalTextRunes", LimitValue: int64(maxLiteralTextRunes)}, nil)
 	}
 	return nil
 }

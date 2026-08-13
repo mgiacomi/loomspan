@@ -32,6 +32,7 @@ function record(sequence: number, type: string, payloadId = ""): TraceRecord {
 
 function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange {
   return {
+    source: "TARGET",
     targetScopeId: "scope-1",
     actualStart: 0,
     actualEnd: content.length,
@@ -75,8 +76,8 @@ test("reconstructs a chunked model request and presents messages by role", async
   expect(detail).toHaveTextContent("Follow the system instructions.");
   expect(within(detail).getByRole("heading", { name: "user" })).toBeVisible();
   expect(detail).toHaveTextContent("Resolve this support case.");
-  expect(getPayloadRangeMock).toHaveBeenNthCalledWith(1, "trace-1", "payload-1", undefined);
-  expect(getPayloadRangeMock).toHaveBeenNthCalledWith(2, "trace-1", "payload-1", "next");
+  expect(getPayloadRangeMock).toHaveBeenNthCalledWith(1, "trace-1", "payload-1", undefined, "TARGET");
+  expect(getPayloadRangeMock).toHaveBeenNthCalledWith(2, "trace-1", "payload-1", "next", "TARGET");
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 });
 
@@ -94,7 +95,7 @@ test("presents a prepared request inline instead of exposing the generic payload
   const detail = await screen.findByRole("region", { name: "Prepared model request for record 8" });
   expect(within(detail).getByRole("heading", { name: "user" })).toBeVisible();
   expect(detail).toHaveTextContent("Prepared model input");
-  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "prepared-payload", undefined);
+  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "prepared-payload", undefined, "TARGET");
 });
 
 test("extracts and pretty prints JSON content from an inline model response", async () => {

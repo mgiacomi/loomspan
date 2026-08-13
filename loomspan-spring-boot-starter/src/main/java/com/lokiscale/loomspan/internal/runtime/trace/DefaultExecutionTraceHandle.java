@@ -13,6 +13,7 @@ import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TracePersistencePolicy;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
+import com.lokiscale.loomspan.internal.release.LoomspanReleaseVersion;
 import com.lokiscale.loomspan.internal.runtime.observation.ExecutionObservationHandle;
 import com.lokiscale.loomspan.internal.runtime.observation.NoOpExecutionObservationHandle;
 import org.springframework.lang.Nullable;
@@ -259,6 +260,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
             {
                 LinkedHashMap<String, Object> metadata = new LinkedHashMap<>();
                 metadata.put("tracePath", tracePathMetadata);
+                metadata.put("consoleCompatibilityVersion", LoomspanReleaseVersion.load());
                 if (configuredLimits != null)
                 {
                     metadata.put("configuredLimits", configuredLimits.asMetadata());

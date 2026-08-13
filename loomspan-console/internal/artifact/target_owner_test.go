@@ -53,7 +53,7 @@ func TestInvalidateTargetScopeCancelsAcquisitionsAndLeases(t *testing.T) {
 	close(loader.release)
 
 	// No old-scope entries should remain.
-	snapshot, _ := svc.StorageSnapshot(scope2.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries for new scope, got %d", snapshot.AcquiredCount)
 	}
@@ -142,7 +142,7 @@ func TestActivateActivitySetsCurrentScopeID(t *testing.T) {
 	// Before activation, Use should return TARGET_CHANGED (currentScopeID is empty).
 	scope, cancelScope := testScope("scope-1")
 	defer cancelScope()
-	_, domain := svc.Use(scope.ID, "anyhandle")
+	_, domain := svc.Use(targetRef(scope.ID), "anyhandle")
 	if domain == nil || domain.Code != "TARGET_CHANGED" {
 		t.Fatalf("expected TARGET_CHANGED before activation, got %v", domain)
 	}
@@ -171,7 +171,7 @@ func TestRestartCleanupNeverAdoptsPriorEntries(t *testing.T) {
 
 	// Acquire an artifact.
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry before restart, got %d", snapshot.AcquiredCount)
 	}
@@ -197,7 +197,7 @@ func TestRestartCleanupNeverAdoptsPriorEntries(t *testing.T) {
 	defer svc2.Close()
 	svc2.ActivateActivity(scope)
 
-	snapshot2, _ := svc2.StorageSnapshot(scope.ID)
+	snapshot2, _ := svc2.StorageSnapshot()
 	if snapshot2.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after restart, got %d", snapshot2.AcquiredCount)
 	}

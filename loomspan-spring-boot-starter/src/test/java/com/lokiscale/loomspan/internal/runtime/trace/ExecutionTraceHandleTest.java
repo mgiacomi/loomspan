@@ -8,6 +8,7 @@ import com.lokiscale.loomspan.internal.core.TraceRecordType;
 import com.lokiscale.loomspan.internal.runtime.observation.ExecutionObservationHandle;
 import com.lokiscale.loomspan.internal.runtime.observation.ObservationCompletionDisposition;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot;
+import com.lokiscale.loomspan.internal.release.LoomspanReleaseVersion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,6 +28,21 @@ class ExecutionTraceHandleTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void writesAuthoritativeConsoleCompatibilityVersionOnTraceStarted() throws Exception {
+        Clock clock = Clock.fixed(Instant.parse("2026-03-24T12:00:00Z"), ZoneOffset.UTC);
+        DefaultExecutionTraceHandle handle = new DefaultExecutionTraceHandle(
+                "marked-trace", "test.entry", TracePersistencePolicy.ALWAYS, clock);
+
+        TraceRecord started = readRecords(handle).getFirst();
+
+        assertThat(started.recordType()).isEqualTo(TraceRecordType.TRACE_STARTED);
+        assertThat((String) started.metadata().get("consoleCompatibilityVersion"))
+                .isEqualTo(LoomspanReleaseVersion.load())
+                .isNotBlank();
+        Files.deleteIfExists(handle.tracePath());
+    }
 
     @Test
     void appliesNeverOnErrorAndAlwaysPersistencePolicies() throws Exception {

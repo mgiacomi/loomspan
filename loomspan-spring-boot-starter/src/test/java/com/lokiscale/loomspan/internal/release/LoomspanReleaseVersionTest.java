@@ -1,4 +1,4 @@
-package com.lokiscale.loomspan.internal.observability;
+package com.lokiscale.loomspan.internal.release;
 
 import org.junit.jupiter.api.Test;
 

@@ -10,14 +10,17 @@
 package traceanalysis
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 )
 
 // Processor is the required artifact.Processor implementation for the current
@@ -27,11 +30,59 @@ import (
 // published. On any invalidity, cancellation, or recoverable storage failure it
 // returns a domain error so the service removes the staged bundle and publishes
 // no handle.
-type Processor struct{}
+type Processor struct {
+	compatibilityVersion string
+}
 
 // New creates the trace-analysis processor.
 func New() *Processor {
-	return &Processor{}
+	return newProcessorForVersion(release.ProductVersion())
+}
+
+func newProcessorForVersion(version string) *Processor {
+	if strings.TrimSpace(version) == "" {
+		panic("trace processor compatibility version must be nonblank")
+	}
+	return &Processor{compatibilityVersion: version}
+}
+
+// PreflightImport reads only the first bounded physical record, validates the
+// canonical start identity and compatibility marker, and returns a byte-exact
+// replay stream for the normal complete processor pass.
+func (processor *Processor) PreflightImport(ctx context.Context, raw io.Reader) (artifact.ImportPreflight, *consolecore.Error) {
+	reader := bufio.NewReaderSize(raw, maxPhysicalLineBytes+2)
+	line, terminator, readErr := readPhysicalLine(reader)
+	content := line[:len(line)-int(terminator)]
+	if len(content) == 0 {
+		return artifact.ImportPreflight{}, invalidityError(CategoryMalformedJSON, "")
+	}
+	if len(content) > maxPhysicalLineBytes {
+		return artifact.ImportPreflight{}, invalidityError(CategoryLineTooLarge, "")
+	}
+	record, domain := decodeRecord(content, RawAddress{Length: int64(len(content)), TerminatorLength: terminator})
+	if domain != nil {
+		return artifact.ImportPreflight{}, domain
+	}
+	if record.Type != RecordTraceStarted {
+		return artifact.ImportPreflight{}, invalidityError(CategoryUnsupportedValue, record.TraceID)
+	}
+	observed, valid := extractCompatibilityVersion(record)
+	if !valid {
+		return artifact.ImportPreflight{}, invalidityError(CategoryUnsupportedValue, record.TraceID)
+	}
+	if observed != processor.compatibilityVersion {
+		return artifact.ImportPreflight{}, consolecore.NewError(consolecore.CodeIncompatibleArtifact,
+			"The trace artifact was produced by an incompatible Loomspan version.", record.TraceID,
+			consolecore.Details{ExpectedCompatibilityVersion: processor.compatibilityVersion,
+				ObservedCompatibilityVersion: observed}, nil)
+	}
+	if readErr != nil && readErr != io.EOF {
+		return artifact.ImportPreflight{}, invalidityErrorWithCause(CategoryTruncatedInput, record.TraceID, readErr)
+	}
+	return artifact.ImportPreflight{
+		Header: artifact.ImportHeader{TraceID: record.TraceID, SessionID: record.SessionID},
+		Raw:    io.MultiReader(bytes.NewReader(line), reader),
+	}, nil
 }
 
 // Process streams the raw NDJSON, validates and indexes every record,
@@ -80,11 +131,28 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	var completionRec *Record
 	var configuredLimits *ConfiguredLimits
 	var lastSeq int64
+	var sawStart bool
 
 	// Parse and validate in one streaming pass. The callback retains only the
 	// compact working state needed for calculations; raw bytes and payloads
 	// stream to the bundle.
 	_, domainErr := parseStream(ctx, req.Raw, func(rec *Record) *consolecore.Error {
+		if !sawStart {
+			if rec.Type != RecordTraceStarted {
+				return invalidityError(CategoryUnsupportedValue, scopeID)
+			}
+			observed, valid := extractCompatibilityVersion(rec)
+			if !valid {
+				return invalidityError(CategoryUnsupportedValue, scopeID)
+			}
+			if observed != processor.compatibilityVersion {
+				return consolecore.NewError(consolecore.CodeIncompatibleArtifact,
+					"The trace artifact was produced by an incompatible Loomspan version.", scopeID,
+					consolecore.Details{ExpectedCompatibilityVersion: processor.compatibilityVersion,
+						ObservedCompatibilityVersion: observed}, nil)
+			}
+			sawStart = true
+		}
 		if d := validator.onRecord(rec); d != nil {
 			return d
 		}
@@ -361,7 +429,30 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 		return artifact.ProcessResult{}, d
 	}
 
-	return artifact.ProcessResult{ComponentSizes: sizes}, nil
+	return artifact.ProcessResult{
+		ComponentSizes: sizes,
+		Metadata: artifact.TraceMetadata{
+			TraceID: validator.traceID, SessionID: validator.sessionID,
+			Outcome: string(outcome), FinalizedAt: completionRec.Timestamp,
+			PersistencePolicy: completionRec.metadataStringOrEmpty("persistencePolicy"),
+		},
+	}, nil
+}
+
+func extractCompatibilityVersion(rec *Record) (string, bool) {
+	fields, ok := decodeUniqueObject(rec.Metadata)
+	if !ok {
+		return "", false
+	}
+	raw, ok := fields["consoleCompatibilityVersion"]
+	if !ok || bytes.Equal(raw, nullBytes) {
+		return "", false
+	}
+	var version string
+	if json.Unmarshal(raw, &version) != nil || strings.TrimSpace(version) == "" {
+		return "", false
+	}
+	return version, true
 }
 
 // openPayloadStore opens the payloads.store component for streaming chunk
@@ -608,3 +699,4 @@ func componentSizesMap(in map[component]int64) map[artifact.ComponentName]int64 
 // Compile-time assertion that Processor satisfies the artifact.Processor
 // interface.
 var _ artifact.Processor = (*Processor)(nil)
+var _ artifact.ImportProcessor = (*Processor)(nil)

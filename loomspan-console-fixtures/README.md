@@ -1,8 +1,8 @@
 # Loomspan Console Trace Fixtures
 
-This directory is the current-release Java-to-Go semantic contract for execution traces. The trace format itself is an ephemeral diagnostic format: these fixtures describe the current checkout and do not promise that older trace files remain readable.
+This directory is the current-release Java-to-Go semantic contract for execution traces. Every generated trace begins with the framework-owned `consoleCompatibilityVersion`; a complete raw NDJSON file is portable only to Console at that exact version. The trace format itself remains an ephemeral diagnostic format, not a durable application API or a promise that older files remain readable.
 
-`traces/` contains eighteen valid traces and twenty-six deliberately invalid artifacts. `expected/` contains only semantic results needed by Console analysis: identity, outcome, terminal failure, the run-start configured-limit snapshot when present, physical attempts and retry usage, usage completeness, validation-to-attempt links, root/frame hierarchy facts, inclusive/self duration availability, direct/descendant/inclusive and unframed attributed usage, terminal usage, the derived unattributed remainder, payload descriptors, gaps, uncertainties, or one invalidity category. The corpus includes planned-success and unplanned-failure tool lifecycles, nested and repeated frames, incomplete and overlapping duration cases, chunked text and JSON payloads, independently reported component totals, and minimal chunk/frame/failure/attempt/usage/structural-limit mutations. It intentionally contains no UI model, MCP model, or diagnosis.
+`traces/` contains eighteen valid traces and twenty-nine deliberately invalid artifacts. `expected/` contains only semantic results needed by Console analysis: identity, outcome, terminal failure, the run-start configured-limit snapshot when present, physical attempts and retry usage, usage completeness, validation-to-attempt links, root/frame hierarchy facts, inclusive/self duration availability, direct/descendant/inclusive and unframed attributed usage, terminal usage, the derived unattributed remainder, payload descriptors, gaps, uncertainties, or one invalidity category. The corpus includes planned-success and unplanned-failure tool lifecycles, nested and repeated frames, incomplete and overlapping duration cases, chunked text and JSON payloads, independently reported component totals, compatibility-marker rejection, and minimal chunk/frame/failure/attempt/usage/structural-limit mutations. It intentionally contains no UI model, MCP model, or diagnosis.
 
 Representative diagnostic matrix:
 
@@ -64,8 +64,22 @@ status, and response headers. Its `bodyFixture` points to the existing
 NDJSON body. The JSON is test metadata, not a runtime manifest or a separate
 artifact version.
 
-Future Go PRs must first require the exact `consoleCompatibilityVersion` from
-`application-rest/instance-status.json`. PR 09 must reject a mismatch before
-making any snapshot, SSE, catalog, or artifact request. PRs 11-13 consume these
-transport fixtures and the existing semantic corpus without filesystem paths or
-a second trace format.
+Console requires the exact target `consoleCompatibilityVersion` from
+`application-rest/instance-status.json` before making snapshot, SSE, catalog,
+or artifact requests. The same current-release processor consumes the semantic
+corpus and imported raw traces without creating a second trace format.
+
+Console's **Save trace file** path is a fresh exact-byte upstream download; it
+does not save an installed analysis bundle. **Open trace file** accepts the raw
+NDJSON body and rebuilds current indexes under an `IMPORTED` evidence owner.
+Exact released versions must match. Matching `development` values are accepted
+only on a best-effort basis for the current checkout; mixing `development` with
+a release is rejected. Imports are capped at 4 GiB and also by any smaller
+finite workspace capacity, including derived bytes. A duplicate imported trace
+ID is rejected instead of replaced. Imported entries are transient, survive
+target rotation, and disappear on Console shutdown/restart. Bundle layouts,
+handles, cursors, catalogs, and indexes are never portable.
+
+Trace files can contain sensitive diagnostics and application paths and are
+not secret-scanned or redacted. The compatibility marker says nothing about
+who produced a file or whether its content is trustworthy.

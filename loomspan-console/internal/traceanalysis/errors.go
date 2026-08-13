@@ -37,12 +37,20 @@ const (
 // still fetch the original bytes. scopeID is the trace ID used as the domain
 // scope identifier.
 func invalidityError(category InvalidityCategory, scopeID string) *consolecore.Error {
+	return invalidityErrorWithCause(category, scopeID, nil)
+}
+
+func invalidityErrorWithCause(category InvalidityCategory, scopeID string, cause error) *consolecore.Error {
+	invalidity := error(invalidityCause{category: category})
+	if cause != nil {
+		invalidity = errors.Join(invalidity, cause)
+	}
 	return consolecore.NewError(
 		consolecore.CodeInvalidArtifact,
 		"The trace artifact could not be validated.",
 		scopeID,
 		consolecore.Details{RawDownloadAvailable: boolPtr(true)},
-		invalidityCause{category: category},
+		invalidity,
 	)
 }
 

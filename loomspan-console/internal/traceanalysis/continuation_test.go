@@ -8,6 +8,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // TestCursorErrorPrecedenceIsTargetChangedThenArtifactExpiredThenInvalidCursor
@@ -23,7 +24,7 @@ func TestCursorErrorPrecedenceIsTargetChangedThenArtifactExpiredThenInvalidCurso
 
 	// Acquire one page so we have a real continuation cursor bound to the
 	// current scope and handle.
-	page1, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page1, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 	})
@@ -43,7 +44,7 @@ func TestCursorErrorPrecedenceIsTargetChangedThenArtifactExpiredThenInvalidCurso
 	} else {
 		otherScope = "scope-test"
 	}
-	_, domain = h.service.QueryFrames(context.Background(), otherScope, FrameQuery{
+	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(otherScope), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 		Cursor:   page1.NextCursor,
@@ -59,7 +60,7 @@ func TestCursorErrorPrecedenceIsTargetChangedThenArtifactExpiredThenInvalidCurso
 	//    installed in the current scope returns ARTIFACT_EXPIRED. The handle
 	//    format must be valid so the artifact service does not reject it as
 	//    INVALID_ARGUMENT before checking installation.
-	_, domain = h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   artifact.Handle("0000000000000000000000000000000000000000000000000000000000000000"),
 		PageSize: 1,
 	})
@@ -73,7 +74,7 @@ func TestCursorErrorPrecedenceIsTargetChangedThenArtifactExpiredThenInvalidCurso
 	// 3. INVALID_CURSOR: a cursor whose scope and handle are valid but whose
 	//    fingerprint does not match the request (different order) returns
 	//    INVALID_CURSOR. This is checked after lease acquisition succeeds.
-	_, domain = h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 		Order:    FrameOrderDurationDesc,
@@ -95,7 +96,7 @@ func TestCursorBindsOperationScopeHandleFingerprintOrderingAndProgress(t *testin
 
 	// Acquire a records cursor and try to use it for a frames query: the
 	// operation mismatch must be rejected as INVALID_CURSOR.
-	recPage, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	recPage, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 	})
@@ -105,7 +106,7 @@ func TestCursorBindsOperationScopeHandleFingerprintOrderingAndProgress(t *testin
 	if recPage.NextCursor == "" {
 		t.Fatal("expected a records continuation cursor")
 	}
-	_, domain = h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 		Cursor:   recPage.NextCursor, // RECORDS cursor used for FRAMES
@@ -115,7 +116,7 @@ func TestCursorBindsOperationScopeHandleFingerprintOrderingAndProgress(t *testin
 	}
 
 	// Progress is preserved: page 1 returns sequence 1, page 2 returns sequence 2.
-	page1, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page1, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 	})
@@ -125,7 +126,7 @@ func TestCursorBindsOperationScopeHandleFingerprintOrderingAndProgress(t *testin
 	if len(page1.Items) != 1 || page1.Items[0].Sequence != 1 {
 		t.Fatalf("expected sequence 1 on page 1, got %v", page1.Items)
 	}
-	page2, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page2, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 		Cursor:   page1.NextCursor,
@@ -150,7 +151,7 @@ func TestPaginationHasNoDuplicatesOrOmissionsAcrossEverySupportedOrder(t *testin
 			seen := make(map[string]bool)
 			cursor := ""
 			for i := 0; i < 20; i++ { // bounded to prevent infinite loops
-				page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+				page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 					Handle:   h.handle,
 					PageSize: 1,
 					Order:    order,
@@ -196,7 +197,7 @@ func TestSearchContinuationFindsBoundarySpanningLiteralWithoutDuplicates(t *test
 	cursor := ""
 	pageNum := 0
 	for {
-		page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 			Handle:   h.handle,
 			Text:     "traceId",
 			PageSize: 1,
@@ -249,7 +250,7 @@ func TestSearchStopsAtPageSizeAndResumesWithoutDuplicates(t *testing.T) {
 	cursor := ""
 	pageNum := 0
 	for {
-		page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 			Handle:   h.handle,
 			Text:     "traceId",
 			PageSize: 2,
@@ -293,12 +294,12 @@ func TestSearchStopsAtPageSizeAndResumesWithoutDuplicates(t *testing.T) {
 // frame references, aggregate usage, and uncertainties.
 func TestSummaryCarriesScopeHandleIdentityTerminalRootsUsageGapsAndUncertainty(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
-	summary, domain := h.service.GetSummary(context.Background(), h.scopeID, SummaryRequest{Handle: h.handle})
+	summary, domain := h.service.GetSummary(context.Background(), targetEvidence(h.scopeID), SummaryRequest{Handle: h.handle})
 	if domain != nil {
 		t.Fatalf("GetSummary failed: %v", domain)
 	}
-	if summary.Context.TargetScopeID != h.scopeID {
-		t.Fatalf("expected scope %s, got %s", h.scopeID, summary.Context.TargetScopeID)
+	if summary.Context.Evidence != targetEvidence(h.scopeID) {
+		t.Fatalf("expected target evidence for %s, got %#v", h.scopeID, summary.Context.Evidence)
 	}
 	if summary.Context.Handle != h.handle {
 		t.Fatalf("expected handle %s, got %s", h.handle, summary.Context.Handle)
@@ -329,13 +330,38 @@ func TestSummaryCarriesScopeHandleIdentityTerminalRootsUsageGapsAndUncertainty(t
 	}
 }
 
+func TestImportedEvidenceQueriesWithoutTargetProvenanceAndCursorIsOwnerBound(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
+	imported, domain := h.artifacts.Import(context.Background(), strings.NewReader(nestedFrameUsageTrace), int64(len(nestedFrameUsageTrace)))
+	if domain != nil {
+		t.Fatalf("Import failed: %v", domain)
+	}
+	summary, domain := h.service.GetSummary(context.Background(), evidence.ForImported(), SummaryRequest{Handle: imported.Handle})
+	if domain != nil {
+		t.Fatalf("imported summary failed: %v", domain)
+	}
+	if summary.Context.Evidence != evidence.ForImported() || summary.Context.TraceID != "trace-nested-frame-usage" {
+		t.Fatalf("unexpected imported context: %+v", summary.Context)
+	}
+	page, domain := h.service.QueryFrames(context.Background(), evidence.ForImported(), FrameQuery{Handle: imported.Handle, PageSize: 1})
+	if domain != nil || page.NextCursor == "" {
+		t.Fatalf("imported frame page=%+v error=%v", page, domain)
+	}
+	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
+		Handle: h.handle, PageSize: 1, Cursor: page.NextCursor,
+	})
+	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
+		t.Fatalf("expected owner-bound cursor rejection, got %v", domain)
+	}
+}
+
 // TestOptionalAndUnknownFactsNeverSerializeInternallyAsKnownZero proves that
 // optional duration facts use pointers (nil = unknown) rather than zero, so
 // unknown is distinct from recorded zero. We verify via a frame whose self
 // duration is unknown (incomplete close).
 func TestOptionalAndUnknownFactsNeverSerializeInternallyAsKnownZero(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
-	page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 100,
 	})
@@ -368,7 +394,7 @@ func TestAllFixtureFramesRecordsAndPayloadsAreReachableThroughFiniteCalls(t *tes
 	frameIDs := make(map[string]bool)
 	cursor := ""
 	for i := 0; i < 50; i++ {
-		page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+		page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 			Handle:   h.handle,
 			PageSize: 1,
 			Cursor:   cursor,
@@ -389,7 +415,7 @@ func TestAllFixtureFramesRecordsAndPayloadsAreReachableThroughFiniteCalls(t *tes
 	seqs := make(map[int64]bool)
 	cursor = ""
 	for i := 0; i < 50; i++ {
-		page, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+		page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 			Handle:         h.handle,
 			Representation: RecordRepresentationPhysical,
 			PageSize:       1,
@@ -414,7 +440,7 @@ func TestAllFixtureFramesRecordsAndPayloadsAreReachableThroughFiniteCalls(t *tes
 	payloadIDs := make(map[string]bool)
 	cursor = ""
 	for i := 0; i < 50; i++ {
-		page, domain := h.service.QueryPayloads(context.Background(), h.scopeID, PayloadQuery{
+		page, domain := h.service.QueryPayloads(context.Background(), targetEvidence(h.scopeID), PayloadQuery{
 			Handle:   h.handle,
 			PageSize: 1,
 			Cursor:   cursor,
@@ -436,7 +462,7 @@ func TestAllFixtureFramesRecordsAndPayloadsAreReachableThroughFiniteCalls(t *tes
 
 	// Each payload must be readable via a range call.
 	for pid := range payloadIDs {
-		_, domain := h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+		_, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 			Handle:    h.handle,
 			Source:    RangeSourcePayload,
 			PayloadID: pid,
@@ -456,7 +482,7 @@ func TestQueryRejectsZeroNegativeAndOneOverMaximumPageSize(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 
 	// Zero defaults to defaultPageSize and succeeds.
-	page, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 0,
 	})
@@ -468,7 +494,7 @@ func TestQueryRejectsZeroNegativeAndOneOverMaximumPageSize(t *testing.T) {
 	}
 
 	// Negative is INVALID_ARGUMENT.
-	_, domain = h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	_, domain = h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: -1,
 	})
@@ -477,7 +503,7 @@ func TestQueryRejectsZeroNegativeAndOneOverMaximumPageSize(t *testing.T) {
 	}
 
 	// Over max is LIMIT_EXCEEDED.
-	_, domain = h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	_, domain = h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: maxPageSize + 1,
 	})
@@ -494,7 +520,7 @@ func TestPayloadRangeAppliesDefaultExactMaximumAndOneOverLimit(t *testing.T) {
 	h := newServiceTestHarness(t, "t", ndjson)
 
 	// Zero defaults to defaultRangeBytes and succeeds.
-	_, domain := h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:    h.handle,
 		Source:    RangeSourcePayload,
 		PayloadID: "payload-1",
@@ -506,7 +532,7 @@ func TestPayloadRangeAppliesDefaultExactMaximumAndOneOverLimit(t *testing.T) {
 	}
 
 	// Exact max succeeds.
-	_, domain = h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:    h.handle,
 		Source:    RangeSourcePayload,
 		PayloadID: "payload-1",
@@ -518,7 +544,7 @@ func TestPayloadRangeAppliesDefaultExactMaximumAndOneOverLimit(t *testing.T) {
 	}
 
 	// One over max is LIMIT_EXCEEDED.
-	_, domain = h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:    h.handle,
 		Source:    RangeSourcePayload,
 		PayloadID: "payload-1",
@@ -537,7 +563,7 @@ func TestPayloadRawRecordAndRawArtifactReferencesCannotBeInterchanged(t *testing
 	h := newServiceTestHarness(t, "t", ndjson)
 
 	// Get a raw-artifact range cursor.
-	artifactPage, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	artifactPage, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   h.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -553,7 +579,7 @@ func TestPayloadRawRecordAndRawArtifactReferencesCannotBeInterchanged(t *testing
 	// Reuse the raw-artifact cursor for a payload range: must fail with
 	// INVALID_CURSOR (op mismatch) since the cursor op is RAW_ARTIFACT_RANGE
 	// but the call expects PAYLOAD_RANGE.
-	_, domain = h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
 		Source:         RangeSourcePayload,
 		PayloadID:      "payload-1",
@@ -619,7 +645,7 @@ func TestSearchRejectsTextOverByteOrCodePointLimit(t *testing.T) {
 
 	// Over byte limit.
 	longBytes := strings.Repeat("a", maxLiteralTextBytes+1)
-	_, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	_, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     longBytes,
 		PageSize: 10,
@@ -646,7 +672,7 @@ func TestSearchRejectsTextOverByteOrCodePointLimit(t *testing.T) {
 	if len(longRunes) > maxLiteralTextBytes {
 		t.Skip("cannot construct a rune-over-limit literal that is under the byte limit with 2-byte chars")
 	}
-	_, domain = h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	_, domain = h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     longRunes,
 		PageSize: 10,
@@ -665,7 +691,7 @@ func TestRangeCursorErrorPrecedenceMatchesQueryCursorPrecedence(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
 
 	// Acquire one page so we have a real raw-artifact continuation cursor.
-	page1, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	page1, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   h.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -687,7 +713,7 @@ func TestRangeCursorErrorPrecedenceMatchesQueryCursorPrecedence(t *testing.T) {
 	} else {
 		otherScope = "scope-test"
 	}
-	_, domain = h.service.ReadRawArtifactRange(context.Background(), otherScope, RangeRequest{
+	_, domain = h.service.ReadRawArtifactRange(context.Background(), targetEvidence(otherScope), RangeRequest{
 		Handle:         h.handle,
 		Source:         RangeSourceRawArtifact,
 		ContinueCursor: page1.NextCursor,
@@ -705,7 +731,7 @@ func TestRangeCursorErrorPrecedenceMatchesQueryCursorPrecedence(t *testing.T) {
 	//    PAYLOAD_RANGE. This must be caught before lease acquisition.
 	ndjson := chunkedPayloadTrace(256, 2)
 	h2 := newServiceTestHarness(t, "t", ndjson)
-	artifactPage, domain := h2.service.ReadRawArtifactRange(context.Background(), h2.scopeID, RangeRequest{
+	artifactPage, domain := h2.service.ReadRawArtifactRange(context.Background(), targetEvidence(h2.scopeID), RangeRequest{
 		Handle:   h2.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -714,7 +740,7 @@ func TestRangeCursorErrorPrecedenceMatchesQueryCursorPrecedence(t *testing.T) {
 	if domain != nil {
 		t.Fatalf("ReadRawArtifactRange for op-mismatch test failed: %v", domain)
 	}
-	_, domain = h2.service.ReadPayloadRange(context.Background(), h2.scopeID, RangeRequest{
+	_, domain = h2.service.ReadPayloadRange(context.Background(), targetEvidence(h2.scopeID), RangeRequest{
 		Handle:         h2.handle,
 		Source:         RangeSourcePayload,
 		PayloadID:      "payload-1",
@@ -738,7 +764,7 @@ func TestRecordQuerySequenceRangeUsesBinarySearchFastPath(t *testing.T) {
 	// minimalValidTrace has 5 records (sequences 1-5). Query for sequences 2-4.
 	minSeq := int64(2)
 	maxSeq := int64(4)
-	page, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle: h.handle,
 		Filter: RecordFilter{
 			MinSequence: &minSeq,

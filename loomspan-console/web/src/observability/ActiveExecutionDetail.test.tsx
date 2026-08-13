@@ -347,6 +347,7 @@ test("finalization failure is distinct from a completed outcome", async () => {
 });
 
 const acquiredArtifact: AcquiredArtifact = {
+  source: "TARGET",
   artifactHandle: "handle-abc",
   traceId: "trace-1",
   sessionId: "session-1",

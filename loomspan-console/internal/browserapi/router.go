@@ -3,12 +3,14 @@ package browserapi
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/browserauth"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
@@ -20,32 +22,34 @@ const csrfHeader = "X-loomspan-Console-CSRF"
 
 type ArtifactService interface {
 	Acquire(ctx context.Context, scope target.Scope, traceID string) (artifact.AcquiredArtifact, *consolecore.Error)
-	Lookup(scopeID target.ScopeID, traceID string) (artifact.LookupResult, *consolecore.Error)
-	StorageSnapshot(scopeID target.ScopeID) (artifact.StorageSnapshot, *consolecore.Error)
-	Remove(scopeID target.ScopeID, traceID string) *consolecore.Error
-	ClearExpired(scopeID target.ScopeID) *consolecore.Error
-	ClearAllUnused(scopeID target.ScopeID) *consolecore.Error
+	Import(context.Context, io.Reader, int64) (artifact.AcquiredArtifact, *consolecore.Error)
+	ImportLimit() int64
+	Lookup(evidence.Reference, string) (artifact.LookupResult, *consolecore.Error)
+	StorageSnapshot() (artifact.StorageSnapshot, *consolecore.Error)
+	Remove(evidence.Reference, string) *consolecore.Error
+	ClearExpired() *consolecore.Error
+	ClearAllUnused() *consolecore.Error
 }
 
 // TraceAnalysisService is the internal, adapter-facing query surface.  Browser
 // callers identify an installed artifact by trace ID; the adapter resolves the
 // opaque handle and never exposes it in analysis responses.
 type TraceAnalysisService interface {
-	GetSummary(context.Context, target.ScopeID, traceanalysis.SummaryRequest) (traceanalysis.TraceSummary, *consolecore.Error)
-	QueryFrames(context.Context, target.ScopeID, traceanalysis.FrameQuery) (traceanalysis.Page[traceanalysis.FrameSummary], *consolecore.Error)
-	QueryRecords(context.Context, target.ScopeID, traceanalysis.RecordQuery) (traceanalysis.Page[traceanalysis.RecordSummary], *consolecore.Error)
-	QueryAttempts(context.Context, target.ScopeID, traceanalysis.AttemptQuery) (traceanalysis.Page[traceanalysis.AttemptSummary], *consolecore.Error)
-	QueryRetries(context.Context, target.ScopeID, traceanalysis.RetryQuery) (traceanalysis.Page[traceanalysis.RetrySummary], *consolecore.Error)
-	QueryValidationLinks(context.Context, target.ScopeID, traceanalysis.ValidationQuery) (traceanalysis.Page[traceanalysis.ValidationSummary], *consolecore.Error)
-	QueryFailures(context.Context, target.ScopeID, traceanalysis.FailureQuery) (traceanalysis.Page[traceanalysis.FailureSummary], *consolecore.Error)
-	GetFailureDiagnostic(context.Context, target.ScopeID, traceanalysis.FailureDiagnosticRequest) (traceanalysis.FailureDiagnostic, *consolecore.Error)
-	QueryPayloads(context.Context, target.ScopeID, traceanalysis.PayloadQuery) (traceanalysis.Page[traceanalysis.PayloadDescriptor], *consolecore.Error)
-	QueryGaps(context.Context, target.ScopeID, traceanalysis.GapQuery) (traceanalysis.Page[traceanalysis.Gap], *consolecore.Error)
-	QueryUncertainties(context.Context, target.ScopeID, traceanalysis.UncertaintyQuery) (traceanalysis.Page[traceanalysis.Uncertainty], *consolecore.Error)
-	GetUsageBreakdown(context.Context, target.ScopeID, artifact.Handle) (traceanalysis.UsageBreakdown, *consolecore.Error)
-	Search(context.Context, target.ScopeID, traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error)
-	ReadPayloadRange(context.Context, target.ScopeID, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
-	ReadRawRecordRange(context.Context, target.ScopeID, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
+	GetSummary(context.Context, evidence.Reference, traceanalysis.SummaryRequest) (traceanalysis.TraceSummary, *consolecore.Error)
+	QueryFrames(context.Context, evidence.Reference, traceanalysis.FrameQuery) (traceanalysis.Page[traceanalysis.FrameSummary], *consolecore.Error)
+	QueryRecords(context.Context, evidence.Reference, traceanalysis.RecordQuery) (traceanalysis.Page[traceanalysis.RecordSummary], *consolecore.Error)
+	QueryAttempts(context.Context, evidence.Reference, traceanalysis.AttemptQuery) (traceanalysis.Page[traceanalysis.AttemptSummary], *consolecore.Error)
+	QueryRetries(context.Context, evidence.Reference, traceanalysis.RetryQuery) (traceanalysis.Page[traceanalysis.RetrySummary], *consolecore.Error)
+	QueryValidationLinks(context.Context, evidence.Reference, traceanalysis.ValidationQuery) (traceanalysis.Page[traceanalysis.ValidationSummary], *consolecore.Error)
+	QueryFailures(context.Context, evidence.Reference, traceanalysis.FailureQuery) (traceanalysis.Page[traceanalysis.FailureSummary], *consolecore.Error)
+	GetFailureDiagnostic(context.Context, evidence.Reference, traceanalysis.FailureDiagnosticRequest) (traceanalysis.FailureDiagnostic, *consolecore.Error)
+	QueryPayloads(context.Context, evidence.Reference, traceanalysis.PayloadQuery) (traceanalysis.Page[traceanalysis.PayloadDescriptor], *consolecore.Error)
+	QueryGaps(context.Context, evidence.Reference, traceanalysis.GapQuery) (traceanalysis.Page[traceanalysis.Gap], *consolecore.Error)
+	QueryUncertainties(context.Context, evidence.Reference, traceanalysis.UncertaintyQuery) (traceanalysis.Page[traceanalysis.Uncertainty], *consolecore.Error)
+	GetUsageBreakdown(context.Context, evidence.Reference, artifact.Handle) (traceanalysis.UsageBreakdown, *consolecore.Error)
+	Search(context.Context, evidence.Reference, traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error)
+	ReadPayloadRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
+	ReadRawRecordRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
 }
 
 type Options struct {
@@ -167,6 +171,8 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 		router.withSession(response, request, false, router.traceAnalysisRawRecordRange)
 	case "/api/console/v1/artifacts/acquire":
 		router.withSession(response, request, true, router.artifactAcquire)
+	case "/api/console/v1/artifacts/import":
+		router.withSession(response, request, true, router.artifactImport)
 	case "/api/console/v1/artifacts/storage":
 		router.withSession(response, request, false, router.artifactStorage)
 	case "/api/console/v1/artifacts/remove":

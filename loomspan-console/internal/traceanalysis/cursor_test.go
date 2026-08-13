@@ -12,7 +12,7 @@ func TestCursorEncodeDecodeRoundTrip(t *testing.T) {
 	c := cursor{
 		Schema:      cursorSchemaV1,
 		Op:          cursorOpFrames,
-		ScopeID:     "scope-1",
+		OwnerKey:    "scope-1",
 		Handle:      "handle-1",
 		Fingerprint: "abc123",
 		Position:    42,
@@ -34,8 +34,8 @@ func TestCursorEncodeDecodeRoundTrip(t *testing.T) {
 	if decoded.Op != c.Op {
 		t.Fatalf("op mismatch: got %q want %q", decoded.Op, c.Op)
 	}
-	if decoded.ScopeID != c.ScopeID {
-		t.Fatalf("scopeID mismatch: got %q want %q", decoded.ScopeID, c.ScopeID)
+	if decoded.OwnerKey != c.OwnerKey {
+		t.Fatalf("scopeID mismatch: got %q want %q", decoded.OwnerKey, c.OwnerKey)
 	}
 	if decoded.Handle != c.Handle {
 		t.Fatalf("handle mismatch: got %q want %q", decoded.Handle, c.Handle)
@@ -52,7 +52,7 @@ func TestCursorRejectsUnknownSchema(t *testing.T) {
 	c := cursor{
 		Schema:      "v999",
 		Op:          cursorOpFrames,
-		ScopeID:     "scope-1",
+		OwnerKey:    "scope-1",
 		Handle:      "handle-1",
 		Fingerprint: "abc123",
 		Position:    1,
@@ -83,7 +83,7 @@ func TestCursorRejectsUnknownField(t *testing.T) {
 	raw := map[string]any{
 		"schema":      cursorSchemaV1,
 		"op":          "FRAMES",
-		"scopeId":     "scope-1",
+		"ownerKey":    "scope-1",
 		"handle":      "handle-1",
 		"fingerprint": "abc123",
 		"position":    5,
@@ -115,7 +115,7 @@ func TestCursorSearchStateRoundTrip(t *testing.T) {
 	c := cursor{
 		Schema:      cursorSchemaV1,
 		Op:          cursorOpSearch,
-		ScopeID:     "scope-1",
+		OwnerKey:    "scope-1",
 		Handle:      "handle-1",
 		Fingerprint: "def456",
 		SearchState: &searchCursorState{
@@ -189,10 +189,10 @@ func TestCanonicalizeRequestDifferentForDifferentInput(t *testing.T) {
 
 func TestValidateCursorFingerprintScopeChanged(t *testing.T) {
 	c := cursor{
-		ScopeID:     "scope-old",
+		OwnerKey:    "scope-old",
 		Fingerprint: "abc123",
 	}
-	domain := validateCursorFingerprint(c, "abc123", "scope-new", artifact.Handle(c.Handle))
+	domain := validateCursorFingerprint(c, "abc123", "scope-new", "scope-new", artifact.Handle(c.Handle))
 	if domain == nil {
 		t.Fatal("expected TARGET_CHANGED error")
 	}
@@ -203,10 +203,10 @@ func TestValidateCursorFingerprintScopeChanged(t *testing.T) {
 
 func TestValidateCursorFingerprintMismatch(t *testing.T) {
 	c := cursor{
-		ScopeID:     "scope-1",
+		OwnerKey:    "scope-1",
 		Fingerprint: "abc123",
 	}
-	domain := validateCursorFingerprint(c, "def456", "scope-1", artifact.Handle(c.Handle))
+	domain := validateCursorFingerprint(c, "def456", "scope-1", "scope-1", artifact.Handle(c.Handle))
 	if domain == nil {
 		t.Fatal("expected INVALID_CURSOR error")
 	}
@@ -217,10 +217,10 @@ func TestValidateCursorFingerprintMismatch(t *testing.T) {
 
 func TestValidateCursorFingerprintOK(t *testing.T) {
 	c := cursor{
-		ScopeID:     "scope-1",
+		OwnerKey:    "scope-1",
 		Fingerprint: "abc123",
 	}
-	if domain := validateCursorFingerprint(c, "abc123", "scope-1", artifact.Handle(c.Handle)); domain != nil {
+	if domain := validateCursorFingerprint(c, "abc123", "scope-1", "scope-1", artifact.Handle(c.Handle)); domain != nil {
 		t.Fatalf("expected no error, got %v", domain)
 	}
 }

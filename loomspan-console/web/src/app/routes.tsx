@@ -9,6 +9,7 @@ import { ActiveExecutionDetailView } from "../observability/ActiveExecutionDetai
 import { Traces } from "../observability/Traces";
 import { TraceDetailView } from "../observability/TraceDetail";
 import { TraceStorage } from "../observability/TraceStorage";
+import { ImportedTraceView } from "../observability/ImportedTrace";
 
 function definitions() {
   return [
@@ -23,7 +24,8 @@ function definitions() {
         { path: "active-executions", element: <ActiveExecutions /> },
         { path: "active-executions/:sessionId", element: <ActiveExecutionDetailView /> },
         { path: "traces", element: <Traces /> },
-        { path: "traces/:traceId", element: <TraceDetailView /> },
+		{ path: "traces/:traceId", element: <TraceDetailView /> },
+		{ path: "traces/imported/:traceId", element: <ImportedTraceView /> },
         { path: "trace-storage", element: <TraceStorage /> },
         { path: "*", element: <NotFound /> },
       ],

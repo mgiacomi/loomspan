@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // PR12-R12: Lease.Open returns a reader over the installed artifact file
@@ -23,7 +24,7 @@ func TestLeaseOpenReturnsReaderWithoutPath(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, domain := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, domain := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	if domain != nil {
 		t.Fatalf("Use failed: %v", domain)
 	}
@@ -56,7 +57,7 @@ func TestLeaseCloseIsIdempotent(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 
 	if err := lease.Close(true); err != nil {
 		t.Fatalf("first Close failed: %v", err)
@@ -81,7 +82,7 @@ func TestLeaseOpenFailsAfterClose(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	_ = lease.Close(true)
 
 	_, err := lease.OpenComponent(ComponentRawArtifact)
@@ -104,8 +105,8 @@ func TestMultipleLeasesForSameArtifact(t *testing.T) {
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
 	handle := acquireHandle(t, svc, scope, "trace-1")
 
-	lease1, _ := svc.Use(scope.ID, handle)
-	lease2, _ := svc.Use(scope.ID, handle)
+	lease1, _ := svc.Use(targetRef(scope.ID), handle)
+	lease2, _ := svc.Use(targetRef(scope.ID), handle)
 
 	// Both leases should be able to read the data.
 	reader1, _ := lease1.OpenComponent(ComponentRawArtifact)
@@ -126,8 +127,8 @@ func TestMultipleLeasesForSameArtifact(t *testing.T) {
 	_ = lease2.Close(true)
 }
 
-// PR12-R12: Lease.ScopeID returns the scope the lease was issued for.
-func TestLeaseScopeID(t *testing.T) {
+// PR25: Lease.Owner returns the evidence owner the lease was issued for.
+func TestLeaseOwner(t *testing.T) {
 	data := []byte("scope-id-test")
 	loader := newFakeLoader(testTraceMetadata("trace-1", int64(len(data))))
 	opener := newFakeOpener(data, int64(len(data)))
@@ -138,11 +139,11 @@ func TestLeaseScopeID(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
-	if lease.ScopeID() != scope.ID {
-		t.Fatalf("expected scope ID %q, got %q", scope.ID, lease.ScopeID())
+	if lease.Owner() != evidence.Target(scope.ID) {
+		t.Fatalf("expected target owner for %q, got %#v", scope.ID, lease.Owner())
 	}
 }
 
@@ -158,11 +159,11 @@ func TestLeaseStillUsableAfterFailedRemove(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
 	// Remove should fail with ARTIFACT_IN_USE because the lease is active.
-	domain := svc.Remove(scope.ID, "trace-1")
+	domain := svc.Remove(targetRef(scope.ID), "trace-1")
 	if domain == nil || domain.Code != consolecore.CodeArtifactInUse {
 		t.Fatalf("expected ARTIFACT_IN_USE, got %v", domain)
 	}

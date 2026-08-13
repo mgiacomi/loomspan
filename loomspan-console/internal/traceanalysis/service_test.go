@@ -14,9 +14,13 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
+
+func targetEvidence(scopeID target.ScopeID) evidence.Reference { return evidence.ForTarget(scopeID) }
+func targetCursorKey(scopeID target.ScopeID) string            { return ownerCursorKey(evidence.Target(scopeID)) }
 
 // serviceTestHarness wires a real traceanalysis.Service against a real
 // artifact.Service and workspace, processes a fixture trace through an httptest
@@ -164,7 +168,7 @@ func newServiceTestHarness(t *testing.T, traceID, ndjson string) *serviceTestHar
 
 func TestServiceGetSummary(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	summary, domain := h.service.GetSummary(context.Background(), h.scopeID, SummaryRequest{Handle: h.handle})
+	summary, domain := h.service.GetSummary(context.Background(), targetEvidence(h.scopeID), SummaryRequest{Handle: h.handle})
 	if domain != nil {
 		t.Fatalf("GetSummary failed: %v", domain)
 	}
@@ -193,7 +197,7 @@ func TestServiceGetSummary(t *testing.T) {
 
 func TestServiceQueryFramesEmpty(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -210,7 +214,7 @@ func TestServiceQueryFramesEmpty(t *testing.T) {
 
 func TestServiceQueryFramesWithFrames(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
-	page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -262,7 +266,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 		closeChild + "\n" + closeRoot + "\n" + completionRecord(11, "SUCCEEDED", 0, 0, 0, "") + "\n"
 	h := newServiceTestHarness(t, "t", raw)
 
-	page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle: h.handle,
 		Filter: FrameFilter{
 			SkillName: "skill.alpha", Outcome: "completed", AttemptID: "attempt-1",
@@ -288,7 +292,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 		!reflect.DeepEqual(child.FailureIDs, []string{"failure-1"}) {
 		t.Fatalf("recorded frame relationships were not preserved: %+v", child)
 	}
-	failurePage, failureDomain := h.service.QueryFailures(context.Background(), h.scopeID, FailureQuery{Handle: h.handle, PageSize: 10})
+	failurePage, failureDomain := h.service.QueryFailures(context.Background(), targetEvidence(h.scopeID), FailureQuery{Handle: h.handle, PageSize: 10})
 	if failureDomain != nil || len(failurePage.Items) != 1 {
 		t.Fatalf("failure query: page=%+v domain=%v", failurePage, failureDomain)
 	}
@@ -298,7 +302,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 		t.Fatalf("direct failure relationships were not preserved: %+v", failure)
 	}
 
-	all, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{Handle: h.handle, PageSize: 1})
+	all, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 1})
 	if domain != nil || !all.HasMore {
 		t.Fatalf("first frame page: page=%+v domain=%v", all, domain)
 	}
@@ -309,7 +313,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 	if decoded.Position <= 1 {
 		t.Fatalf("fact continuation must store a byte offset, got %d", decoded.Position)
 	}
-	second, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	second, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle: h.handle, PageSize: 1, Cursor: all.NextCursor,
 	})
 	if domain != nil || len(second.Items) != 1 || second.Items[0].FrameID != "child" {
@@ -331,7 +335,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 
 func TestServiceQueryFramesPagination(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
-	page1, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page1, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 	})
@@ -347,7 +351,7 @@ func TestServiceQueryFramesPagination(t *testing.T) {
 	if page1.NextCursor == "" {
 		t.Fatal("expected non-empty next cursor")
 	}
-	page2, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page2, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 		Cursor:   page1.NextCursor,
@@ -365,11 +369,11 @@ func TestServiceQueryFramesPagination(t *testing.T) {
 
 func TestServiceQueryFramesCursorFingerprintMismatch(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
-	page1, _ := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page1, _ := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 	})
-	_, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	_, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle:   h.handle,
 		PageSize: 1,
 		Order:    FrameOrderDurationDesc,
@@ -385,7 +389,7 @@ func TestServiceQueryFramesCursorFingerprintMismatch(t *testing.T) {
 
 func TestServiceQueryFramesFilterByFrameType(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
-	page, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle: h.handle,
 		Filter: FrameFilter{FrameType: "SKILL_EXECUTION"},
 	})
@@ -402,7 +406,7 @@ func TestServiceQueryFramesFilterByFrameType(t *testing.T) {
 
 func TestServiceQueryRecordsPhysical(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:         h.handle,
 		Representation: RecordRepresentationPhysical,
 		PageSize:       10,
@@ -423,7 +427,7 @@ func TestServiceQueryRecordsPhysical(t *testing.T) {
 
 func TestServiceQueryRecordsFilterByType(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle: h.handle,
 		Filter: RecordFilter{Types: []string{"MODEL_RESPONSE_RECEIVED"}},
 	})
@@ -440,7 +444,7 @@ func TestServiceQueryRecordsFilterByType(t *testing.T) {
 
 func TestServiceQueryRecordsPagination(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page1, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page1, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 2,
 	})
@@ -453,7 +457,7 @@ func TestServiceQueryRecordsPagination(t *testing.T) {
 	if !page1.HasMore {
 		t.Fatal("expected hasMore")
 	}
-	page2, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page2, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 2,
 		Cursor:   page1.NextCursor,
@@ -467,7 +471,7 @@ func TestServiceQueryRecordsPagination(t *testing.T) {
 	if !page2.HasMore {
 		t.Fatal("expected hasMore on page 2")
 	}
-	page3, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	page3, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:   h.handle,
 		PageSize: 2,
 		Cursor:   page2.NextCursor,
@@ -485,7 +489,7 @@ func TestServiceQueryRecordsPagination(t *testing.T) {
 
 func TestServiceQueryAttempts(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryAttempts(context.Background(), h.scopeID, AttemptQuery{
+	page, domain := h.service.QueryAttempts(context.Background(), targetEvidence(h.scopeID), AttemptQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -505,7 +509,7 @@ func TestServiceQueryAttempts(t *testing.T) {
 
 func TestServiceQueryRetries(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryRetries(context.Background(), h.scopeID, RetryQuery{
+	page, domain := h.service.QueryRetries(context.Background(), targetEvidence(h.scopeID), RetryQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -522,7 +526,7 @@ func TestServiceQueryRetries(t *testing.T) {
 
 func TestServiceQueryValidationLinks(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryValidationLinks(context.Background(), h.scopeID, ValidationQuery{
+	page, domain := h.service.QueryValidationLinks(context.Background(), targetEvidence(h.scopeID), ValidationQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -536,7 +540,7 @@ func TestServiceQueryValidationLinks(t *testing.T) {
 
 func TestServiceQueryFailures(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryFailures(context.Background(), h.scopeID, FailureQuery{
+	page, domain := h.service.QueryFailures(context.Background(), targetEvidence(h.scopeID), FailureQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -551,11 +555,11 @@ func TestServiceQueryFailures(t *testing.T) {
 func TestServiceGetFailureDiagnostic(t *testing.T) {
 	raw := startedRecord(1) + "\n" + errorRecord(2, "failure-diagnostic", false) + "\n" + completionRecord(3, "SUCCEEDED", 0, 0, 0, "") + "\n"
 	h := newServiceTestHarness(t, "t", raw)
-	page, domain := h.service.QueryFailures(context.Background(), h.scopeID, FailureQuery{Handle: h.handle, PageSize: 10})
+	page, domain := h.service.QueryFailures(context.Background(), targetEvidence(h.scopeID), FailureQuery{Handle: h.handle, PageSize: 10})
 	if domain != nil || len(page.Items) != 1 || len(page.Items[0].Diagnostics) != 1 {
 		t.Fatalf("failure descriptors: page=%+v domain=%v", page, domain)
 	}
-	result, domain := h.service.GetFailureDiagnostic(context.Background(), h.scopeID, FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0})
+	result, domain := h.service.GetFailureDiagnostic(context.Background(), targetEvidence(h.scopeID), FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0})
 	if domain != nil {
 		t.Fatalf("GetFailureDiagnostic: %v", domain)
 	}
@@ -575,21 +579,21 @@ func TestServiceGetFailureDiagnostic(t *testing.T) {
 		{name: "wrong handle", scope: h.scopeID, req: FailureDiagnosticRequest{Handle: artifact.Handle("other-handle"), FailureID: "failure-diagnostic", Ordinal: 0}, ctx: context.Background()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, domain := h.service.GetFailureDiagnostic(tc.ctx, tc.scope, tc.req); domain == nil {
+			if _, domain := h.service.GetFailureDiagnostic(tc.ctx, targetEvidence(tc.scope), tc.req); domain == nil {
 				t.Fatal("expected domain error")
 			}
 		})
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, domain := h.service.GetFailureDiagnostic(cancelled, h.scopeID, FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0}); domain == nil {
+	if _, domain := h.service.GetFailureDiagnostic(cancelled, targetEvidence(h.scopeID), FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0}); domain == nil {
 		t.Fatal("expected cancellation error")
 	}
 }
 
 func TestServiceQueryPayloads(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryPayloads(context.Background(), h.scopeID, PayloadQuery{
+	page, domain := h.service.QueryPayloads(context.Background(), targetEvidence(h.scopeID), PayloadQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -603,7 +607,7 @@ func TestServiceQueryPayloads(t *testing.T) {
 
 func TestServiceQueryGaps(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.QueryGaps(context.Background(), h.scopeID, GapQuery{
+	page, domain := h.service.QueryGaps(context.Background(), targetEvidence(h.scopeID), GapQuery{
 		Handle:   h.handle,
 		PageSize: 10,
 	})
@@ -617,7 +621,7 @@ func TestServiceQueryGaps(t *testing.T) {
 
 func TestServiceGetUsageBreakdown(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	breakdown, domain := h.service.GetUsageBreakdown(context.Background(), h.scopeID, h.handle)
+	breakdown, domain := h.service.GetUsageBreakdown(context.Background(), targetEvidence(h.scopeID), h.handle)
 	if domain != nil {
 		t.Fatalf("GetUsageBreakdown failed: %v", domain)
 	}
@@ -631,7 +635,7 @@ func TestServiceGetUsageBreakdown(t *testing.T) {
 
 func TestServiceQueryFramesExpiredHandle(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.QueryFrames(context.Background(), h.scopeID, FrameQuery{
+	_, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
 		Handle: artifact.Handle("nonexistent-handle"),
 	})
 	if domain == nil {
@@ -644,7 +648,7 @@ func TestServiceQueryRecordsLogicalSkipsChunks(t *testing.T) {
 	// chunked-payload trace with trace ID "t" and session ID "s".
 	ndjson := chunkedPayloadTrace(256, 2)
 	h := newServiceTestHarness(t, "t", ndjson)
-	physicalPage, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	physicalPage, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:         h.handle,
 		Representation: RecordRepresentationPhysical,
 		PageSize:       100,
@@ -662,7 +666,7 @@ func TestServiceQueryRecordsLogicalSkipsChunks(t *testing.T) {
 	if !hasChunk {
 		t.Fatal("expected at least one chunk record in physical representation")
 	}
-	logicalPage, domain := h.service.QueryRecords(context.Background(), h.scopeID, RecordQuery{
+	logicalPage, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
 		Handle:         h.handle,
 		Representation: RecordRepresentationLogical,
 		PageSize:       100,
@@ -679,7 +683,7 @@ func TestServiceQueryRecordsLogicalSkipsChunks(t *testing.T) {
 
 // nestedFrameUsageTrace is a trace with two frames (root + skill) matching the
 // Java fixture corpus nested-frame-usage case.
-const nestedFrameUsageTrace = `{"traceId":"trace-nested-frame-usage","sessionId":"session-nested-frame-usage","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"tracePath":"traces/nested-frame-usage.ndjson"},"data":{"sessionId":"session-nested-frame-usage"}}
+const nestedFrameUsageTrace = `{"traceId":"trace-nested-frame-usage","sessionId":"session-nested-frame-usage","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"tracePath":"traces/nested-frame-usage.ndjson","consoleCompatibilityVersion":"development"},"data":{"sessionId":"session-nested-frame-usage"}}
 {"traceId":"trace-nested-frame-usage","sessionId":"session-nested-frame-usage","sequence":2,"timestamp":1784894400.000000000,"recordType":"TRACE_CAPTURE_POLICY_RECORDED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"persistencePolicy":"ALWAYS"},"data":null}
 {"traceId":"trace-nested-frame-usage","sessionId":"session-nested-frame-usage","sequence":3,"timestamp":1784894400.000000000,"recordType":"FRAME_OPENED","frameId":"root","parentFrameId":null,"frameType":"ROOT_MISSION","route":"root.skill","threadName":"fixture-thread","metadata":{"timestampOverride":"2026-07-24T12:00:00Z"},"data":null}
 {"traceId":"trace-nested-frame-usage","sessionId":"session-nested-frame-usage","sequence":4,"timestamp":1784894401.000000000,"recordType":"FRAME_OPENED","frameId":"skill","parentFrameId":"root","frameType":"SKILL_EXECUTION","route":"root.skill","threadName":"fixture-thread","metadata":{"timestampOverride":"2026-07-24T12:00:01Z"},"data":null}

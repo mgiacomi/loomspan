@@ -8,7 +8,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // RangeRequest is a bounded byte range request against a payload, raw record,
@@ -33,13 +33,13 @@ type RangeRequest struct {
 // payload stored in the payload store component. It adjusts text/JSON ranges
 // to complete UTF-8 code points and returns base64 for arbitrary bytes that
 // cannot be represented as a complete UTF-8 slice.
-func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Lease, scopeID target.ScopeID, handle artifact.Handle, req RangeRequest, descriptor payloadDescriptor, fingerprint string) (ByteRangeResult, *consolecore.Error) {
+func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Lease, scopeID evidence.Reference, handle artifact.Handle, req RangeRequest, descriptor payloadDescriptor, fingerprint string) (ByteRangeResult, *consolecore.Error) {
 	if e := ctx.Err(); e != nil {
 		return ByteRangeResult{}, canceledError(e)
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, handle)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	start, maxBytes, domain := resolveRangeBounds(scopeID, req, descriptor.StoreLength)
 	if domain != nil {
@@ -61,16 +61,16 @@ func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Le
 	}
 	reader, err := lease.OpenComponent(artifact.ComponentName(ComponentPayloadStore))
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	defer reader.Close()
 	if _, err := reader.Seek(descriptor.StoreOffset+start, io.SeekStart); err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf := make([]byte, maxBytes)
 	n, err := io.ReadFull(reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf = buf[:n]
 	actualStart := start
@@ -81,9 +81,9 @@ func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Le
 	hasMore := actualEnd < descriptor.StoreLength
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodeRangeCursor(cursorOpPayloadRange, string(scopeID), handle, fingerprint, actualEnd)
+		nextCursor, err = encodeRangeCursor(cursorOpPayloadRange, ownerCursorKey(lease.Owner()), handle, fingerprint, actualEnd)
 		if err != nil {
-			return ByteRangeResult{}, cursorError(string(scopeID), err)
+			return ByteRangeResult{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	return ByteRangeResult{
@@ -103,13 +103,13 @@ func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Le
 // readRawRecordRange reads a bounded byte range from one physical record's
 // bytes inside the raw NDJSON artifact. The range is bounded by the record's
 // raw length; requesting beyond the record end returns a short range.
-func (service *Service) readRawRecordRange(ctx context.Context, lease *artifact.Lease, scopeID target.ScopeID, handle artifact.Handle, req RangeRequest, row recordIndexRow, fingerprint string) (ByteRangeResult, *consolecore.Error) {
+func (service *Service) readRawRecordRange(ctx context.Context, lease *artifact.Lease, scopeID evidence.Reference, handle artifact.Handle, req RangeRequest, row recordIndexRow, fingerprint string) (ByteRangeResult, *consolecore.Error) {
 	if e := ctx.Err(); e != nil {
 		return ByteRangeResult{}, canceledError(e)
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, handle)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	recordLen := row.Length
 	start, maxBytes, domain := resolveRangeBounds(scopeID, req, recordLen)
@@ -130,16 +130,16 @@ func (service *Service) readRawRecordRange(ctx context.Context, lease *artifact.
 	}
 	reader, err := lease.OpenComponent(artifact.ComponentRawArtifact)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	defer reader.Close()
 	if _, err := reader.Seek(row.Offset+start, io.SeekStart); err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf := make([]byte, maxBytes)
 	n, err := io.ReadFull(reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf = buf[:n]
 	actualStart := start
@@ -151,9 +151,9 @@ func (service *Service) readRawRecordRange(ctx context.Context, lease *artifact.
 	hasMore := actualEnd < recordLen
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodeRangeCursor(cursorOpRawRecordRange, string(scopeID), handle, fingerprint, actualEnd)
+		nextCursor, err = encodeRangeCursor(cursorOpRawRecordRange, ownerCursorKey(lease.Owner()), handle, fingerprint, actualEnd)
 		if err != nil {
-			return ByteRangeResult{}, cursorError(string(scopeID), err)
+			return ByteRangeResult{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	return ByteRangeResult{
@@ -173,13 +173,13 @@ func (service *Service) readRawRecordRange(ctx context.Context, lease *artifact.
 // readRawArtifactRange reads a bounded byte range from the raw NDJSON artifact
 // starting at an absolute byte offset. This is the internal bounded raw-range
 // primitive retained for PR 18's raw-artifact MCP adapter.
-func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifact.Lease, scopeID target.ScopeID, handle artifact.Handle, req RangeRequest, totalLength int64, fingerprint string) (ByteRangeResult, *consolecore.Error) {
+func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifact.Lease, scopeID evidence.Reference, handle artifact.Handle, req RangeRequest, totalLength int64, fingerprint string) (ByteRangeResult, *consolecore.Error) {
 	if e := ctx.Err(); e != nil {
 		return ByteRangeResult{}, canceledError(e)
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, handle)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	start, maxBytes, domain := resolveRangeBounds(scopeID, req, totalLength)
 	if domain != nil {
@@ -199,16 +199,16 @@ func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifac
 	}
 	reader, err := lease.OpenComponent(artifact.ComponentRawArtifact)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	defer reader.Close()
 	if _, err := reader.Seek(start, io.SeekStart); err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf := make([]byte, maxBytes)
 	n, err := io.ReadFull(reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf = buf[:n]
 	actualStart := start
@@ -219,9 +219,9 @@ func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifac
 	hasMore := actualEnd < totalLength
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodeRangeCursor(cursorOpRawArtifactRange, string(scopeID), handle, fingerprint, actualEnd)
+		nextCursor, err = encodeRangeCursor(cursorOpRawArtifactRange, ownerCursorKey(lease.Owner()), handle, fingerprint, actualEnd)
 		if err != nil {
-			return ByteRangeResult{}, cursorError(string(scopeID), err)
+			return ByteRangeResult{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	return ByteRangeResult{
@@ -246,11 +246,11 @@ func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifac
 // acquisition and validateCursorFingerprint after, following the required
 // precedence: INVALID_CURSOR (malformed/op), TARGET_CHANGED (scope mismatch),
 // ARTIFACT_EXPIRED (handle not installed), then INVALID_CURSOR (fingerprint).
-func resolveRangeBounds(scopeID target.ScopeID, req RangeRequest, totalLength int64) (int64, int, *consolecore.Error) {
+func resolveRangeBounds(scopeID evidence.Reference, req RangeRequest, totalLength int64) (int64, int, *consolecore.Error) {
 	start := req.Start
 	if start < 0 {
 		return 0, 0, consolecore.NewError(consolecore.CodeInvalidArgument,
-			"The range start must not be negative.", string(scopeID), consolecore.Details{}, nil)
+			"The range start must not be negative.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	maxBytes := req.MaxBytes
 	if maxBytes <= 0 {
@@ -259,7 +259,7 @@ func resolveRangeBounds(scopeID target.ScopeID, req RangeRequest, totalLength in
 	if maxBytes > maxRangeBytes {
 		return 0, 0, consolecore.NewError(consolecore.CodeLimitExceeded,
 			"The requested range exceeds the maximum allowed size.",
-			string(scopeID), consolecore.Details{LimitName: "rangeBytes", LimitValue: int64(maxRangeBytes)}, nil)
+			scopeID.ID(), consolecore.Details{LimitName: "rangeBytes", LimitValue: int64(maxRangeBytes)}, nil)
 	}
 	if start > totalLength {
 		start = totalLength

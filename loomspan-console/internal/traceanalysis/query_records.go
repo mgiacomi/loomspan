@@ -8,7 +8,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // RecordRepresentation selects whether a record query returns logical
@@ -62,7 +62,7 @@ type recordQueryCanonical struct {
 // logical representation, chunked-payload envelopes are returned as single
 // logical records and chunk records are omitted. In physical representation,
 // every physical NDJSON record is returned.
-func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID, query RecordQuery) (Page[RecordSummary], *consolecore.Error) {
+func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Reference, query RecordQuery) (Page[RecordSummary], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[RecordSummary]{}, domain
@@ -72,7 +72,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 	}
 	if query.Representation != RecordRepresentationPhysical && query.Representation != RecordRepresentationLogical {
 		return Page[RecordSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
-			"The record representation is not supported.", string(scopeID), consolecore.Details{}, nil)
+			"The record representation is not supported.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if domain := validateRecordFilter(scopeID, query.Filter); domain != nil {
 		return Page[RecordSummary]{}, domain
@@ -86,7 +86,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 	})
 	if err != nil {
 		return Page[RecordSummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The record query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The record query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 
 	startIdx := 0
@@ -99,7 +99,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if query.Cursor != "" {
-		c, start, cursorDomain := prepareCursor(query.Cursor, string(scopeID), cursorOpRecords)
+		c, start, cursorDomain := prepareCursor(query.Cursor, ownerCursorKey(lease.Owner()), scopeID.ID(), cursorOpRecords)
 		if cursorDomain != nil {
 			return Page[RecordSummary]{}, cursorDomain
 		}
@@ -108,7 +108,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 	}
 
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[RecordSummary]{}, d
 		}
 	}
@@ -119,33 +119,33 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 
 	indexSize, err := lease.ComponentSize(artifact.ComponentName(ComponentRecordIndex))
 	if err != nil {
-		return Page[RecordSummary]{}, storageError(string(scopeID), err)
+		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
 	if indexSize%recordIndexRowWidth != 0 {
-		return Page[RecordSummary]{}, storageError(string(scopeID), fmt.Errorf("record index has invalid size %d", indexSize))
+		return Page[RecordSummary]{}, storageError(scopeID.ID(), fmt.Errorf("record index has invalid size %d", indexSize))
 	}
 	recordCount := indexSize / recordIndexRowWidth
 	indexReader, err := lease.OpenComponent(artifact.ComponentName(ComponentRecordIndex))
 	if err != nil {
-		return Page[RecordSummary]{}, storageError(string(scopeID), err)
+		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
 	defer indexReader.Close()
 	rawReader, err := lease.OpenComponent(artifact.ComponentRawArtifact)
 	if err != nil {
-		return Page[RecordSummary]{}, storageError(string(scopeID), err)
+		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
 	defer rawReader.Close()
 	scanStart := int64(startIdx)
 	if query.Cursor == "" && query.Filter.MinSequence != nil {
 		scanStart, err = lowerBoundRecordSequence(indexReader, recordCount, *query.Filter.MinSequence)
 		if err != nil {
-			return Page[RecordSummary]{}, storageError(string(scopeID), err)
+			return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 		}
 	}
 
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[RecordSummary]{}, storageError(string(scopeID), err)
+		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
 	items := make([]RecordSummary, 0, pageSize)
 	var nextPosition int64
@@ -156,18 +156,18 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 		}
 		row, readErr := readRecordIndexRowAt(indexReader, position)
 		if readErr != nil {
-			return Page[RecordSummary]{}, storageError(string(scopeID), readErr)
+			return Page[RecordSummary]{}, storageError(scopeID.ID(), readErr)
 		}
 		if query.Filter.MaxSequence != nil && row.Sequence > *query.Filter.MaxSequence {
 			break
 		}
 		raw, readErr := readRawRecordBytesFrom(rawReader, row)
 		if readErr != nil {
-			return Page[RecordSummary]{}, storageError(string(scopeID), readErr)
+			return Page[RecordSummary]{}, storageError(scopeID.ID(), readErr)
 		}
 		rec, decodeDomain := decodeRecord(raw, RawAddress{Offset: row.Offset, Length: row.Length, TerminatorLength: row.TerminatorLength})
 		if decodeDomain != nil {
-			return Page[RecordSummary]{}, storageError(string(scopeID), fmt.Errorf("decode record %d: %s", row.Sequence, decodeDomain.Message))
+			return Page[RecordSummary]{}, storageError(scopeID.ID(), fmt.Errorf("decode record %d: %s", row.Sequence, decodeDomain.Message))
 		}
 		if query.Representation == RecordRepresentationLogical && rec.IsChunk {
 			continue
@@ -185,7 +185,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 		if query.InlinePayload && rec.IsEnvelope {
 			desc, findErr := findPayloadDescriptorInIndex(lease, rec.PayloadID)
 			if findErr != nil {
-				return Page[RecordSummary]{}, storageError(string(scopeID), findErr)
+				return Page[RecordSummary]{}, storageError(scopeID.ID(), findErr)
 			}
 			if desc != nil && desc.StoreLength <= int64(maxInlinePayloadBytes) {
 				payload, derr := readInlinePayload(ctx, lease, *desc)
@@ -193,7 +193,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 					if ctx.Err() != nil {
 						return Page[RecordSummary]{}, canceledError(ctx.Err())
 					}
-					return Page[RecordSummary]{}, storageError(string(scopeID), derr)
+					return Page[RecordSummary]{}, storageError(scopeID.ID(), derr)
 				}
 				summary.InlinePayload = &InlinePayload{
 					ContentType: desc.ContentType,
@@ -207,9 +207,9 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID target.ScopeID
 
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpRecords, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpRecords, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[RecordSummary]{}, cursorError(string(scopeID), err)
+			return Page[RecordSummary]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -282,22 +282,22 @@ func recordMatchesFilter(rec *Record, f RecordFilter) bool {
 	return true
 }
 
-func validateRecordFilter(scopeID target.ScopeID, filter RecordFilter) *consolecore.Error {
+func validateRecordFilter(scopeID evidence.Reference, filter RecordFilter) *consolecore.Error {
 	if filter.MinSequence != nil && *filter.MinSequence <= 0 {
-		return consolecore.NewError(consolecore.CodeInvalidArgument, "The minimum sequence must be positive.", string(scopeID), consolecore.Details{}, nil)
+		return consolecore.NewError(consolecore.CodeInvalidArgument, "The minimum sequence must be positive.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if filter.MaxSequence != nil && *filter.MaxSequence <= 0 {
-		return consolecore.NewError(consolecore.CodeInvalidArgument, "The maximum sequence must be positive.", string(scopeID), consolecore.Details{}, nil)
+		return consolecore.NewError(consolecore.CodeInvalidArgument, "The maximum sequence must be positive.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if filter.MinSequence != nil && filter.MaxSequence != nil && *filter.MinSequence > *filter.MaxSequence {
-		return consolecore.NewError(consolecore.CodeInvalidArgument, "The record sequence range is reversed.", string(scopeID), consolecore.Details{}, nil)
+		return consolecore.NewError(consolecore.CodeInvalidArgument, "The record sequence range is reversed.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if filter.MinTimestampMillis != nil && filter.MaxTimestampMillis != nil && *filter.MinTimestampMillis > *filter.MaxTimestampMillis {
-		return consolecore.NewError(consolecore.CodeInvalidArgument, "The record timestamp range is reversed.", string(scopeID), consolecore.Details{}, nil)
+		return consolecore.NewError(consolecore.CodeInvalidArgument, "The record timestamp range is reversed.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	for _, value := range filter.Types {
 		if _, ok := knownRecordType(value); !ok {
-			return consolecore.NewError(consolecore.CodeInvalidArgument, "The record type filter is not supported.", string(scopeID), consolecore.Details{}, nil)
+			return consolecore.NewError(consolecore.CodeInvalidArgument, "The record type filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
 		}
 	}
 	if filter.LiteralText != "" {

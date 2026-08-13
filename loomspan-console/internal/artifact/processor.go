@@ -67,6 +67,9 @@ type ProcessResult struct {
 	// ComponentSizes maps each derived component name to its final synced byte
 	// count.
 	ComponentSizes map[ComponentName]int64
+	// Metadata is derived from the fully validated canonical file. Callers must
+	// not publish caller-supplied identity or completion facts in its place.
+	Metadata TraceMetadata
 }
 
 // Processor validates a raw artifact and produces derived bundle components
@@ -77,6 +80,27 @@ type ProcessResult struct {
 // handle.
 type Processor interface {
 	Process(req ProcessRequest) (ProcessResult, *consolecore.Error)
+}
+
+// ImportHeader is the bounded identity extracted from the canonical first
+// record before an imported artifact reserves an owner-local identity.
+type ImportHeader struct {
+	TraceID   string
+	SessionID string
+}
+
+// ImportPreflight is the validated header plus a byte-exact replay stream. The
+// replay begins at byte zero and continues from the original reader.
+type ImportPreflight struct {
+	Header ImportHeader
+	Raw    io.Reader
+}
+
+// ImportProcessor owns bounded canonical-header interpretation for imports.
+// It is deliberately separate from the complete Process pass.
+type ImportProcessor interface {
+	Processor
+	PreflightImport(context.Context, io.Reader) (ImportPreflight, *consolecore.Error)
 }
 
 // validateComponentName reports whether a component name is a safe logical

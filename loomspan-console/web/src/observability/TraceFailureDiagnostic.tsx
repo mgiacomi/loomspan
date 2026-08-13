@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { getTraceFailureDiagnostic } from "../api/client";
-import type { TraceFailure, TraceFailureDiagnostic as Diagnostic } from "../api/contracts";
+import type { TraceFailure, TraceFailureDiagnostic as Diagnostic, TraceSource } from "../api/contracts";
 
-export function TraceFailureDiagnostic({ traceId, failure, scopeGeneration = 0, verifyScope }: {
-  traceId: string;
+export function TraceFailureDiagnostic({ traceId, source = "TARGET", failure, scopeGeneration = 0, verifyScope }: {
+	traceId: string;
+	source?: TraceSource;
   failure?: TraceFailure;
   scopeGeneration?: number;
   verifyScope?: (response: Diagnostic) => Promise<Diagnostic>;
 }) {
+	const evidenceGeneration = source === "TARGET" ? scopeGeneration : 0;
   const [selected, setSelected] = useState<number>();
   const [loaded, setLoaded] = useState<{ key: string; diagnostic: Diagnostic }>();
   const [wrap, setWrap] = useState(true);
@@ -22,9 +24,9 @@ export function TraceFailureDiagnostic({ traceId, failure, scopeGeneration = 0, 
     setLoading(false);
     setError(undefined);
     setStatus(undefined);
-  }, [failure?.failureId, scopeGeneration, traceId]);
+  }, [evidenceGeneration, failure?.failureId, source, traceId]);
   if (!failure) return null;
-  const selectionKey = `${traceId}\u0000${failure.failureId}\u0000${scopeGeneration}`;
+  const selectionKey = `${source}\u0000${traceId}\u0000${failure.failureId}\u0000${evidenceGeneration}`;
   const activeLoaded = loaded?.key === selectionKey ? loaded.diagnostic : undefined;
   const diagnostics = failure.diagnostics ?? [];
   const load = async (ordinal: number) => {
@@ -37,7 +39,7 @@ export function TraceFailureDiagnostic({ traceId, failure, scopeGeneration = 0, 
     setStatus(undefined);
     setLoading(true);
     try {
-      const response = await getTraceFailureDiagnostic(traceId, expectedFailureId, ordinal);
+	  const response = await getTraceFailureDiagnostic(traceId, expectedFailureId, ordinal, source);
       if (generation !== requestGeneration.current) return;
       const verified = verifyScope ? await verifyScope(response) : response;
       if (generation !== requestGeneration.current) return;

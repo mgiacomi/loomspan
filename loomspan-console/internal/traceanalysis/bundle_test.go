@@ -99,7 +99,7 @@ func TestNestedHierarchyCalculationsMatchJavaExpected(t *testing.T) {
 	}
 
 	sink := &fakeSink{}
-	processor := New()
+	processor := newProcessorForVersion(fixtureCompatibilityVersion)
 	_, domain := processor.Process(artifact.ProcessRequest{
 		Context: context.Background(),
 		Metadata: artifact.TraceMetadata{

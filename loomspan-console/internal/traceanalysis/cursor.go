@@ -10,6 +10,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // cursorSchemaV1 is the version tag carried by every continuation cursor. It
@@ -44,7 +45,7 @@ const (
 type cursor struct {
 	Schema      string   `json:"schema"`
 	Op          cursorOp `json:"op"`
-	ScopeID     string   `json:"scopeId"`
+	OwnerKey    string   `json:"ownerKey"`
 	Handle      string   `json:"handle"`
 	Fingerprint string   `json:"fingerprint"`
 	// Position is the next record sequence, fact index, or byte offset,
@@ -130,7 +131,7 @@ func decodeCursor(token string) (cursor, error) {
 	if c.Op == "" {
 		return cursor{}, errors.New("cursor operation is missing")
 	}
-	if c.ScopeID == "" || c.Handle == "" || c.Fingerprint == "" {
+	if c.OwnerKey == "" || c.Handle == "" || c.Fingerprint == "" {
 		return cursor{}, errors.New("cursor is missing required fields")
 	}
 	if c.Position < 0 {
@@ -148,7 +149,7 @@ func decodeCursor(token string) (cursor, error) {
 		return cursor{}, fmt.Errorf("cursor is malformed: %w", err)
 	}
 	allowed := map[string]bool{
-		"schema": true, "op": true, "scopeId": true, "handle": true,
+		"schema": true, "op": true, "ownerKey": true, "handle": true,
 		"fingerprint": true, "position": true, "searchState": true,
 	}
 	for k := range raw {
@@ -169,15 +170,15 @@ func decodeCursor(token string) (cursor, error) {
 // calling this; the lease acquisition itself enforces steps 1 and 2. This
 // helper performs the fingerprint check and is used after a successful lease
 // acquisition to validate the cursor's query meaning.
-func validateCursorFingerprint(c cursor, expectedFingerprint, scopeID string, handle artifact.Handle) *consolecore.Error {
-	if c.ScopeID != scopeID {
+func validateCursorFingerprint(c cursor, expectedFingerprint, ownerKey, errorScope string, handle artifact.Handle) *consolecore.Error {
+	if c.OwnerKey != ownerKey {
 		return consolecore.NewError(consolecore.CodeTargetChanged,
 			"The selected target changed. Start this operation again.",
-			scopeID, consolecore.Details{}, nil)
+			errorScope, consolecore.Details{}, nil)
 	}
 	if c.Handle != string(handle) || c.Fingerprint != expectedFingerprint {
 		return consolecore.NewError(consolecore.CodeInvalidCursor,
-			"The continuation does not match this query.", scopeID, consolecore.Details{}, nil)
+			"The continuation does not match this query.", errorScope, consolecore.Details{}, nil)
 	}
 	return nil
 }
@@ -195,18 +196,18 @@ func cursorError(scopeID string, cause error) *consolecore.Error {
 //
 // Lease acquisition enforces TARGET_CHANGED, then ARTIFACT_EXPIRED, before
 // malformed or mismatched cursor state is reported as INVALID_CURSOR.
-func prepareCursor(token, currentScopeID string, expectedOp cursorOp) (cursor, int, *consolecore.Error) {
+func prepareCursor(token, ownerKey, errorScope string, expectedOp cursorOp) (cursor, int, *consolecore.Error) {
 	c, err := decodeCursor(token)
 	if err != nil {
-		return cursor{}, 0, cursorError(currentScopeID, err)
+		return cursor{}, 0, cursorError(errorScope, err)
 	}
 	if c.Op != expectedOp {
-		return cursor{}, 0, cursorError(currentScopeID, errCursorOpMismatch)
+		return cursor{}, 0, cursorError(errorScope, errCursorOpMismatch)
 	}
-	if c.ScopeID != currentScopeID {
+	if c.OwnerKey != ownerKey {
 		return cursor{}, 0, consolecore.NewError(consolecore.CodeTargetChanged,
 			"The selected target changed. Start this operation again.",
-			currentScopeID, consolecore.Details{}, nil)
+			errorScope, consolecore.Details{}, nil)
 	}
 	return c, int(c.Position), nil
 }
@@ -222,11 +223,11 @@ func base64URLDecode(s string) ([]byte, error) {
 }
 
 // encodePositionCursor builds a simple position-based continuation cursor.
-func encodePositionCursor(op cursorOp, scopeID string, handle artifact.Handle, fingerprint string, position int64) (string, error) {
+func encodePositionCursor(op cursorOp, ownerKey string, handle artifact.Handle, fingerprint string, position int64) (string, error) {
 	return encodeCursor(cursor{
 		Schema:      cursorSchemaV1,
 		Op:          op,
-		ScopeID:     scopeID,
+		OwnerKey:    ownerKey,
 		Handle:      string(handle),
 		Fingerprint: fingerprint,
 		Position:    position,
@@ -234,11 +235,11 @@ func encodePositionCursor(op cursorOp, scopeID string, handle artifact.Handle, f
 }
 
 // encodeSearchCursor builds a search continuation cursor carrying KMP state.
-func encodeSearchCursor(scopeID string, handle artifact.Handle, fingerprint string, state searchCursorState) (string, error) {
+func encodeSearchCursor(ownerKey string, handle artifact.Handle, fingerprint string, state searchCursorState) (string, error) {
 	return encodeCursor(cursor{
 		Schema:      cursorSchemaV1,
 		Op:          cursorOpSearch,
-		ScopeID:     scopeID,
+		OwnerKey:    ownerKey,
 		Handle:      string(handle),
 		Fingerprint: fingerprint,
 		SearchState: &state,
@@ -247,13 +248,17 @@ func encodeSearchCursor(scopeID string, handle artifact.Handle, fingerprint stri
 
 // encodeRangeCursor builds a byte-range continuation cursor. Position is the
 // next byte offset to read.
-func encodeRangeCursor(op cursorOp, scopeID string, handle artifact.Handle, fingerprint string, nextOffset int64) (string, error) {
+func encodeRangeCursor(op cursorOp, ownerKey string, handle artifact.Handle, fingerprint string, nextOffset int64) (string, error) {
 	return encodeCursor(cursor{
 		Schema:      cursorSchemaV1,
 		Op:          op,
-		ScopeID:     scopeID,
+		OwnerKey:    ownerKey,
 		Handle:      string(handle),
 		Fingerprint: fingerprint,
 		Position:    nextOffset,
 	})
+}
+
+func ownerCursorKey(owner evidence.Owner) string {
+	return string(owner.Source()) + ":" + owner.ID()
 }

@@ -13,6 +13,7 @@ vi.mock("../api/client", () => ({
   removeArtifact: vi.fn(),
   clearExpiredArtifacts: vi.fn(),
   clearAllUnusedArtifacts: vi.fn(),
+	importTraceFile: vi.fn(),
   BrowserAPIError: class BrowserAPIError extends Error {
     code: string;
     status: number;
@@ -50,11 +51,13 @@ import {
   clearAllUnusedArtifacts,
   clearExpiredArtifacts,
   getStorageSnapshot,
+	importTraceFile,
   removeArtifact,
 } from "../api/client";
 import { TraceStorage } from "./TraceStorage";
 
 const baseEntry: StoredEntry = {
+  source: "TARGET",
   traceId: "trace-1",
       sessionId: "session-1",
       outcome: "SUCCEEDED",
@@ -73,7 +76,6 @@ const baseEntry: StoredEntry = {
 
 function makeSnapshot(overrides: Partial<StorageSnapshot> = {}): StorageSnapshot {
   return {
-    targetScopeId: "scope-1",
     workspaceLabel: "My Workspace",
     maxBytes: 1048576,
     unlimited: false,
@@ -91,8 +93,20 @@ beforeEach(() => {
   vi.mocked(removeArtifact).mockReset();
   vi.mocked(clearExpiredArtifacts).mockReset();
   vi.mocked(clearAllUnusedArtifacts).mockReset();
+	vi.mocked(importTraceFile).mockReset();
   route.scope = "scope-1";
   route.navigate.mockReset();
+});
+
+test("opens a selected trace file and navigates to imported evidence", async () => {
+  vi.mocked(getStorageSnapshot).mockResolvedValue(makeSnapshot());
+  vi.mocked(importTraceFile).mockResolvedValue({ source: "IMPORTED", artifactHandle: "h", traceId: "trace-import", sessionId: "session-import", outcome: "SUCCEEDED", finalizedAt: "2026-08-12T00:00:00Z", localBytes: 12, acquiredAt: "2026-08-12T00:00:01Z", lastUsedAt: "2026-08-12T00:00:01Z", expiresAt: "2026-08-12T01:00:01Z", hasIdleExpiry: true });
+  render(<TraceStorage />);
+  const file = new File(["{}\n"], "trace.ndjson", { type: "application/x-ndjson" });
+  fireEvent.change(screen.getByLabelText("Trace file"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "Open trace file" }));
+  await vi.waitFor(() => expect(importTraceFile).toHaveBeenCalledWith(file, { tabId: "test-tab", csrfToken: "test-token" }));
+  expect(route.navigate).toHaveBeenCalledWith("/traces/imported/trace-import");
 });
 
 test("trace storage renders loading state", () => {
@@ -148,7 +162,7 @@ test("remove requires confirmation before calling removeArtifact", async () => {
   expect(screen.getByText("Confirm")).toBeInTheDocument();
   fireEvent.click(screen.getByText("Confirm"));
   await vi.waitFor(() => {
-    expect(removeArtifact).toHaveBeenCalledWith("trace-1", {
+    expect(removeArtifact).toHaveBeenCalledWith("trace-1", "TARGET", {
       tabId: "test-tab",
       csrfToken: "test-token",
     });

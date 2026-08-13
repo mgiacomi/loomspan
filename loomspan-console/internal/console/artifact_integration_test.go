@@ -22,6 +22,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
@@ -63,7 +64,9 @@ func newArtifactTestServer(t *testing.T, artifactBody []byte) *artifactTestServe
 		t.Fatalf("read Java-produced trace fixture: %v", err)
 	}
 	if artifactBody == nil {
-		artifactBody = fixture
+		artifactBody = bytes.Replace(fixture,
+			[]byte(`"consoleCompatibilityVersion":"0.1.0-SNAPSHOT"`),
+			[]byte(`"consoleCompatibilityVersion":"development"`), 1)
 	}
 	traceMetadata := fmt.Sprintf(
 		`{"targetScopeId":"scope-1","traceId":"trace-single-attempt-success","sessionId":"session-single-attempt-success","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":%d,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-08-01T12:00:00Z"}`,
@@ -205,7 +208,7 @@ func buildArtifactService(t *testing.T, server *artifactTestServer) (*artifact.S
 // closes the lease with success, returning the bytes and the SHA-256 checksum.
 func readLeasedArtifact(t *testing.T, svc *artifact.Service, scopeID target.ScopeID, handle artifact.Handle) ([]byte, string) {
 	t.Helper()
-	lease, domain := svc.Use(scopeID, handle)
+	lease, domain := svc.Use(evidence.ForTarget(scopeID), handle)
 	if domain != nil {
 		t.Fatalf("Use failed: %v", domain)
 	}
@@ -242,7 +245,7 @@ func TestArtifactAcquisitionInstallsOneCopyAndChargesOnce(t *testing.T) {
 	if first.LocalBytes <= 0 {
 		t.Fatalf("expected positive local bytes, got %d", first.LocalBytes)
 	}
-	lookup, lookupDomain := svc.Lookup(scope.ID, "single-attempt-success")
+	lookup, lookupDomain := svc.Lookup(evidence.ForTarget(scope.ID), "single-attempt-success")
 	if lookupDomain != nil {
 		t.Fatalf("Lookup failed: %v", lookupDomain)
 	}
@@ -282,7 +285,7 @@ func TestArtifactAcquisitionInstallsOneCopyAndChargesOnce(t *testing.T) {
 	}
 
 	// Storage snapshot must report exactly one entry and one charge.
-	snapshot, domain := svc.StorageSnapshot(scope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("StorageSnapshot failed: %v", domain)
 	}
@@ -318,7 +321,7 @@ func TestArtifactAcquisitionRejectsMalformedNDJSONBeforePublishingHandle(t *test
 	}
 
 	// No handle, no entry, no capacity charge, no installed bundle.
-	snapshot, snapDomain := svc.StorageSnapshot(scope.ID)
+	snapshot, snapDomain := svc.StorageSnapshot()
 	if snapDomain != nil {
 		t.Fatalf("StorageSnapshot failed: %v", snapDomain)
 	}
@@ -374,7 +377,7 @@ func TestArtifactAcquisitionAndRawDownloadShareNoCacheState(t *testing.T) {
 	}
 
 	// The local cache charge and entry count must be unchanged.
-	snapshot, domain := svc.StorageSnapshot(scope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("StorageSnapshot failed: %v", domain)
 	}
@@ -410,7 +413,7 @@ func TestArtifactEvidenceRemainsAfterAuthenticationRejection(t *testing.T) {
 	_ = body
 
 	// Storage snapshot must still report the entry with original observation facts.
-	snapshot, domain := svc.StorageSnapshot(scope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("StorageSnapshot failed after auth rejection: %v", domain)
 	}
@@ -461,14 +464,14 @@ func TestArtifactScopeRotationClearsLocalStorageAndStaleLinks(t *testing.T) {
 		t.Fatalf("supply credential after rotation: %v", domain)
 	}
 
-	// The old scope's storage snapshot must report TARGET_CHANGED.
-	_, domain = svc.StorageSnapshot(staleScopeID)
-	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
-		t.Fatalf("expected TARGET_CHANGED for stale scope, got %v", domain)
+	// The global storage snapshot remains available across target rotation.
+	_, domain = svc.StorageSnapshot()
+	if domain != nil {
+		t.Fatalf("global storage snapshot failed after rotation: %v", domain)
 	}
 
 	// Use with the stale handle must report TARGET_CHANGED.
-	_, domain = svc.Use(staleScopeID, staleHandle)
+	_, domain = svc.Use(evidence.ForTarget(staleScopeID), staleHandle)
 	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
 		t.Fatalf("expected TARGET_CHANGED for stale handle Use, got %v", domain)
 	}
@@ -478,7 +481,7 @@ func TestArtifactScopeRotationClearsLocalStorageAndStaleLinks(t *testing.T) {
 	if domain != nil {
 		t.Fatalf("capture new scope: %v", domain)
 	}
-	snapshot, domain := svc.StorageSnapshot(newScope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("StorageSnapshot on new scope failed: %v", domain)
 	}
@@ -487,7 +490,7 @@ func TestArtifactScopeRotationClearsLocalStorageAndStaleLinks(t *testing.T) {
 	}
 
 	// A well-formed but uninstalled handle in the current scope returns ARTIFACT_EXPIRED.
-	_, domain = svc.Use(newScope.ID, staleHandle)
+	_, domain = svc.Use(evidence.ForTarget(newScope.ID), staleHandle)
 	if domain == nil || domain.Code != consolecore.CodeArtifactExpired {
 		t.Fatalf("expected ARTIFACT_EXPIRED for uninstalled handle in current scope, got %v", domain)
 	}
@@ -515,11 +518,11 @@ func TestArtifactRestartCleanupNeverAdoptsPriorHandle(t *testing.T) {
 	// A fresh service starts with an empty cache and never adopts the
 	// prior-process handle, which is process-local random.
 	freshSvc, _, freshScope := buildArtifactService(t, server)
-	_, domain = freshSvc.Use(freshScope.ID, priorHandle)
+	_, domain = freshSvc.Use(evidence.ForTarget(freshScope.ID), priorHandle)
 	if domain == nil || domain.Code != consolecore.CodeArtifactExpired {
 		t.Fatalf("expected ARTIFACT_EXPIRED for prior-process handle, got %v", domain)
 	}
-	snapshot, domain := freshSvc.StorageSnapshot(freshScope.ID)
+	snapshot, domain := freshSvc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("fresh StorageSnapshot failed: %v", domain)
 	}
@@ -718,7 +721,7 @@ func TestArtifactAcquisitionDoesNotLeakPathsOrCredentials(t *testing.T) {
 	if domain != nil {
 		t.Fatalf("Acquire failed: %v", domain)
 	}
-	snapshot, domain := svc.StorageSnapshot(scope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("StorageSnapshot failed: %v", domain)
 	}
@@ -816,7 +819,9 @@ func fixtureSHA256(t *testing.T, override []byte) string {
 		if err != nil {
 			t.Fatalf("read fixture: %v", err)
 		}
-		data = fixture
+		data = bytes.Replace(fixture,
+			[]byte(`"consoleCompatibilityVersion":"0.1.0-SNAPSHOT"`),
+			[]byte(`"consoleCompatibilityVersion":"development"`), 1)
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
@@ -918,7 +923,7 @@ func TestSharedQueryServiceGetSummaryThroughProductionComposition(t *testing.T) 
 		t.Fatalf("Acquire failed: %v", domain)
 	}
 
-	summary, domain := queryService.GetSummary(context.Background(), scope.ID, traceanalysis.SummaryRequest{Handle: acquired.Handle})
+	summary, domain := queryService.GetSummary(context.Background(), evidence.ForTarget(scope.ID), traceanalysis.SummaryRequest{Handle: acquired.Handle})
 	if domain != nil {
 		t.Fatalf("GetSummary failed: %v", domain)
 	}
@@ -948,7 +953,7 @@ func TestSharedQueryServiceQueryRecordsThroughProductionComposition(t *testing.T
 		t.Fatalf("Acquire failed: %v", domain)
 	}
 
-	physicalPage, domain := queryService.QueryRecords(context.Background(), scope.ID, traceanalysis.RecordQuery{
+	physicalPage, domain := queryService.QueryRecords(context.Background(), evidence.ForTarget(scope.ID), traceanalysis.RecordQuery{
 		Handle:         acquired.Handle,
 		Representation: traceanalysis.RecordRepresentationPhysical,
 		PageSize:       100,
@@ -960,7 +965,7 @@ func TestSharedQueryServiceQueryRecordsThroughProductionComposition(t *testing.T
 		t.Fatal("expected non-empty physical records")
 	}
 
-	logicalPage, domain := queryService.QueryRecords(context.Background(), scope.ID, traceanalysis.RecordQuery{
+	logicalPage, domain := queryService.QueryRecords(context.Background(), evidence.ForTarget(scope.ID), traceanalysis.RecordQuery{
 		Handle:         acquired.Handle,
 		Representation: traceanalysis.RecordRepresentationLogical,
 		PageSize:       100,
@@ -984,7 +989,7 @@ func TestSharedQueryServiceSearchThroughProductionComposition(t *testing.T) {
 		t.Fatalf("Acquire failed: %v", domain)
 	}
 
-	page, domain := queryService.Search(context.Background(), scope.ID, traceanalysis.SearchQuery{
+	page, domain := queryService.Search(context.Background(), evidence.ForTarget(scope.ID), traceanalysis.SearchQuery{
 		Handle:   acquired.Handle,
 		Text:     "traceId",
 		PageSize: 10,
@@ -1009,7 +1014,7 @@ func TestSharedQueryServiceReadRawArtifactRangeThroughProductionComposition(t *t
 		t.Fatalf("Acquire failed: %v", domain)
 	}
 
-	result, domain := queryService.ReadRawArtifactRange(context.Background(), scope.ID, traceanalysis.RangeRequest{
+	result, domain := queryService.ReadRawArtifactRange(context.Background(), evidence.ForTarget(scope.ID), traceanalysis.RangeRequest{
 		Handle:   acquired.Handle,
 		Source:   traceanalysis.RangeSourceRawArtifact,
 		Start:    0,

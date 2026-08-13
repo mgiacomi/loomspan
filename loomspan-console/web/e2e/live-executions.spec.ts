@@ -384,9 +384,9 @@ test("WF-SE-ART completed execution requires deliberate acquisition before appea
   // parameter) and deliberately acquire the artifact.
   await page.getByRole("link", { name: "Inspect trace" }).click();
   await expect(page.getByRole("heading", { name: "Trace Detail" })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Analysis is not available locally.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Completion must NOT auto-acquire: before the deliberate acquisition above,
   // Trace Storage was empty. Now the artifact must appear in Trace Storage.

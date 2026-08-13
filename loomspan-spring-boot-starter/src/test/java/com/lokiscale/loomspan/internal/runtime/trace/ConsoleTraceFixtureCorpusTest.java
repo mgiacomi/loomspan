@@ -90,6 +90,9 @@ class ConsoleTraceFixtureCorpusTest
             Map.entry("missing-completion", "MISSING_COMPLETION"),
             Map.entry("non-final-completion", "NON_FINAL_COMPLETION"),
             Map.entry("unsupported-enum", "UNSUPPORTED_VALUE"),
+            Map.entry("missing-console-compatibility-version", "UNSUPPORTED_VALUE"),
+            Map.entry("blank-console-compatibility-version", "UNSUPPORTED_VALUE"),
+            Map.entry("non-string-console-compatibility-version", "UNSUPPORTED_VALUE"),
             Map.entry("contradictory-usage-reconciliation", "CONTRADICTORY_USAGE"),
             Map.entry("duplicate-chunks", "INVALID_CHUNKS"),
             Map.entry("mismatched-chunks", "INVALID_CHUNKS"),
@@ -1409,6 +1412,23 @@ class ConsoleTraceFixtureCorpusTest
         unsupported.set(unsupported.size() - 1,
                 unsupported.getLast().replace("\"outcome\":\"SUCCEEDED\"", "\"outcome\":\"FUTURE\""));
         writeInvalid(root, "unsupported-enum", unsupported);
+
+        List<String> missingCompatibility = new ArrayList<>(base);
+        missingCompatibility.set(0, missingCompatibility.getFirst().replace(
+                ",\"consoleCompatibilityVersion\":\"0.1.0-SNAPSHOT\"", ""));
+        writeInvalid(root, "missing-console-compatibility-version", missingCompatibility);
+
+        List<String> blankCompatibility = new ArrayList<>(base);
+        blankCompatibility.set(0, blankCompatibility.getFirst().replace(
+                "\"consoleCompatibilityVersion\":\"0.1.0-SNAPSHOT\"",
+                "\"consoleCompatibilityVersion\":\"\""));
+        writeInvalid(root, "blank-console-compatibility-version", blankCompatibility);
+
+        List<String> nonStringCompatibility = new ArrayList<>(base);
+        nonStringCompatibility.set(0, nonStringCompatibility.getFirst().replace(
+                "\"consoleCompatibilityVersion\":\"0.1.0-SNAPSHOT\"",
+                "\"consoleCompatibilityVersion\":25"));
+        writeInvalid(root, "non-string-console-compatibility-version", nonStringCompatibility);
 
         List<String> contradictory = new ArrayList<>(base);
         contradictory.set(contradictory.size() - 1,

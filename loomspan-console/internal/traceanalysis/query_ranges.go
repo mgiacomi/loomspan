@@ -6,7 +6,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // ReadPayloadRange reads a bounded byte range from a reconstructed logical
@@ -14,14 +14,14 @@ import (
 // length; requesting beyond the payload end returns a short range. Text/JSON
 // ranges are adjusted to complete UTF-8 code points; arbitrary bytes are
 // returned base64-encoded.
-func (service *Service) ReadPayloadRange(ctx context.Context, scopeID target.ScopeID, req RangeRequest) (ByteRangeResult, *consolecore.Error) {
+func (service *Service) ReadPayloadRange(ctx context.Context, scopeID evidence.Reference, req RangeRequest) (ByteRangeResult, *consolecore.Error) {
 	if domain := validateRangeRequestShape(scopeID, req, RangeSourcePayload); domain != nil {
 		return ByteRangeResult{}, domain
 	}
 	if req.PayloadID == "" {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeInvalidArgument,
 			"A payload ID is required for payload ranges.",
-			string(scopeID), consolecore.Details{}, nil)
+			scopeID.ID(), consolecore.Details{}, nil)
 	}
 	maxBytes, domain := validateRangeSize(scopeID, req.MaxBytes)
 	if domain != nil {
@@ -39,7 +39,7 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID target.Sco
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if req.ContinueCursor != "" {
-		cur, _, domain = prepareCursor(req.ContinueCursor, string(scopeID), cursorOpPayloadRange)
+		cur, _, domain = prepareCursor(req.ContinueCursor, ownerCursorKey(lease.Owner()), scopeID.ID(), cursorOpPayloadRange)
 		if domain != nil {
 			return ByteRangeResult{}, domain
 		}
@@ -52,12 +52,12 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID target.Sco
 
 	descPtr, err := findPayloadDescriptorInIndex(lease, req.PayloadID)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	if descPtr == nil {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeNotFound,
 			"The payload was not found in this artifact.",
-			string(scopeID), consolecore.Details{}, fmt.Errorf("payloadId=%s", req.PayloadID))
+			scopeID.ID(), consolecore.Details{}, fmt.Errorf("payloadId=%s", req.PayloadID))
 	}
 	desc := *descPtr
 
@@ -68,12 +68,12 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID target.Sco
 	})
 	if err != nil {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The range request could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The range request could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 
 	// Fingerprint check after lease acquisition (ARTIFACT_EXPIRED already passed).
 	if req.ContinueCursor != "" {
-		if d := validateCursorFingerprint(cur, fingerprint, string(scopeID), req.Handle); d != nil {
+		if d := validateCursorFingerprint(cur, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), req.Handle); d != nil {
 			return ByteRangeResult{}, d
 		}
 	}
@@ -89,14 +89,14 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID target.Sco
 // ReadRawRecordRange reads a bounded byte range from one physical record's
 // bytes inside the raw NDJSON artifact. The range is bounded by the record's
 // raw length.
-func (service *Service) ReadRawRecordRange(ctx context.Context, scopeID target.ScopeID, req RangeRequest) (ByteRangeResult, *consolecore.Error) {
+func (service *Service) ReadRawRecordRange(ctx context.Context, scopeID evidence.Reference, req RangeRequest) (ByteRangeResult, *consolecore.Error) {
 	if domain := validateRangeRequestShape(scopeID, req, RangeSourceRawRecord); domain != nil {
 		return ByteRangeResult{}, domain
 	}
 	if req.RecordSequence <= 0 {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeInvalidArgument,
 			"A positive record sequence is required for raw record ranges.",
-			string(scopeID), consolecore.Details{}, nil)
+			scopeID.ID(), consolecore.Details{}, nil)
 	}
 	maxBytes, domain := validateRangeSize(scopeID, req.MaxBytes)
 	if domain != nil {
@@ -114,7 +114,7 @@ func (service *Service) ReadRawRecordRange(ctx context.Context, scopeID target.S
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if req.ContinueCursor != "" {
-		cur, _, domain = prepareCursor(req.ContinueCursor, string(scopeID), cursorOpRawRecordRange)
+		cur, _, domain = prepareCursor(req.ContinueCursor, ownerCursorKey(lease.Owner()), scopeID.ID(), cursorOpRawRecordRange)
 		if domain != nil {
 			return ByteRangeResult{}, domain
 		}
@@ -127,12 +127,12 @@ func (service *Service) ReadRawRecordRange(ctx context.Context, scopeID target.S
 
 	row, ok, err := findRecordRowInIndex(lease, req.RecordSequence)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	if !ok {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeNotFound,
 			"The record was not found in this artifact.",
-			string(scopeID), consolecore.Details{}, fmt.Errorf("sequence=%d", req.RecordSequence))
+			scopeID.ID(), consolecore.Details{}, fmt.Errorf("sequence=%d", req.RecordSequence))
 	}
 
 	fingerprint, err := canonicalizeRequest(rangeFingerprint{
@@ -142,12 +142,12 @@ func (service *Service) ReadRawRecordRange(ctx context.Context, scopeID target.S
 	})
 	if err != nil {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The range request could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The range request could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 
 	// Fingerprint check after lease acquisition (ARTIFACT_EXPIRED already passed).
 	if req.ContinueCursor != "" {
-		if d := validateCursorFingerprint(cur, fingerprint, string(scopeID), req.Handle); d != nil {
+		if d := validateCursorFingerprint(cur, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), req.Handle); d != nil {
 			return ByteRangeResult{}, d
 		}
 	}
@@ -188,7 +188,7 @@ func findRecordRowInIndex(lease *artifact.Lease, sequence int64) (recordIndexRow
 // ReadRawArtifactRange reads a bounded byte range from the raw NDJSON artifact
 // starting at an absolute byte offset. This is the bounded raw-range primitive
 // retained for PR 18's raw-artifact MCP adapter.
-func (service *Service) ReadRawArtifactRange(ctx context.Context, scopeID target.ScopeID, req RangeRequest) (ByteRangeResult, *consolecore.Error) {
+func (service *Service) ReadRawArtifactRange(ctx context.Context, scopeID evidence.Reference, req RangeRequest) (ByteRangeResult, *consolecore.Error) {
 	if domain := validateRangeRequestShape(scopeID, req, RangeSourceRawArtifact); domain != nil {
 		return ByteRangeResult{}, domain
 	}
@@ -208,7 +208,7 @@ func (service *Service) ReadRawArtifactRange(ctx context.Context, scopeID target
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if req.ContinueCursor != "" {
-		cur, _, domain = prepareCursor(req.ContinueCursor, string(scopeID), cursorOpRawArtifactRange)
+		cur, _, domain = prepareCursor(req.ContinueCursor, ownerCursorKey(lease.Owner()), scopeID.ID(), cursorOpRawArtifactRange)
 		if domain != nil {
 			return ByteRangeResult{}, domain
 		}
@@ -221,7 +221,7 @@ func (service *Service) ReadRawArtifactRange(ctx context.Context, scopeID target
 
 	size, err := lease.ComponentSize(artifact.ComponentRawArtifact)
 	if err != nil {
-		return ByteRangeResult{}, storageError(string(scopeID), err)
+		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 
 	fingerprint, err := canonicalizeRequest(rangeFingerprint{
@@ -230,12 +230,12 @@ func (service *Service) ReadRawArtifactRange(ctx context.Context, scopeID target
 	})
 	if err != nil {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The range request could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The range request could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 
 	// Fingerprint check after lease acquisition (ARTIFACT_EXPIRED already passed).
 	if req.ContinueCursor != "" {
-		if d := validateCursorFingerprint(cur, fingerprint, string(scopeID), req.Handle); d != nil {
+		if d := validateCursorFingerprint(cur, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), req.Handle); d != nil {
 			return ByteRangeResult{}, d
 		}
 	}
@@ -248,18 +248,18 @@ func (service *Service) ReadRawArtifactRange(ctx context.Context, scopeID target
 	return result, nil
 }
 
-func validateRangeRequestShape(scopeID target.ScopeID, req RangeRequest, expected RangeSource) *consolecore.Error {
+func validateRangeRequestShape(scopeID evidence.Reference, req RangeRequest, expected RangeSource) *consolecore.Error {
 	if req.Source != "" && req.Source != expected {
 		return consolecore.NewError(consolecore.CodeInvalidArgument,
-			"The range source does not match the requested operation.", string(scopeID), consolecore.Details{}, nil)
+			"The range source does not match the requested operation.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if req.Start < 0 {
 		return consolecore.NewError(consolecore.CodeInvalidArgument,
-			"The range start must not be negative.", string(scopeID), consolecore.Details{}, nil)
+			"The range start must not be negative.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if req.ContinueCursor != "" && req.Start != 0 {
 		return consolecore.NewError(consolecore.CodeInvalidArgument,
-			"A range start and continuation cannot be supplied together.", string(scopeID), consolecore.Details{}, nil)
+			"A range start and continuation cannot be supplied together.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	return nil
 }

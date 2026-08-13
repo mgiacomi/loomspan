@@ -20,7 +20,7 @@ func TestServiceSearchFindsLiteralAcrossReconstructedPayloadChunks(t *testing.T)
 		completionRecord(7, "SUCCEEDED", 2, 1, 3, ""),
 	}, "\n") + "\n"
 	h := newServiceTestHarness(t, "t", trace)
-	page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle: h.handle, Text: "o-wo", PageSize: 10,
 	})
 	if domain != nil {
@@ -38,7 +38,7 @@ func TestServiceSearchFindsLiteralAcrossReconstructedPayloadChunks(t *testing.T)
 func TestServiceSearchFindsLiteral(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Search for "fixture" which appears in the trace.
-	page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "fixture",
 		PageSize: 10,
@@ -58,7 +58,7 @@ func TestServiceSearchFindsLiteral(t *testing.T) {
 
 func TestServiceSearchNoMatch(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "nonexistent-text-that-does-not-appear",
 		PageSize: 10,
@@ -76,7 +76,7 @@ func TestServiceSearchNoMatch(t *testing.T) {
 
 func TestServiceSearchEmptyText(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	_, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "",
 		PageSize: 10,
@@ -93,7 +93,7 @@ func TestServiceSearchExceedsLiteralLimit(t *testing.T) {
 	for i := range longText {
 		longText[i] = 'a'
 	}
-	_, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	_, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     string(longText),
 		PageSize: 10,
@@ -106,7 +106,7 @@ func TestServiceSearchExceedsLiteralLimit(t *testing.T) {
 func TestServiceSearchPagination(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Search for "traceId" which appears in every record.
-	page1, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page1, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "traceId",
 		PageSize: 2,
@@ -121,7 +121,7 @@ func TestServiceSearchPagination(t *testing.T) {
 		t.Fatal("expected hasMore on page 1")
 	}
 	// Continue.
-	page2, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page2, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "traceId",
 		PageSize: 2,
@@ -137,7 +137,7 @@ func TestServiceSearchPagination(t *testing.T) {
 
 func TestServiceSearchExpiredHandle(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	_, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   artifact.Handle("nonexistent"),
 		Text:     "test",
 		PageSize: 10,
@@ -150,7 +150,7 @@ func TestServiceSearchExpiredHandle(t *testing.T) {
 func TestServiceSearchRejectsOutOfRangeKMPContinuation(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	query := SearchQuery{Handle: h.handle, Text: "traceId", PageSize: 1}
-	page, domain := h.service.Search(context.Background(), h.scopeID, query)
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
 	if domain != nil || page.NextCursor == "" {
 		t.Fatalf("create search continuation: page=%+v domain=%v", page, domain)
 	}
@@ -163,7 +163,7 @@ func TestServiceSearchRejectsOutOfRangeKMPContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode malformed search continuation: %v", err)
 	}
-	_, domain = h.service.Search(context.Background(), h.scopeID, query)
+	_, domain = h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
 	if domain == nil || domain.Code != consolecore.CodeInvalidCursor {
 		t.Fatalf("expected INVALID_CURSOR for out-of-range KMP progress, got %v", domain)
 	}
@@ -188,17 +188,17 @@ func TestServicePayloadSearchContinuationCarriesDirectIndexOffset(t *testing.T) 
 	if err != nil {
 		t.Fatalf("canonicalize search: %v", err)
 	}
-	query.Cursor, err = encodeSearchCursor(string(h.scopeID), h.handle, fingerprint, searchCursorState{Phase: "payloads"})
+	query.Cursor, err = encodeSearchCursor(targetCursorKey(h.scopeID), h.handle, fingerprint, searchCursorState{Phase: "payloads"})
 	if err != nil {
 		t.Fatalf("encode payload search cursor: %v", err)
 	}
 
-	first, domain := h.service.Search(context.Background(), h.scopeID, query)
+	first, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
 	if domain != nil || len(first.Items) != 1 || first.NextCursor == "" {
 		t.Fatalf("first payload match: page=%+v domain=%v", first, domain)
 	}
 	query.Cursor = first.NextCursor
-	second, domain := h.service.Search(context.Background(), h.scopeID, query)
+	second, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
 	if domain != nil || len(second.Items) != 1 || second.NextCursor == "" {
 		t.Fatalf("second payload match: page=%+v domain=%v", second, domain)
 	}
@@ -269,7 +269,7 @@ func TestKMPFailureTable(t *testing.T) {
 // contract that Items is always non-nil (L1).
 func TestServiceSearchReturnsNonNilItemsOnNoMatch(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "nonexistent-text-that-does-not-appear",
 		PageSize: 10,
@@ -293,7 +293,7 @@ func TestServiceSearchMatchOffsetsAreNonNegative(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Search for a literal that appears in every record. All matches must have
 	// non-negative offsets because KMP state is reset at each record boundary.
-	page, domain := h.service.Search(context.Background(), h.scopeID, SearchQuery{
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
 		Text:     "traceId",
 		PageSize: 100,

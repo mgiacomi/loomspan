@@ -198,9 +198,9 @@ test("WF-TC-ART-01 target rotation clears local storage and stale handle is not 
 
   // Acquire the artifact in the original scope.
   await navigateToTraceDetail(page, consoleProcess, "trace-with-a-long-identifier-1234567890");
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Analysis is not available locally.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Trace Storage must show the acquired artifact.
   await navigateToTraceStorage(page, consoleProcess);
@@ -220,7 +220,7 @@ test("WF-TC-ART-01 target rotation clears local storage and stale handle is not 
   // The trace detail page must show "Not installed" again (the stale local
   // handle from the prior scope is gone and cannot be reused).
   await navigateToTraceDetail(page, consoleProcess, "trace-with-a-long-identifier-1234567890");
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Analysis is not available locally.", { exact: true })).toBeVisible();
 });
 
 // WF-TC-ART-02: After target rotation, acquiring the artifact in the new scope
@@ -242,7 +242,7 @@ test("WF-TC-ART-02 acquisition after target rotation installs a fresh copy in th
   // Acquire in the original scope.
   await navigateToTraceDetail(page, consoleProcess, "trace-with-a-long-identifier-1234567890");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Rotate the target. The target context will detect the scope change
   // automatically and redirect to /.
@@ -256,9 +256,9 @@ test("WF-TC-ART-02 acquisition after target rotation installs a fresh copy in th
 
   // Acquire in the new scope.
   await navigateToTraceDetail(page, consoleProcess, "trace-with-a-long-identifier-1234567890");
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Analysis is not available locally.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Trace Storage must show exactly one entry (the new scope's copy).
   await navigateToTraceStorage(page, consoleProcess);

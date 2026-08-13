@@ -1,0 +1,5 @@
+{
+  "case" : "blank-console-compatibility-version",
+  "valid" : false,
+  "errorCategory" : "UNSUPPORTED_VALUE"
+}

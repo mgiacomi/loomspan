@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // timerHandle is the minimal interface for a scheduled idle-expiry timer.
@@ -117,7 +118,7 @@ func (service *Service) removeExpiredUnpinnedLocked() *consolecore.Error {
 		if entry.state != stateInstalled {
 			continue
 		}
-		if entry.key.scopeID != service.currentScopeID {
+		if entry.key.owner.Source() == evidence.SourceTarget && entry.key.owner.TargetScope() != service.currentScopeID {
 			continue
 		}
 		deadline, ok := service.idleDeadline(entry)

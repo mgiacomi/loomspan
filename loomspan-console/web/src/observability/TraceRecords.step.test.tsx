@@ -29,6 +29,7 @@ const stepRecord: TraceRecord = {
 
 function range(content: string): TraceRange {
   return {
+    source: "TARGET",
     targetScopeId: "scope-1",
     actualStart: 0,
     actualEnd: content.length,
@@ -66,7 +67,7 @@ test("shows authoritative step-start facts without attributing a future task", a
   expect(details).toHaveTextContent("valid");
   expect(details).toHaveTextContent("No task or action has been selected yet");
   expect(details).toHaveTextContent("STEP_ACTION_PROPOSED");
-  expect(getRawRecordRangeMock).toHaveBeenCalledWith("trace-1", 88, undefined);
+  expect(getRawRecordRangeMock).toHaveBeenCalledWith("trace-1", 88, undefined, "TARGET");
 });
 
 test("reports invalid step facts instead of guessing", async () => {

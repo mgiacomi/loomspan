@@ -34,6 +34,7 @@ function record(sequence = 100, overrides: Partial<TraceRecord> = {}): TraceReco
 
 function rangeContent(content: string, overrides: Partial<TraceRange> = {}): TraceRange {
   return {
+    source: "TARGET",
     targetScopeId: "scope-1",
     actualStart: 0,
     actualEnd: content.length,
@@ -52,7 +53,7 @@ function range(value: unknown, overrides: Partial<TraceRange> = {}): TraceRange 
 }
 
 function page(items: TraceRecord[], overrides: Partial<TraceAnalysisPage<TraceRecord>> = {}): TraceAnalysisPage<TraceRecord> {
-  return { targetScopeId: "scope-1", items, hasMore: false, nextCursor: null, ...overrides };
+  return { ...overrides, source: "TARGET", targetScopeId: "scope-1", items, hasMore: false, nextCursor: null };
 }
 
 function renderToolInput(current = record()) {
@@ -132,8 +133,8 @@ test("resolves a planned task title through an ordinary mission model frame", as
   expect(detail).toHaveTextContent("Retrieve customer");
   expect(getTraceRecordsMock).toHaveBeenCalledWith("trace-1", undefined, expect.objectContaining({
     types: ["FRAME_OPENED"],
-    frameId: "model-frame",
-  }));
+	frameId: "model-frame",
+	}), "TARGET");
 });
 
 test.each([
@@ -176,8 +177,8 @@ test("loads complete input across ranges and renders malicious-looking arguments
   const detail = await screen.findByRole("region", { name: "Tool input for record 100" });
   expect(within(detail).getByText(malicious)).toBeVisible();
   expect(detail.querySelector("script")).toBeNull();
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 100, undefined);
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 100, "next");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 100, undefined, "TARGET");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 100, "next", "TARGET");
 });
 
 test("keeps the recorded planned task ID when no title can be resolved", async () => {
@@ -213,8 +214,8 @@ test("rejects repeated raw continuation for tool input", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Tool input" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Content continuation was invalid");
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 100, undefined);
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 100, "same");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 100, undefined, "TARGET");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 100, "same", "TARGET");
 });
 
 test("presents loading and invalid input as accessible status and alert", async () => {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // FrameOrder enumerates the supported frame query orderings.
@@ -61,7 +61,7 @@ type frameQueryCanonical struct {
 // QueryFrames returns a finite, continuable page of frame summaries matching
 // the filter and order. One artifact lease is acquired for the call and closed
 // after the result is materialized.
-func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID, query FrameQuery) (Page[FrameSummary], *consolecore.Error) {
+func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Reference, query FrameQuery) (Page[FrameSummary], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[FrameSummary]{}, domain
@@ -71,18 +71,18 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID,
 	}
 	if _, valid := frameIndexForOrder(query.Order); !valid {
 		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
-			"The frame order is not supported.", string(scopeID), consolecore.Details{}, nil)
+			"The frame order is not supported.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if query.Filter.FrameType != "" {
 		if _, valid := knownFrameType(query.Filter.FrameType); !valid {
 			return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
-				"The frame type filter is not supported.", string(scopeID), consolecore.Details{}, nil)
+				"The frame type filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
 		}
 	}
 	for _, frameID := range query.Filter.FrameIDs {
 		if frameID == "" {
 			return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
-				"Frame ID filters must not be blank.", string(scopeID), consolecore.Details{}, nil)
+				"Frame ID filters must not be blank.", scopeID.ID(), consolecore.Details{}, nil)
 		}
 	}
 	query.Filter.FrameIDs = normalizeStringSet(query.Filter.FrameIDs)
@@ -93,7 +93,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID,
 	})
 	if err != nil {
 		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The frame query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The frame query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 
 	startPosition := 0
@@ -106,7 +106,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID,
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if query.Cursor != "" {
-		c, start, cursorDomain := prepareCursor(query.Cursor, string(scopeID), cursorOpFrames)
+		c, start, cursorDomain := prepareCursor(query.Cursor, ownerCursorKey(lease.Owner()), scopeID.ID(), cursorOpFrames)
 		if cursorDomain != nil {
 			return Page[FrameSummary]{}, cursorDomain
 		}
@@ -115,7 +115,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID,
 	}
 
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[FrameSummary]{}, d
 		}
 	}
@@ -128,7 +128,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID,
 	items := make([]FrameSummary, 0, pageSize)
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[FrameSummary]{}, storageError(string(scopeID), err)
+		return Page[FrameSummary]{}, storageError(scopeID.ID(), err)
 	}
 	idSet := make(map[string]bool, len(query.Filter.FrameIDs))
 	for _, id := range query.Filter.FrameIDs {
@@ -157,13 +157,13 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID target.ScopeID,
 		return Page[FrameSummary]{}, canceled
 	}
 	if err != nil {
-		return Page[FrameSummary]{}, storageError(string(scopeID), err)
+		return Page[FrameSummary]{}, storageError(scopeID.ID(), err)
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpFrames, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpFrames, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[FrameSummary]{}, cursorError(string(scopeID), err)
+			return Page[FrameSummary]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true

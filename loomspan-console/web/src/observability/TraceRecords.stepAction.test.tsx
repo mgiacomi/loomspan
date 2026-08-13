@@ -33,6 +33,7 @@ function record(sequence: number, type: string): TraceRecord {
 function range(value: unknown): TraceRange {
   const content = JSON.stringify(value);
   return {
+    source: "TARGET",
     targetScopeId: "scope-1",
     actualStart: 0,
     actualEnd: content.length,
@@ -46,7 +47,7 @@ function range(value: unknown): TraceRange {
 }
 
 function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
-  return { targetScopeId: "scope-1", items, hasMore: false, nextCursor: null };
+  return { source: "TARGET", targetScopeId: "scope-1", items, hasMore: false, nextCursor: null };
 }
 
 function renderRecord(current: TraceRecord) {

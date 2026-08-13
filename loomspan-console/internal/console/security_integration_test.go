@@ -188,7 +188,7 @@ func TestLiveConsoleArtifactRoutesDoNotLeakPathsOrCredentials(t *testing.T) {
 
 	// Java-compatible test server that serves instance, trace metadata, and a
 	// small artifact body.
-	artifactBody := []byte(`{"traceId":"trace-security","sessionId":"session-1","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{},"data":null}` + "\n" +
+	artifactBody := []byte(`{"traceId":"trace-security","sessionId":"session-1","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{"consoleCompatibilityVersion":"development"},"data":null}` + "\n" +
 		`{"traceId":"trace-security","sessionId":"session-1","sequence":2,"timestamp":1784894400.000000000,"recordType":"TRACE_COMPLETED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{"outcome":"SUCCEEDED","sessionUsageSnapshot":{"promptUnits":0,"completionUnits":0,"totalUnits":0},"errored":false,"persistencePolicy":"ALWAYS"},"data":null}` + "\n")
 	traceMetadata := fmt.Sprintf(
 		`{"targetScopeId":"scope-1","traceId":"trace-security","sessionId":"session-1","entrySkill":"CheckDns","outcome":"SUCCEEDED","finalizedAt":"2026-07-24T12:00:00Z","sizeBytes":%d,"persistencePolicy":"ALWAYS","applicationTraceExpiresAt":"2026-08-01T12:00:00Z"}`,

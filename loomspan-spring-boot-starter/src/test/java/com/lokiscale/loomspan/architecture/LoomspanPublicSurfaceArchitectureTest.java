@@ -43,7 +43,7 @@ class LoomspanPublicSurfaceArchitectureTest
             "com.lokiscale.loomspan.autoconfigure.AiDriver");
 
     private static final Map<String, String> TECHNICALLY_PUBLIC_INTERNAL_TYPES = Map.ofEntries(
-            Map.entry("com.lokiscale.loomspan.internal.observability.LoomspanReleaseVersion", "Public only for framework-owned release metadata collaboration."),
+            Map.entry("com.lokiscale.loomspan.internal.release.LoomspanReleaseVersion", "Public only for framework-owned release metadata collaboration."),
             Map.entry("com.lokiscale.loomspan.internal.observability.ObservabilityActivationCoordinator", "Public only for framework-owned auto-configuration composition."),
             Map.entry("com.lokiscale.loomspan.internal.observability.ObservabilityRuntime", "Public only for framework-owned adapter composition."),
             Map.entry("com.lokiscale.loomspan.internal.observability.web.BoundedJsonPageWriter", "Public only for framework-owned bounded REST serialization."),

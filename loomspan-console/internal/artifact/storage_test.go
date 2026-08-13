@@ -45,7 +45,7 @@ func TestENOSPCRemovesPartialAndReturnsLocalStorageUnavailableWhenWorkspaceRecov
 	}
 
 	// No entry should remain; no capacity should be charged.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after ENOSPC, got %d", snapshot.AcquiredCount)
 	}
@@ -160,7 +160,7 @@ func TestInvalidArtifactWithPersistentPartialCleanupFailureIsFatal(t *testing.T)
 	if !fatalCalled.Load() {
 		t.Fatal("persistent partial cleanup failure did not reach lifecycle fatal callback")
 	}
-	snapshot, snapshotDomain := svc.StorageSnapshot(scope.ID)
+	snapshot, snapshotDomain := svc.StorageSnapshot()
 	if snapshotDomain != nil {
 		t.Fatal(snapshotDomain)
 	}
@@ -198,7 +198,7 @@ func TestAuthenticationRejectionPreservesInstalledCurrentScopeArtifact(t *testin
 	}
 
 	// The already-installed artifact should still be usable.
-	lease, domain := svc.Use(scope.ID, artifact.Handle)
+	lease, domain := svc.Use(targetRef(scope.ID), artifact.Handle)
 	if domain != nil {
 		t.Fatalf("Use failed for installed artifact after auth rejection: %v", domain)
 	}
@@ -218,7 +218,7 @@ func TestAuthenticationRejectionPreservesInstalledCurrentScopeArtifact(t *testin
 	}
 
 	// Storage snapshot should still show the installed entry.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 installed entry after auth rejection, got %d", snapshot.AcquiredCount)
 	}
@@ -245,13 +245,13 @@ func TestCredentialReplacementAndInstanceChangeInvalidateArtifacts(t *testing.T)
 	svc.InvalidateTargetScope(scope.ID, scope.Context)
 
 	// Old-scope handle should return TARGET_CHANGED.
-	_, domain := svc.Use(scope.ID, artifact.Handle)
+	_, domain := svc.Use(targetRef(scope.ID), artifact.Handle)
 	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
 		t.Fatalf("expected TARGET_CHANGED for old-scope handle, got %v", domain)
 	}
 
 	// Old-scope storage snapshot should show 0 entries.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries for old scope, got %d", snapshot.AcquiredCount)
 	}
@@ -271,7 +271,7 @@ func TestScopeRotationCancelsEveryAcquisitionAndLeaseBeforeRemoval(t *testing.T)
 
 	// Acquire and lease the artifact.
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	reader, err := lease.OpenComponent(ComponentRawArtifact)
 	if err != nil {
 		t.Fatalf("open leased artifact: %v", err)
@@ -291,7 +291,7 @@ func TestScopeRotationCancelsEveryAcquisitionAndLeaseBeforeRemoval(t *testing.T)
 	_ = lease.Close(true)
 
 	// No old-scope entries should remain.
-	snapshot, _ := svc.StorageSnapshot(scope2.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries for new scope, got %d", snapshot.AcquiredCount)
 	}
@@ -437,7 +437,7 @@ func TestConcurrentReservationsCannotOvercommitFiniteCapacity(t *testing.T) {
 	}
 
 	// Total charged bytes must never exceed the capacity limit.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.ChargedBytes > config.MaxBytes {
 		t.Fatalf("charged bytes %d exceeded capacity %d", snapshot.ChargedBytes, config.MaxBytes)
 	}
@@ -538,7 +538,7 @@ func TestFatalStorageErrorLogsDoNotLeakPathsOrCredentials(t *testing.T) {
 	}
 
 	// The scopeId is expected and safe — verify it IS logged for ops debugging.
-	if !strings.Contains(logOutput, "scopeId") {
-		t.Fatalf("expected scopeId in log output for ops debugging:\n%s", logOutput)
+	if !strings.Contains(logOutput, "ownerId") {
+		t.Fatalf("expected ownerId in log output for ops debugging:\n%s", logOutput)
 	}
 }

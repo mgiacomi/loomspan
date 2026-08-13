@@ -116,6 +116,7 @@ test("timeline and selected-frame usage preserve unknown and incomplete returned
   rerender(
     <TraceUsage
       usage={{
+        source: "TARGET" as const,
         targetScopeId: "scope-1",
         attributed: frame.inclusiveUsage,
         unattributed: frame.descendantUsage,
@@ -137,6 +138,7 @@ test("usage preserves returned values and record-row evidence actions remain del
     <>
       <TraceUsage
         usage={{
+          source: "TARGET" as const,
           targetScopeId: "scope-1",
           attributed: { promptUnits: 1, completionUnits: 2, totalUnits: 3 },
           unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
@@ -206,6 +208,7 @@ test("evidence detail renders text inertly and exposes continuation", () => {
   render(
     <TraceEvidenceDetail
       range={{
+        source: "TARGET" as const,
         targetScopeId: "scope-1",
         actualStart: 0,
         actualEnd: 2,
@@ -230,6 +233,7 @@ test("evidence detail labels base64 without interpreting content", () => {
   render(
     <TraceEvidenceDetail
       range={{
+        source: "TARGET" as const,
         targetScopeId: "scope-1",
         actualStart: 4,
         actualEnd: 8,
@@ -250,6 +254,7 @@ test("evidence detail labels base64 without interpreting content", () => {
 
 test("usage compares only supported arithmetic facts and preserves zero and absent limit semantics", () => {
   const summary = {
+    source: "TARGET" as const,
     targetScopeId: "scope-1",
     traceId: "trace-1",
     sessionId: "session-1",
@@ -284,6 +289,7 @@ test("usage compares only supported arithmetic facts and preserves zero and abse
     },
   };
   const usage = {
+    source: "TARGET" as const,
     targetScopeId: "scope-1",
     attributed: summary.attributedUsage,
     unattributed: summary.unattributedUsage,
@@ -335,6 +341,7 @@ test("usage compares only supported arithmetic facts and preserves zero and abse
 
 test("usage contributors show only non-overlapping direct consumption ordered by total", () => {
   const usage = {
+    source: "TARGET" as const,
     targetScopeId: "scope-1",
     attributed: { promptUnits: 10, completionUnits: 5, totalUnits: 15 },
     unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
@@ -358,6 +365,7 @@ test("usage percentages round half up to whole numbers", () => {
   render(
     <TraceUsage
       usage={{
+        source: "TARGET" as const,
         targetScopeId: "scope-1",
         attributed: { promptUnits: 1, completionUnits: 0, totalUnits: 1 },
         unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
@@ -372,6 +380,7 @@ test("usage percentages round half up to whole numbers", () => {
 
 test("usage distinguishes repeated operations by chronological call number", () => {
   const usage = {
+    source: "TARGET" as const,
     targetScopeId: "scope-1",
     attributed: { promptUnits: 5, completionUnits: 5, totalUnits: 10 },
     unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },
@@ -388,6 +397,7 @@ test("usage distinguishes repeated operations by chronological call number", () 
 
 test("usage operation links identify the exact model response record", () => {
   const usage = {
+    source: "TARGET" as const,
     targetScopeId: "scope-1",
     attributed: { promptUnits: 2, completionUnits: 2, totalUnits: 4 },
     unattributed: { promptUnits: 0, completionUnits: 0, totalUnits: 0 },

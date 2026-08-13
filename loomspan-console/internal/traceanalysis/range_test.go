@@ -12,7 +12,7 @@ import (
 func TestServiceReadRawArtifactRange(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Read the first 100 bytes of the raw artifact.
-	result, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	result, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   h.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -44,7 +44,7 @@ func TestServiceReadRawArtifactRange(t *testing.T) {
 func TestServiceReadRawArtifactRangeContinuation(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Read the first 50 bytes.
-	page1, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	page1, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   h.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -60,7 +60,7 @@ func TestServiceReadRawArtifactRangeContinuation(t *testing.T) {
 		t.Fatal("expected non-empty next cursor")
 	}
 	// Continue from the cursor.
-	page2, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	page2, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
 		Source:         RangeSourceRawArtifact,
 		ContinueCursor: page1.NextCursor,
@@ -77,7 +77,7 @@ func TestServiceReadRawArtifactRangeContinuation(t *testing.T) {
 func TestServiceReadRawArtifactRangeEmptyAtEnd(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Read past the end.
-	result, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	result, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   h.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    1 << 20, // way past the end
@@ -97,7 +97,7 @@ func TestServiceReadRawArtifactRangeEmptyAtEnd(t *testing.T) {
 func TestServiceReadRawRecordRange(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	// Read the first record (sequence 1).
-	result, domain := h.service.ReadRawRecordRange(context.Background(), h.scopeID, RangeRequest{
+	result, domain := h.service.ReadRawRecordRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
 		Source:         RangeSourceRawRecord,
 		RecordSequence: 1,
@@ -130,7 +130,7 @@ func TestServiceReadRawRecordRange(t *testing.T) {
 
 func TestServiceReadRawRecordRangeNotFound(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.ReadRawRecordRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain := h.service.ReadRawRecordRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
 		Source:         RangeSourceRawRecord,
 		RecordSequence: 999,
@@ -146,7 +146,7 @@ func TestServiceReadPayloadRange(t *testing.T) {
 	ndjson := chunkedPayloadTrace(256, 2)
 	h := newServiceTestHarness(t, "t", ndjson)
 	// Read the first 50 bytes of payload-1.
-	result, domain := h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	result, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:    h.handle,
 		Source:    RangeSourcePayload,
 		PayloadID: "payload-1",
@@ -175,7 +175,7 @@ func TestServiceReadPayloadRange(t *testing.T) {
 
 func TestServiceReadPayloadRangeNotFound(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:    h.handle,
 		Source:    RangeSourcePayload,
 		PayloadID: "nonexistent",
@@ -190,7 +190,7 @@ func TestServiceReadPayloadRangeNotFound(t *testing.T) {
 func TestServiceReadPayloadRangeContinuation(t *testing.T) {
 	ndjson := chunkedPayloadTrace(256, 2)
 	h := newServiceTestHarness(t, "t", ndjson)
-	page1, domain := h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	page1, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:    h.handle,
 		Source:    RangeSourcePayload,
 		PayloadID: "payload-1",
@@ -203,7 +203,7 @@ func TestServiceReadPayloadRangeContinuation(t *testing.T) {
 	if !page1.HasMore {
 		t.Fatal("expected hasMore on page 1")
 	}
-	page2, domain := h.service.ReadPayloadRange(context.Background(), h.scopeID, RangeRequest{
+	page2, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
 		Source:         RangeSourcePayload,
 		PayloadID:      "payload-1",
@@ -220,7 +220,7 @@ func TestServiceReadPayloadRangeContinuation(t *testing.T) {
 
 func TestServiceReadRawArtifactRangeExceedsLimit(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   h.handle,
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -299,7 +299,7 @@ func TestEncodeRangeContentBase64ForNonUTF8(t *testing.T) {
 
 func TestServiceReadRawArtifactRangeExpiredHandle(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, RangeRequest{
+	_, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:   artifact.Handle("nonexistent"),
 		Source:   RangeSourceRawArtifact,
 		Start:    0,
@@ -316,7 +316,7 @@ func TestServiceRawRangeOneByteTraversalIsLossless(t *testing.T) {
 	request := RangeRequest{Handle: h.handle, Source: RangeSourceRawArtifact, MaxBytes: 1}
 	var reconstructed []byte
 	for {
-		result, domain := h.service.ReadRawArtifactRange(context.Background(), h.scopeID, request)
+		result, domain := h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), request)
 		if domain != nil {
 			t.Fatalf("read range: %v", domain)
 		}

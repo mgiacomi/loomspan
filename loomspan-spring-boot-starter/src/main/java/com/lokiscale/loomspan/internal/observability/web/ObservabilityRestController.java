@@ -1,6 +1,6 @@
 package com.lokiscale.loomspan.internal.observability.web;
 
-import com.lokiscale.loomspan.internal.observability.LoomspanReleaseVersion;
+import com.lokiscale.loomspan.internal.release.LoomspanReleaseVersion;
 import com.lokiscale.loomspan.internal.observability.ObservabilityActivationCoordinator;
 import com.lokiscale.loomspan.internal.observability.ObservabilityRuntime;
 import com.lokiscale.loomspan.internal.observability.web.dto.ObservabilityDtos;

@@ -35,6 +35,7 @@ import type {
   TraceUncertainty,
   TracePayload,
   TraceSearchResult,
+	TraceSource,
 } from "./contracts";
 import { openActivityStream as openStream } from "./activityStream";
 
@@ -185,10 +186,29 @@ export function getStorageSnapshot(security: SecurityState): Promise<StorageSnap
 }
 
 export function removeArtifact(
-  traceId: string,
+	traceId: string,
+	source: TraceSource,
   security: SecurityState,
 ): Promise<{ removed: boolean }> {
-  return post("/api/console/v1/artifacts/remove", { traceId }, security);
+	return post("/api/console/v1/artifacts/remove", { traceId, source }, security);
+}
+
+export async function importTraceFile(file: File, security: SecurityState): Promise<AcquiredArtifact> {
+	const response = await fetch("/api/console/v1/artifacts/import", {
+		method: "POST", credentials: "same-origin", cache: "no-store", redirect: "error",
+		headers: {
+			"Content-Type": "application/x-ndjson",
+			"X-loomspan-Console-Tab": security.tabId,
+			"X-loomspan-Console-CSRF": security.csrfToken,
+		},
+		body: file,
+	});
+	const parsed = await response.json() as AcquiredArtifact | ErrorEnvelope;
+	if (!response.ok) {
+		const error = (parsed as ErrorEnvelope).error;
+		throw new BrowserAPIError(error.code, error.message, response.status, error.targetScopeId, error.details);
+	}
+	return parsed as AcquiredArtifact;
 }
 
 export function clearExpiredArtifacts(
@@ -207,24 +227,24 @@ export function rawArtifactDownloadURL(traceId: string): string {
   return `/api/console/v1/artifacts/${encodeURIComponent(traceId)}/raw`;
 }
 
-export function getTraceAnalysisSummary(traceId: string): Promise<TraceAnalysisSummary> { return post("/api/console/v1/traces/analysis/summary", { traceId }); }
+export function getTraceAnalysisSummary(traceId: string, source: TraceSource = "TARGET"): Promise<TraceAnalysisSummary> { return post("/api/console/v1/traces/analysis/summary", { traceId, source }); }
 export type TraceFrameFilter = { frameIds?: string[]; parentFrameId?: string; frameType?: string; route?: string; skillName?: string; outcome?: string; attemptId?: string; retrySequenceId?: string; validationStatus?: string; failureId?: string };
-export function getTraceFrames(traceId: string, cursor?: string, filter: TraceFrameFilter = {}, order = "CANONICAL"): Promise<TraceAnalysisPage<TraceFrame>> { return post("/api/console/v1/traces/analysis/frames", { traceId, pageSize: 100, cursor: cursor ?? "", filter, order }); }
+export function getTraceFrames(traceId: string, cursor?: string, filter: TraceFrameFilter = {}, order = "CANONICAL", source: TraceSource = "TARGET"): Promise<TraceAnalysisPage<TraceFrame>> { return post("/api/console/v1/traces/analysis/frames", { traceId, source, pageSize: 100, cursor: cursor ?? "", filter, order }); }
 export type TraceRecordFilter = { types?: string[]; frameId?: string; route?: string; minSequence?: number; maxSequence?: number; minTimestampMillis?: number; maxTimestampMillis?: number; attemptId?: string; retrySequenceId?: string; validationStatus?: string; failureId?: string };
-export function getTraceRecords(traceId: string, cursor?: string, filter: TraceRecordFilter = {}): Promise<TraceAnalysisPage<TraceRecord>> { return post("/api/console/v1/traces/analysis/records", { traceId, pageSize: 100, cursor: cursor ?? "", filter, representation: "LOGICAL" }); }
-export function getTraceUsage(traceId: string): Promise<TraceUsage> { return post("/api/console/v1/traces/analysis/usage", { traceId }); }
-export function getPayloadRange(traceId: string, payloadId: string, cursor?: string): Promise<TraceRange> { return post("/api/console/v1/traces/analysis/payload-range", { traceId, payloadId, maxBytes: 65536, continueCursor: cursor ?? "" }); }
-export function getRawRecordRange(traceId: string, recordSequence: number, cursor?: string): Promise<TraceRange> { return post("/api/console/v1/traces/analysis/raw-record-range", { traceId, recordSequence, maxBytes: 65536, continueCursor: cursor ?? "" }); }
-function traceFactPage<T>(operation: string, traceId: string, cursor?: string): Promise<TraceAnalysisPage<T>> { return post(`/api/console/v1/traces/analysis/${operation}`, { traceId, pageSize: 100, cursor: cursor ?? "" }); }
+export function getTraceRecords(traceId: string, cursor?: string, filter: TraceRecordFilter = {}, source: TraceSource = "TARGET"): Promise<TraceAnalysisPage<TraceRecord>> { return post("/api/console/v1/traces/analysis/records", { traceId, source, pageSize: 100, cursor: cursor ?? "", filter, representation: "LOGICAL" }); }
+export function getTraceUsage(traceId: string, source: TraceSource = "TARGET"): Promise<TraceUsage> { return post("/api/console/v1/traces/analysis/usage", { traceId, source }); }
+export function getPayloadRange(traceId: string, payloadId: string, cursor?: string, source: TraceSource = "TARGET"): Promise<TraceRange> { return post("/api/console/v1/traces/analysis/payload-range", { traceId, source, payloadId, maxBytes: 65536, continueCursor: cursor ?? "" }); }
+export function getRawRecordRange(traceId: string, recordSequence: number, cursor?: string, source: TraceSource = "TARGET"): Promise<TraceRange> { return post("/api/console/v1/traces/analysis/raw-record-range", { traceId, source, recordSequence, maxBytes: 65536, continueCursor: cursor ?? "" }); }
+function traceFactPage<T>(operation: string, traceId: string, cursor?: string, source: TraceSource = "TARGET"): Promise<TraceAnalysisPage<T>> { return post(`/api/console/v1/traces/analysis/${operation}`, { traceId, source, pageSize: 100, cursor: cursor ?? "" }); }
 export const getTraceAttempts = (traceId: string, cursor?: string) => traceFactPage<TraceAttempt>("attempts", traceId, cursor);
 export const getTraceRetries = (traceId: string, cursor?: string) => traceFactPage<TraceRetry>("retries", traceId, cursor);
-export const getTraceFailures = (traceId: string, cursor?: string) => traceFactPage<TraceFailure>("failures", traceId, cursor);
-export const getTraceFailureDiagnostic = (traceId: string, failureId: string, ordinal: number) => post<TraceFailureDiagnostic>("/api/console/v1/traces/analysis/failure-diagnostic", { traceId, failureId, ordinal });
+export const getTraceFailures = (traceId: string, cursor?: string, source: TraceSource = "TARGET") => traceFactPage<TraceFailure>("failures", traceId, cursor, source);
+export const getTraceFailureDiagnostic = (traceId: string, failureId: string, ordinal: number, source: TraceSource = "TARGET") => post<TraceFailureDiagnostic>("/api/console/v1/traces/analysis/failure-diagnostic", { traceId, source, failureId, ordinal });
 export const getTraceValidationLinks = (traceId: string, cursor?: string) => traceFactPage<TraceValidation>("validation-links", traceId, cursor);
 export const getTraceGaps = (traceId: string, cursor?: string) => traceFactPage<TraceGap>("gaps", traceId, cursor);
 export const getTraceUncertainties = (traceId: string, cursor?: string) => traceFactPage<TraceUncertainty>("uncertainties", traceId, cursor);
 export const getTracePayloads = (traceId: string, cursor?: string) => traceFactPage<TracePayload>("payloads", traceId, cursor);
-export function searchTraceEvidence(traceId: string, text: string, cursor?: string): Promise<TraceAnalysisPage<TraceSearchResult>> { return post("/api/console/v1/traces/analysis/search", { traceId, text, pageSize: 100, cursor: cursor ?? "" }); }
+export function searchTraceEvidence(traceId: string, text: string, cursor?: string, source: TraceSource = "TARGET"): Promise<TraceAnalysisPage<TraceSearchResult>> { return post("/api/console/v1/traces/analysis/search", { traceId, source, text, pageSize: 100, cursor: cursor ?? "" }); }
 
 export function fetchRecentActivities(
   request?: RecentActivityRequest,

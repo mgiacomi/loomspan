@@ -17,6 +17,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
@@ -256,7 +257,7 @@ func TestArtifactServiceAcquiresAndUsesThroughTargetScope(t *testing.T) {
 	}
 
 	// Use the artifact.
-	lease, domain := artifactSvc.Use(scope.ID, artifactResult.Handle)
+	lease, domain := artifactSvc.Use(evidence.ForTarget(scope.ID), artifactResult.Handle)
 	if domain != nil {
 		t.Fatalf("Use failed: %v", domain)
 	}
@@ -302,7 +303,7 @@ func parseTraceJSON(data []byte) (traceJSON, error) {
 // snapshot. Used by target-scope integration tests that wire the production
 // processor.
 func validNDJSONArtifact() []byte {
-	return []byte(`{"traceId":"trace-1","sessionId":"session-1","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{},"data":null}` + "\n" +
+	return []byte(`{"traceId":"trace-1","sessionId":"session-1","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{"consoleCompatibilityVersion":"development"},"data":null}` + "\n" +
 		`{"traceId":"trace-1","sessionId":"session-1","sequence":2,"timestamp":1784894400.000000000,"recordType":"TRACE_COMPLETED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{"outcome":"SUCCEEDED","sessionUsageSnapshot":{"promptUnits":0,"completionUnits":0,"totalUnits":0},"errored":false,"persistencePolicy":"ALWAYS"},"data":null}` + "\n")
 }
 
@@ -433,9 +434,9 @@ func TestArtifactScopeRotationDuringMetadataFetchReturnsTargetChanged(t *testing
 	}
 
 	// The old scope's storage must report TARGET_CHANGED.
-	_, domain = artifactSvc.StorageSnapshot(scope.ID)
-	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
-		t.Fatalf("expected TARGET_CHANGED for stale scope snapshot, got %v", domain)
+	_, domain = artifactSvc.StorageSnapshot()
+	if domain != nil {
+		t.Fatalf("global storage snapshot failed after rotation: %v", domain)
 	}
 }
 
@@ -548,7 +549,7 @@ func TestArtifactScopeRotationDuringLeaseUseReturnsTargetChanged(t *testing.T) {
 	}
 
 	// Use with the stale scope must return TARGET_CHANGED.
-	_, domain = artifactSvc.Use(staleScopeID, acquired.Handle)
+	_, domain = artifactSvc.Use(evidence.ForTarget(staleScopeID), acquired.Handle)
 	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
 		t.Fatalf("expected TARGET_CHANGED for stale scope Use, got %v", domain)
 	}

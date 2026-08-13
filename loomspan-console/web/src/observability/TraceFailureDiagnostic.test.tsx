@@ -7,7 +7,7 @@ vi.mock("../api/client", () => ({ getTraceFailureDiagnostic: vi.fn() }));
 const failure = { failureId: "failure-1", terminal: true, sequence: 1, timestampMillis: 1, recordType: "ERROR_RECORDED", frameId: "frame-1", route: "model", attemptId: "", retrySequenceId: "", validationStatus: "", exceptionType: "java.lang.IllegalStateException", contextSummary: "failed", diagnostics: [{ ordinal: 0, kind: "JAVA_STACK_TRACE", contentType: "text/plain; charset=utf-8", truncated: true, captureLimitBytes: 1048576, decodedBytes: 20 }] };
 
 beforeEach(() => {
-  vi.mocked(api.getTraceFailureDiagnostic).mockResolvedValue({ targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "line one\n<script>x</script>" });
+  vi.mocked(api.getTraceFailureDiagnostic).mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "line one\n<script>x</script>" });
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
   URL.createObjectURL = vi.fn(() => "blob:test"); URL.revokeObjectURL = vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
@@ -66,7 +66,7 @@ test("shows a bounded deliberate loading state", async () => {
   render(<TraceFailureDiagnostic traceId="trace-1" failure={failure} />);
   fireEvent.click(screen.getByRole("button", { name: "Load diagnostic 1" }));
   expect(screen.getByRole("button", { name: "Loading diagnostic..." })).toBeDisabled();
-  resolve({ targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "stack" });
+  resolve({ source: "TARGET", targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "stack" });
   expect(await screen.findByText("stack")).toBeInTheDocument();
 });
 
@@ -75,6 +75,7 @@ test("discards stale responses after the selected failure changes", async () => 
   vi.mocked(api.getTraceFailureDiagnostic)
     .mockReturnValueOnce(new Promise((done) => { resolveOld = done; }))
     .mockResolvedValueOnce({
+      source: "TARGET",
       targetScopeId: "scope-1",
       failureId: "failure-2",
       descriptor: failure.diagnostics[0],
@@ -88,7 +89,7 @@ test("discards stale responses after the selected failure changes", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Load diagnostic 1" }));
   expect(await screen.findByText("new diagnostic")).toBeInTheDocument();
 
-  resolveOld({ targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "old diagnostic" });
+  resolveOld({ source: "TARGET", targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "old diagnostic" });
   await waitFor(() => expect(screen.queryByText("old diagnostic")).toBeNull());
   expect(screen.getByText("new diagnostic")).toBeInTheDocument();
 });
@@ -104,9 +105,19 @@ test("discards a response from an earlier scope before scope verification", asyn
 
   rerender(<TraceFailureDiagnostic traceId="trace-1" failure={failure} scopeGeneration={2} verifyScope={verifyScope} />);
   await act(async () => {
-    resolveOld({ targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "old scope" });
+    resolveOld({ source: "TARGET", targetScopeId: "scope-1", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "old scope" });
   });
 
   expect(screen.queryByText("old scope")).toBeNull();
   expect(verifyScope).not.toHaveBeenCalled();
+});
+
+test("keeps imported diagnostic state across unrelated target generations", async () => {
+	vi.mocked(api.getTraceFailureDiagnostic).mockResolvedValueOnce({ source: "IMPORTED", failureId: "failure-1", descriptor: failure.diagnostics[0], text: "imported diagnostic" });
+	const { rerender } = render(<TraceFailureDiagnostic traceId="trace-1" source="IMPORTED" failure={failure} scopeGeneration={1} />);
+	fireEvent.click(screen.getByRole("button", { name: "Load diagnostic 1" }));
+	expect(await screen.findByText("imported diagnostic")).toBeInTheDocument();
+
+	rerender(<TraceFailureDiagnostic traceId="trace-1" source="IMPORTED" failure={failure} scopeGeneration={2} />);
+	expect(screen.getByText("imported diagnostic")).toBeInTheDocument();
 });

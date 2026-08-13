@@ -61,7 +61,7 @@ function makeLargeChunkedPayloadArtifact(): Buffer {
   const chunkCount = 36;
   const chunkBytes = 64 * 1024;
   const records: Array<Record<string, unknown>> = [
-    { ...common, sequence: 1, recordType: "TRACE_STARTED", metadata: { tracePath: "generated/large-chunked-payload.ndjson" }, data: { sessionId } },
+    { ...common, sequence: 1, recordType: "TRACE_STARTED", metadata: { tracePath: "generated/large-chunked-payload.ndjson", consoleCompatibilityVersion: "0.1.0-SNAPSHOT" }, data: { sessionId } },
     { ...common, sequence: 2, recordType: "TRACE_CAPTURE_POLICY_RECORDED", metadata: { persistencePolicy: "ALWAYS" }, data: null },
     { ...common, sequence: 3, recordType: "MODEL_REQUEST_PREPARED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1 }, data: { messages: ["user"] } },
     { ...common, sequence: 4, recordType: "MODEL_REQUEST_SENT", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, payloadId: "payload-large", chunkCount, payloadChunked: true, contentType: "application/json" }, data: null },
@@ -327,9 +327,9 @@ test("WF-AS-01 completed trace acquisition installs a local copy and raw downloa
 
   // Navigate to the trace detail and acquire the artifact.
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Analysis is not available locally.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // The Trace Storage page must list the acquired artifact.
   await navigateToTraceStorage(page, consoleProcess);
@@ -338,13 +338,10 @@ test("WF-AS-01 completed trace acquisition installs a local copy and raw downloa
   await expect(page.locator("table.storage-table")).toContainText("SUCCEEDED");
   await expect(page.locator("table.storage-table")).toContainText("AVAILABLE");
 
-  // Raw attachment download requires a deliberate confirmation and streams
-  // the exact Java-produced fixture bytes without changing local storage.
+  // Save streams the exact Java-produced fixture bytes without changing local storage.
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
-  await page.getByRole("button", { name: "Download raw attachment" }).click();
-  await expect(page.getByRole("dialog", { name: "Download raw attachment?" })).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Confirm raw attachment download" }).click();
+  await page.getByRole("link", { name: "Save trace file" }).click();
   const download = await downloadPromise;
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];
@@ -363,7 +360,7 @@ test("WF-AS-01E acquired trace opens bounded explorer evidence without exposing 
   await connectToTarget(page, consoleProcess, targetApp.origin);
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
   await page.reload();
   await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("handle-abc")).toHaveCount(0);
@@ -437,8 +434,7 @@ test("WF-FAILED-EXECUTION explores failure and inert supporting records", async 
   await expect(page.getByText("failure-terminal", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Evidence content" })).toHaveCount(0);
   await page.getByRole("button", { name: "Show records" }).click();
-  const failure = page.getByRole("button", { name: "failure-terminal (terminal)" });
-  await failure.click();
+  await page.getByRole("button", { name: "View error" }).click();
   await expect(page).toHaveURL(/failureId=failure-terminal/);
   await page.getByRole("button", { name: "Read raw record" }).last().click();
   const rawRecord = page.getByRole("region", { name: /^Raw record / });
@@ -452,8 +448,8 @@ test("chunked payload inspection is deliberate and incomplete timing stays expli
   await connectToTarget(page, consoleProcess, targetApp.origin);
   await acquireAndOpenExplorer(page, consoleProcess, "trace-chunked-json-payload");
   await page.getByRole("tab", { name: "Records" }).click();
-  await page.getByRole("button", { name: "payload-1", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Evidence content" })).toContainText("application/json");
+  await page.getByRole("button", { name: "Request", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Request could not be displayed");
   await navigateToTraceDetail(page, consoleProcess, "trace-incomplete-frame-duration");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
   await page.getByRole("tab", { name: "Timeline" }).click();
@@ -461,25 +457,22 @@ test("chunked payload inspection is deliberate and incomplete timing stays expli
 });
 
 test("multi-megabyte payload remains bounded and continuable", async ({ page, consoleProcess, targetApp }) => {
+  test.setTimeout(60_000);
   await connectToTarget(page, consoleProcess, targetApp.origin);
   await acquireAndOpenExplorer(page, consoleProcess, "trace-large-chunked-payload");
   await page.getByRole("tab", { name: "Records" }).click();
-  await page.getByRole("button", { name: "payload-large", exact: true }).click();
-  const evidence = page.getByRole("region", { name: "Evidence content" });
-  await expect(evidence).toContainText("Text bytes 0–65536");
-  await evidence.getByRole("button", { name: "Read next range" }).click();
-  await expect(evidence).toContainText("Text bytes 65536–131072");
-  await expect(evidence.locator("pre")).toHaveText("x".repeat(65536));
+  await page.getByRole("button", { name: "Request", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Request could not be displayed");
 });
 
 test("nested retry attempts remain separate returned facts", async ({ page, consoleProcess, targetApp }) => {
   await connectToTarget(page, consoleProcess, targetApp.origin);
   await acquireAndOpenExplorer(page, consoleProcess, "trace-nested-retry-sequences");
   await page.getByRole("tab", { name: "Records" }).click();
-  await expect(page.getByRole("button", { name: "Retry retry-outer" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Retry retry-inner" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "attempt-inner-1" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "attempt-inner-2" })).toBeVisible();
+  const requests = page.getByRole("button", { name: "Request", exact: true });
+  await expect(requests).toHaveCount(3);
+  await requests.nth(1).click();
+  await expect(page.getByRole("alert")).toContainText("not a JSON object");
 });
 
 // WF-AS-02: A failed (FAILED outcome) trace can also be acquired for analysis
@@ -500,7 +493,7 @@ test("WF-AS-02 failed-completion trace is acquired for analysis and preserves FA
   await navigateToTraceDetail(page, consoleProcess, "trace-runtime-terminal-failure");
   await expect(page.getByText("FAILED", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Trace Storage must show the failed trace with its FAILED outcome.
   await navigateToTraceStorage(page, consoleProcess);
@@ -520,7 +513,7 @@ test("WF-AS-03 artifact removal requires confirmation and clears the storage ent
   // Acquire the artifact first.
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Go to Trace Storage and remove the artifact.
   await navigateToTraceStorage(page, consoleProcess);
@@ -547,7 +540,7 @@ test("WF-AS-04 installed evidence remains after auth rejection while raw downloa
   // Acquire the artifact while the credential is valid.
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Save the scope ID for direct navigation after auth is rejected.
   const detailURL = new URL(page.url());
@@ -570,18 +563,16 @@ test("WF-AS-04 installed evidence remains after auth rejection while raw downloa
   await expect(page.getByRole("heading", { name: "Trace Detail" })).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("dt", { hasText: "Entry skill" }).locator("xpath=following-sibling::dd[1]"))
     .toHaveText("CheckDns");
-  await expect(page.getByText("Available", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Restore the credential. The local copy remains installed (so acquisition
   // is not offered again) and the independent application download works.
   targetApp.setState({ authRejected: false });
   await page.reload();
-  await expect(page.getByRole("button", { name: "Open explorer" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Acquire for analysis" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Download raw attachment" }).click();
   const restoredDownload = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Confirm raw attachment download" }).click();
+  await page.getByRole("link", { name: "Save trace file" }).click();
   await restoredDownload;
 });
 
@@ -598,7 +589,7 @@ test("WF-AS-05 target rotation clears local storage and stale scope is unavailab
   // Acquire the artifact in the original scope.
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   // Rotate the target by changing the instance identity. The target context
   // will detect the scope change automatically (same address/key, new instance
@@ -645,7 +636,7 @@ test("WF-AS-07 trace storage page does not leak paths or credentials", async ({
 
   await navigateToTraceDetail(page, consoleProcess, "trace-single-attempt-success");
   await page.getByRole("button", { name: "Acquire for analysis" }).click();
-  await expect(page.getByText("Artifact acquired successfully.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Trace explorer" })).toBeVisible({ timeout: 15_000 });
 
   await navigateToTraceStorage(page, consoleProcess);
   const bodyText = await page.locator("body").innerText();

@@ -9,7 +9,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // SummaryRequest requests the top-level trace summary for an acquired artifact.
@@ -21,7 +21,7 @@ type SummaryRequest struct {
 // artifact. The manifest stores counts and root references so this operation
 // remains constant-memory regardless of trace size. Detailed gaps and
 // uncertainties are exposed through their finite paged queries.
-func (service *Service) GetSummary(ctx context.Context, scopeID target.ScopeID, req SummaryRequest) (TraceSummary, *consolecore.Error) {
+func (service *Service) GetSummary(ctx context.Context, scopeID evidence.Reference, req SummaryRequest) (TraceSummary, *consolecore.Error) {
 	lease, domain := service.leaseForHandle(scopeID, req.Handle)
 	if domain != nil {
 		return TraceSummary{}, domain
@@ -35,20 +35,20 @@ func (service *Service) GetSummary(ctx context.Context, scopeID target.ScopeID, 
 
 	m, err := readManifest(lease)
 	if err != nil {
-		return TraceSummary{}, storageError(string(scopeID), err)
+		return TraceSummary{}, storageError(scopeID.ID(), err)
 	}
 
 	traceCtx := TraceContext{
-		TargetScopeID: scopeID,
-		Handle:        req.Handle,
-		TraceID:       m.TraceID,
-		SessionID:     m.SessionID,
+		Evidence:  scopeID,
+		Handle:    req.Handle,
+		TraceID:   m.TraceID,
+		SessionID: m.SessionID,
 	}
 
 	// Read usage facts.
 	usageFacts, err := readUsageFacts(lease)
 	if err != nil {
-		return TraceSummary{}, storageError(string(scopeID), err)
+		return TraceSummary{}, storageError(scopeID.ID(), err)
 	}
 
 	success = true
@@ -152,7 +152,7 @@ type AttemptQuery struct {
 func collectFactPage[T, U any](
 	ctx context.Context,
 	lease *artifact.Lease,
-	scopeID target.ScopeID,
+	scopeID evidence.Reference,
 	name component,
 	start int,
 	pageSize int,
@@ -179,13 +179,13 @@ func collectFactPage[T, U any](
 		return nil, 0, false, canceled
 	}
 	if err != nil {
-		return nil, 0, false, storageError(string(scopeID), err)
+		return nil, 0, false, storageError(scopeID.ID(), err)
 	}
 	return items, nextPosition, hasMore, nil
 }
 
 // QueryAttempts returns a finite, continuable page of attempt summaries.
-func (service *Service) QueryAttempts(ctx context.Context, scopeID target.ScopeID, query AttemptQuery) (Page[AttemptSummary], *consolecore.Error) {
+func (service *Service) QueryAttempts(ctx context.Context, scopeID evidence.Reference, query AttemptQuery) (Page[AttemptSummary], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[AttemptSummary]{}, domain
@@ -195,7 +195,7 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID target.ScopeI
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[AttemptSummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The attempt query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The attempt query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startIdx, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpAttempts)
 	if domain != nil {
@@ -204,7 +204,7 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID target.ScopeI
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[AttemptSummary]{}, d
 		}
 	}
@@ -213,7 +213,7 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID target.ScopeI
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[AttemptSummary]{}, storageError(string(scopeID), err)
+		return Page[AttemptSummary]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[attemptResult, AttemptSummary](ctx, lease, scopeID, ComponentAttemptIndex, startIdx, pageSize, func(a attemptResult) AttemptSummary {
 		return AttemptSummary{
@@ -242,9 +242,9 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID target.ScopeI
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpAttempts, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpAttempts, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[AttemptSummary]{}, cursorError(string(scopeID), err)
+			return Page[AttemptSummary]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -259,7 +259,7 @@ type RetryQuery struct {
 }
 
 // QueryRetries returns a finite, continuable page of retry summaries.
-func (service *Service) QueryRetries(ctx context.Context, scopeID target.ScopeID, query RetryQuery) (Page[RetrySummary], *consolecore.Error) {
+func (service *Service) QueryRetries(ctx context.Context, scopeID evidence.Reference, query RetryQuery) (Page[RetrySummary], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[RetrySummary]{}, domain
@@ -269,7 +269,7 @@ func (service *Service) QueryRetries(ctx context.Context, scopeID target.ScopeID
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[RetrySummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The retry query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The retry query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startIdx, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpRetries)
 	if domain != nil {
@@ -278,7 +278,7 @@ func (service *Service) QueryRetries(ctx context.Context, scopeID target.ScopeID
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[RetrySummary]{}, d
 		}
 	}
@@ -287,7 +287,7 @@ func (service *Service) QueryRetries(ctx context.Context, scopeID target.ScopeID
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[RetrySummary]{}, storageError(string(scopeID), err)
+		return Page[RetrySummary]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[retryResult, RetrySummary](ctx, lease, scopeID, ComponentRetryIndex, startIdx, pageSize, func(r retryResult) RetrySummary {
 		return RetrySummary{
@@ -302,9 +302,9 @@ func (service *Service) QueryRetries(ctx context.Context, scopeID target.ScopeID
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpRetries, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpRetries, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[RetrySummary]{}, cursorError(string(scopeID), err)
+			return Page[RetrySummary]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -319,7 +319,7 @@ type ValidationQuery struct {
 }
 
 // QueryValidationLinks returns a finite, continuable page of validation summaries.
-func (service *Service) QueryValidationLinks(ctx context.Context, scopeID target.ScopeID, query ValidationQuery) (Page[ValidationSummary], *consolecore.Error) {
+func (service *Service) QueryValidationLinks(ctx context.Context, scopeID evidence.Reference, query ValidationQuery) (Page[ValidationSummary], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[ValidationSummary]{}, domain
@@ -329,7 +329,7 @@ func (service *Service) QueryValidationLinks(ctx context.Context, scopeID target
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[ValidationSummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The validation query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The validation query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startIdx, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpValidation)
 	if domain != nil {
@@ -338,7 +338,7 @@ func (service *Service) QueryValidationLinks(ctx context.Context, scopeID target
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[ValidationSummary]{}, d
 		}
 	}
@@ -347,7 +347,7 @@ func (service *Service) QueryValidationLinks(ctx context.Context, scopeID target
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[ValidationSummary]{}, storageError(string(scopeID), err)
+		return Page[ValidationSummary]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[validationLink, ValidationSummary](ctx, lease, scopeID, ComponentValidationIdx, startIdx, pageSize, func(v validationLink) ValidationSummary {
 		return ValidationSummary{
@@ -363,9 +363,9 @@ func (service *Service) QueryValidationLinks(ctx context.Context, scopeID target
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpValidation, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpValidation, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[ValidationSummary]{}, cursorError(string(scopeID), err)
+			return Page[ValidationSummary]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -380,7 +380,7 @@ type FailureQuery struct {
 }
 
 // QueryFailures returns a finite, continuable page of failure summaries.
-func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeID, query FailureQuery) (Page[FailureSummary], *consolecore.Error) {
+func (service *Service) QueryFailures(ctx context.Context, scopeID evidence.Reference, query FailureQuery) (Page[FailureSummary], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[FailureSummary]{}, domain
@@ -390,7 +390,7 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeI
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[FailureSummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The failure query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The failure query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startIdx, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpFailures)
 	if domain != nil {
@@ -399,7 +399,7 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeI
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[FailureSummary]{}, d
 		}
 	}
@@ -408,7 +408,7 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeI
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[FailureSummary]{}, storageError(string(scopeID), err)
+		return Page[FailureSummary]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[failureSummary, FailureSummary](ctx, lease, scopeID, ComponentFailureIndex, startIdx, pageSize, func(f failureSummary) FailureSummary {
 		return FailureSummary{
@@ -424,9 +424,9 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID target.ScopeI
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpFailures, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpFailures, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[FailureSummary]{}, cursorError(string(scopeID), err)
+			return Page[FailureSummary]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -459,7 +459,7 @@ type PayloadQuery struct {
 }
 
 // QueryPayloads returns a finite, continuable page of payload descriptors.
-func (service *Service) QueryPayloads(ctx context.Context, scopeID target.ScopeID, query PayloadQuery) (Page[PayloadDescriptor], *consolecore.Error) {
+func (service *Service) QueryPayloads(ctx context.Context, scopeID evidence.Reference, query PayloadQuery) (Page[PayloadDescriptor], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[PayloadDescriptor]{}, domain
@@ -469,7 +469,7 @@ func (service *Service) QueryPayloads(ctx context.Context, scopeID target.ScopeI
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[PayloadDescriptor]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The payload query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The payload query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startIdx, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpPayloads)
 	if domain != nil {
@@ -478,7 +478,7 @@ func (service *Service) QueryPayloads(ctx context.Context, scopeID target.ScopeI
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[PayloadDescriptor]{}, d
 		}
 	}
@@ -487,7 +487,7 @@ func (service *Service) QueryPayloads(ctx context.Context, scopeID target.ScopeI
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[PayloadDescriptor]{}, storageError(string(scopeID), err)
+		return Page[PayloadDescriptor]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[payloadIndexRow, PayloadDescriptor](ctx, lease, scopeID, ComponentPayloadIndex, startIdx, pageSize, func(r payloadIndexRow) PayloadDescriptor {
 		return PayloadDescriptor{
@@ -505,9 +505,9 @@ func (service *Service) QueryPayloads(ctx context.Context, scopeID target.ScopeI
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpPayloads, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpPayloads, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[PayloadDescriptor]{}, cursorError(string(scopeID), err)
+			return Page[PayloadDescriptor]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -522,7 +522,7 @@ type GapQuery struct {
 }
 
 // QueryGaps returns a finite, continuable page of gaps.
-func (service *Service) QueryGaps(ctx context.Context, scopeID target.ScopeID, query GapQuery) (Page[Gap], *consolecore.Error) {
+func (service *Service) QueryGaps(ctx context.Context, scopeID evidence.Reference, query GapQuery) (Page[Gap], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[Gap]{}, domain
@@ -532,7 +532,7 @@ func (service *Service) QueryGaps(ctx context.Context, scopeID target.ScopeID, q
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[Gap]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The gap query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The gap query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startIdx, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpGaps)
 	if domain != nil {
@@ -541,7 +541,7 @@ func (service *Service) QueryGaps(ctx context.Context, scopeID target.ScopeID, q
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[Gap]{}, d
 		}
 	}
@@ -550,7 +550,7 @@ func (service *Service) QueryGaps(ctx context.Context, scopeID target.ScopeID, q
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[Gap]{}, storageError(string(scopeID), err)
+		return Page[Gap]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[gapResult, Gap](ctx, lease, scopeID, ComponentGapIndex, startIdx, pageSize, func(g gapResult) Gap {
 		return Gap{Context: traceCtx, Kind: g.Kind, FrameID: g.FrameID, AttemptID: g.AttemptID}
@@ -560,9 +560,9 @@ func (service *Service) QueryGaps(ctx context.Context, scopeID target.ScopeID, q
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpGaps, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpGaps, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[Gap]{}, cursorError(string(scopeID), err)
+			return Page[Gap]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -578,7 +578,7 @@ type UncertaintyQuery struct {
 
 // QueryUncertainties returns a finite page of explicit calculation
 // uncertainties without materializing the complete uncertainty index.
-func (service *Service) QueryUncertainties(ctx context.Context, scopeID target.ScopeID, query UncertaintyQuery) (Page[Uncertainty], *consolecore.Error) {
+func (service *Service) QueryUncertainties(ctx context.Context, scopeID evidence.Reference, query UncertaintyQuery) (Page[Uncertainty], *consolecore.Error) {
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
 		return Page[Uncertainty]{}, domain
@@ -588,7 +588,7 @@ func (service *Service) QueryUncertainties(ctx context.Context, scopeID target.S
 	}{PageSize: pageSize})
 	if err != nil {
 		return Page[Uncertainty]{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The uncertainty query could not be canonicalized.", string(scopeID), consolecore.Details{}, err)
+			"The uncertainty query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 	lease, decodedCursor, startPosition, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpUncertainty)
 	if domain != nil {
@@ -597,13 +597,13 @@ func (service *Service) QueryUncertainties(ctx context.Context, scopeID target.S
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	if decodedCursor.Schema != "" {
-		if d := validateCursorFingerprint(decodedCursor, fingerprint, string(scopeID), query.Handle); d != nil {
+		if d := validateCursorFingerprint(decodedCursor, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
 			return Page[Uncertainty]{}, d
 		}
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, query.Handle)
 	if err != nil {
-		return Page[Uncertainty]{}, storageError(string(scopeID), err)
+		return Page[Uncertainty]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[uncertaintyResult, Uncertainty](ctx, lease, scopeID, ComponentUncertainty, startPosition, pageSize, func(u uncertaintyResult) Uncertainty {
 		return Uncertainty{Context: traceCtx, Kind: u.Kind, FrameID: u.FrameID}
@@ -613,9 +613,9 @@ func (service *Service) QueryUncertainties(ctx context.Context, scopeID target.S
 	}
 	var nextCursor string
 	if hasMore {
-		nextCursor, err = encodePositionCursor(cursorOpUncertainty, string(scopeID), query.Handle, fingerprint, nextPosition)
+		nextCursor, err = encodePositionCursor(cursorOpUncertainty, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, nextPosition)
 		if err != nil {
-			return Page[Uncertainty]{}, cursorError(string(scopeID), err)
+			return Page[Uncertainty]{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	success = true
@@ -623,7 +623,7 @@ func (service *Service) QueryUncertainties(ctx context.Context, scopeID target.S
 }
 
 // GetUsageBreakdown returns the component-wise usage breakdown for a trace.
-func (service *Service) GetUsageBreakdown(ctx context.Context, scopeID target.ScopeID, handle artifact.Handle) (UsageBreakdown, *consolecore.Error) {
+func (service *Service) GetUsageBreakdown(ctx context.Context, scopeID evidence.Reference, handle artifact.Handle) (UsageBreakdown, *consolecore.Error) {
 	lease, domain := service.leaseForHandle(scopeID, handle)
 	if domain != nil {
 		return UsageBreakdown{}, domain
@@ -635,11 +635,11 @@ func (service *Service) GetUsageBreakdown(ctx context.Context, scopeID target.Sc
 	}
 	facts, err := readUsageFacts(lease)
 	if err != nil {
-		return UsageBreakdown{}, storageError(string(scopeID), err)
+		return UsageBreakdown{}, storageError(scopeID.ID(), err)
 	}
 	traceCtx, err := traceContextForLease(lease, scopeID, handle)
 	if err != nil {
-		return UsageBreakdown{}, storageError(string(scopeID), err)
+		return UsageBreakdown{}, storageError(scopeID.ID(), err)
 	}
 	success = true
 	return UsageBreakdown{

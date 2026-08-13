@@ -59,6 +59,8 @@ type expectedFile struct {
 	ErrorCategory           string            `json:"errorCategory,omitempty"`
 }
 
+const fixtureCompatibilityVersion = "0.1.0-SNAPSHOT"
+
 // TestFixtureCorpusMatchesJavaExpectedSemantics processes every Java fixture in
 // place and compares the neutral semantic result or exact invalidity category
 // against the committed expected file.
@@ -97,7 +99,7 @@ func TestFixtureCorpusMatchesJavaExpectedSemantics(t *testing.T) {
 			}
 
 			sink := &fakeSink{}
-			processor := New()
+			processor := newProcessorForVersion(fixtureCompatibilityVersion)
 			_, domain := processor.Process(artifact.ProcessRequest{
 				Context: context.Background(),
 				Metadata: artifact.TraceMetadata{
@@ -156,7 +158,7 @@ func TestToolLifecycleFixturesExposeOneCanonicalStartAndTerminalRecord(t *testin
 				t.Fatalf("read fixture: %v", err)
 			}
 			sink := &fakeSink{}
-			_, domain := New().Process(artifact.ProcessRequest{
+			_, domain := newProcessorForVersion(fixtureCompatibilityVersion).Process(artifact.ProcessRequest{
 				Context: context.Background(),
 				Metadata: artifact.TraceMetadata{
 					TraceID: "trace-" + tc.name, SessionID: "session-" + tc.name, Outcome: tc.outcome,

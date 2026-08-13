@@ -24,11 +24,11 @@ function record(sequence: number, type: string, route: string, frameId = "frame"
 
 function range(value: unknown): TraceRange {
   const content = JSON.stringify(value);
-  return { targetScopeId: "scope-1", actualStart: 0, actualEnd: content.length, totalLength: content.length, contentType: "application/json", encoding: "TEXT", content, hasMore: false, nextCursor: null };
+  return { source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: content.length, totalLength: content.length, contentType: "application/json", encoding: "TEXT", content, hasMore: false, nextCursor: null };
 }
 
 function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
-  return { targetScopeId: "scope-1", items, hasMore: false, nextCursor: null };
+  return { source: "TARGET", targetScopeId: "scope-1", items, hasMore: false, nextCursor: null };
 }
 
 function renderRecord(current: TraceRecord, onSelectRecord = vi.fn(), onSelectFailure = vi.fn()) {

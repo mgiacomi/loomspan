@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 )
@@ -233,7 +234,7 @@ func (router *Router) cachedTrace(scope target.ScopeID, traceID string) (observa
 	if router.options.Artifacts == nil {
 		return observability.Trace{}, false
 	}
-	lookup, domain := router.options.Artifacts.Lookup(scope, traceID)
+	lookup, domain := router.options.Artifacts.Lookup(evidence.ForTarget(scope), traceID)
 	if domain != nil || !lookup.LocalAvailable {
 		return observability.Trace{}, false
 	}
@@ -257,7 +258,7 @@ func (router *Router) cachedTracePage(scope target.ScopeID) (observability.Page[
 	if router.options.Artifacts == nil {
 		return observability.Page[observability.Trace]{}, false
 	}
-	snapshot, domain := router.options.Artifacts.StorageSnapshot(scope)
+	snapshot, domain := router.options.Artifacts.StorageSnapshot()
 	if domain != nil || len(snapshot.Entries) == 0 {
 		return observability.Page[observability.Trace]{}, false
 	}

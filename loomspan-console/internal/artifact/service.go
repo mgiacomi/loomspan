@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
@@ -63,6 +64,7 @@ type Service struct {
 	idleTimer      timerHandle
 	storage        *storage
 	currentScopeID target.ScopeID
+	importedOwner  evidence.Owner
 	closed         bool
 }
 
@@ -105,6 +107,14 @@ func New(config Config, deps Dependencies) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	ownerHandle, err := newHandle(entropy)
+	if err != nil {
+		return nil, fmt.Errorf("create imported evidence owner: %w", err)
+	}
+	importedOwner, err := evidence.Imported(string(ownerHandle))
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
 		lifetime:       lifetime,
 		workspace:      deps.Workspace,
@@ -121,6 +131,7 @@ func New(config Config, deps Dependencies) (*Service, error) {
 		entropy:        entropy,
 		timerFactory:   timerFactory,
 		storage:        store,
+		importedOwner:  importedOwner,
 	}, nil
 }
 
@@ -154,7 +165,7 @@ func (service *Service) Acquire(ctx context.Context, scope target.Scope, traceID
 			"The selected target changed. Start this operation again.",
 			string(scope.ID), consolecore.Details{}, nil)
 	}
-	key := entryKey{scopeID: scope.ID, traceID: traceID}
+	key := entryKey{owner: evidence.Target(scope.ID), traceID: traceID}
 	ent, exists := service.entries[key]
 	if exists && ent.state == stateInstalled {
 		expired, domain := service.expireOnAccessLocked(ent)
@@ -251,26 +262,25 @@ func (service *Service) Acquire(ctx context.Context, scope target.Scope, traceID
 // Use issues a lease for an installed artifact, incrementing its pin count.
 // The lease provides read access to the installed file without exposing the
 // path. This seam is ready for PR 13's streaming/parser work.
-func (service *Service) Use(scopeID target.ScopeID, handle Handle) (*Lease, *consolecore.Error) {
+func (service *Service) Use(ref evidence.Reference, handle Handle) (*Lease, *consolecore.Error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	owner, domain := service.resolveOwnerLocked(ref)
+	if domain != nil {
+		return nil, domain
+	}
 	if service.closed {
 		return nil, consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(scopeID), consolecore.Details{}, nil)
-	}
-	if service.currentScopeID != scopeID {
-		return nil, consolecore.NewError(consolecore.CodeTargetChanged,
-			"The selected target changed. Start this operation again.",
-			string(scopeID), consolecore.Details{}, nil)
+			"The Console is shutting down.", owner.ID(), consolecore.Details{}, nil)
 	}
 	if !isValidHandle(handle) {
 		return nil, consolecore.NewError(consolecore.CodeInvalidArgument,
-			"The artifact handle is malformed.", string(scopeID), consolecore.Details{}, nil)
+			"The artifact handle is malformed.", owner.ID(), consolecore.Details{}, nil)
 	}
 	entry, exists := service.handles[handle]
-	if !exists || entry.state != stateInstalled {
+	if !exists || entry.state != stateInstalled || entry.key.owner != owner {
 		return nil, consolecore.NewError(consolecore.CodeArtifactExpired,
-			"The artifact is no longer available.", string(scopeID), consolecore.Details{}, nil)
+			"The artifact is no longer available.", owner.ID(), consolecore.Details{}, nil)
 	}
 	expired, domain := service.expireOnAccessLocked(entry)
 	if domain != nil {
@@ -278,51 +288,45 @@ func (service *Service) Use(scopeID target.ScopeID, handle Handle) (*Lease, *con
 	}
 	if expired {
 		return nil, consolecore.NewError(consolecore.CodeArtifactExpired,
-			"The artifact is no longer available.", string(scopeID), consolecore.Details{}, nil)
+			"The artifact is no longer available.", owner.ID(), consolecore.Details{}, nil)
 	}
-	return service.useEntryLocked(entry, scopeID)
+	return service.useEntryLocked(entry, owner)
 }
 
 // Remove removes an unused installed artifact. If the artifact has an active
 // lease, it returns ARTIFACT_IN_USE without force-cancelling the lease.
-func (service *Service) Remove(scopeID target.ScopeID, traceID string) *consolecore.Error {
+func (service *Service) Remove(ref evidence.Reference, traceID string) *consolecore.Error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	owner, domain := service.resolveOwnerLocked(ref)
+	if domain != nil {
+		return domain
+	}
 	if service.closed {
 		return consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(scopeID), consolecore.Details{}, nil)
+			"The Console is shutting down.", owner.ID(), consolecore.Details{}, nil)
 	}
-	if service.currentScopeID != scopeID {
-		return consolecore.NewError(consolecore.CodeTargetChanged,
-			"The selected target changed. Start this operation again.",
-			string(scopeID), consolecore.Details{}, nil)
-	}
-	key := entryKey{scopeID: scopeID, traceID: traceID}
+	key := entryKey{owner: owner, traceID: traceID}
 	entry, exists := service.entries[key]
 	if !exists || entry.state != stateInstalled {
 		return consolecore.NewError(consolecore.CodeArtifactExpired,
-			"The artifact is no longer available.", string(scopeID), consolecore.Details{}, nil)
+			"The artifact is no longer available.", owner.ID(), consolecore.Details{}, nil)
 	}
 	if entry.pinCount > 0 {
 		return consolecore.NewError(consolecore.CodeArtifactInUse,
-			"The artifact is in use and cannot be removed.", string(scopeID), consolecore.Details{}, nil)
+			"The artifact is in use and cannot be removed.", owner.ID(), consolecore.Details{}, nil)
 	}
 	return service.removeEntryLocked(entry)
 }
 
 // ClearExpired removes all expired unpinned entries in the current scope.
 // Pinned entries are marked for deferred removal.
-func (service *Service) ClearExpired(scopeID target.ScopeID) *consolecore.Error {
+func (service *Service) ClearExpired() *consolecore.Error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.closed {
 		return consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(scopeID), consolecore.Details{}, nil)
-	}
-	if service.currentScopeID != scopeID {
-		return consolecore.NewError(consolecore.CodeTargetChanged,
-			"The selected target changed. Start this operation again.",
-			string(scopeID), consolecore.Details{}, nil)
+			"The Console is shutting down.", "", consolecore.Details{}, nil)
 	}
 	if domain := service.removeExpiredUnpinnedLocked(); domain != nil {
 		return domain
@@ -333,20 +337,15 @@ func (service *Service) ClearExpired(scopeID target.ScopeID) *consolecore.Error 
 
 // ClearAllUnused removes all unused installed entries in the current scope.
 // Pinned entries are preserved.
-func (service *Service) ClearAllUnused(scopeID target.ScopeID) *consolecore.Error {
+func (service *Service) ClearAllUnused() *consolecore.Error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.closed {
 		return consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(scopeID), consolecore.Details{}, nil)
-	}
-	if service.currentScopeID != scopeID {
-		return consolecore.NewError(consolecore.CodeTargetChanged,
-			"The selected target changed. Start this operation again.",
-			string(scopeID), consolecore.Details{}, nil)
+			"The Console is shutting down.", "", consolecore.Details{}, nil)
 	}
 	for _, entry := range service.entries {
-		if entry.key.scopeID != scopeID || entry.state != stateInstalled || entry.pinCount > 0 {
+		if entry.state != stateInstalled || entry.pinCount > 0 {
 			continue
 		}
 		if domain := service.removeEntryLocked(entry); domain != nil {
@@ -359,17 +358,12 @@ func (service *Service) ClearAllUnused(scopeID target.ScopeID) *consolecore.Erro
 
 // StorageSnapshot returns a side-effect-free view of the artifact cache.
 // Viewing the snapshot does not refresh any entry's last-use time.
-func (service *Service) StorageSnapshot(scopeID target.ScopeID) (StorageSnapshot, *consolecore.Error) {
+func (service *Service) StorageSnapshot() (StorageSnapshot, *consolecore.Error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.closed {
 		return StorageSnapshot{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(scopeID), consolecore.Details{}, nil)
-	}
-	if service.currentScopeID != scopeID {
-		return StorageSnapshot{}, consolecore.NewError(consolecore.CodeTargetChanged,
-			"The selected target changed. Start this operation again.",
-			string(scopeID), consolecore.Details{}, nil)
+			"The Console is shutting down.", "", consolecore.Details{}, nil)
 	}
 	snapshot := StorageSnapshot{
 		WorkspaceLabel: filepath.Base(service.workspace.Root),
@@ -382,15 +376,14 @@ func (service *Service) StorageSnapshot(scopeID target.ScopeID) (StorageSnapshot
 		Entries:        []StoredEntry{},
 	}
 	for _, entry := range service.entries {
-		if entry.key.scopeID != scopeID {
-			continue
-		}
 		if entry.state != stateInstalled && entry.state != stateDeferredRemoval {
 			continue
 		}
 		snapshot.AcquiredCount++
 		deadline, hasExpiry := service.idleDeadline(entry)
 		snapshot.Entries = append(snapshot.Entries, StoredEntry{
+			Source:                    entry.key.owner.Source(),
+			TargetScopeID:             string(entry.key.owner.TargetScope()),
 			TraceID:                   entry.metadata.TraceID,
 			SessionID:                 entry.metadata.SessionID,
 			Outcome:                   entry.metadata.Outcome,
@@ -401,7 +394,7 @@ func (service *Service) StorageSnapshot(scopeID target.ScopeID) (StorageSnapshot
 			ExpiresAt:                 deadline,
 			HasIdleExpiry:             hasExpiry,
 			LocalBytes:                entry.localBytes,
-			ApplicationTraceExpiresAt: entry.metadata.ApplicationTraceExpiresAt,
+			ApplicationTraceExpiresAt: applicationTraceExpiresAt(entry),
 			ApplicationAvailability:   string(entry.applicationAvailability),
 			LocalAvailable:            true,
 			ActivePin:                 entry.pinCount > 0,
@@ -410,23 +403,30 @@ func (service *Service) StorageSnapshot(scopeID target.ScopeID) (StorageSnapshot
 	return snapshot, nil
 }
 
+func applicationTraceExpiresAt(entry *entry) *time.Time {
+	if entry.key.owner.Source() != evidence.SourceTarget || entry.metadata.ApplicationTraceExpiresAt.IsZero() {
+		return nil
+	}
+	expiresAt := entry.metadata.ApplicationTraceExpiresAt
+	return &expiresAt
+}
+
 // Lookup returns the installed artifact entry for the given trace ID within
 // the current scope, or a zero result with LocalAvailable=false if no entry
 // is installed. This is a read-only side-effect-free lookup; it does not
 // refresh the entry's last-use time.
-func (service *Service) Lookup(scopeID target.ScopeID, traceID string) (LookupResult, *consolecore.Error) {
+func (service *Service) Lookup(ref evidence.Reference, traceID string) (LookupResult, *consolecore.Error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	owner, domain := service.resolveOwnerLocked(ref)
+	if domain != nil {
+		return LookupResult{}, domain
+	}
 	if service.closed {
 		return LookupResult{}, consolecore.NewError(consolecore.CodeConsoleError,
-			"The Console is shutting down.", string(scopeID), consolecore.Details{}, nil)
+			"The Console is shutting down.", owner.ID(), consolecore.Details{}, nil)
 	}
-	if service.currentScopeID != scopeID {
-		return LookupResult{}, consolecore.NewError(consolecore.CodeTargetChanged,
-			"The selected target changed. Start this operation again.",
-			string(scopeID), consolecore.Details{}, nil)
-	}
-	key := entryKey{scopeID: scopeID, traceID: traceID}
+	key := entryKey{owner: owner, traceID: traceID}
 	entry, exists := service.entries[key]
 	if !exists || entry.state != stateInstalled {
 		return LookupResult{LocalAvailable: false}, nil
@@ -440,6 +440,7 @@ func (service *Service) Lookup(scopeID target.ScopeID, traceID string) (LookupRe
 	}
 	deadline, hasExpiry := service.idleDeadline(entry)
 	return LookupResult{
+		Owner:                   owner,
 		Handle:                  entry.handle,
 		Metadata:                entry.metadata,
 		LocalAvailable:          true,
@@ -450,6 +451,22 @@ func (service *Service) Lookup(scopeID target.ScopeID, traceID string) (LookupRe
 		HasIdleExpiry:           hasExpiry,
 		LocalBytes:              entry.localBytes,
 	}, nil
+}
+
+func (service *Service) resolveOwnerLocked(ref evidence.Reference) (evidence.Owner, *consolecore.Error) {
+	if !ref.Valid() {
+		return evidence.Owner{}, consolecore.NewError(consolecore.CodeInvalidArgument,
+			"The evidence source is invalid.", "", consolecore.Details{}, nil)
+	}
+	if ref.Source == evidence.SourceImported {
+		return service.importedOwner, nil
+	}
+	if service.currentScopeID != ref.TargetScope {
+		return evidence.Owner{}, consolecore.NewError(consolecore.CodeTargetChanged,
+			"The selected target changed. Start this operation again.", string(ref.TargetScope),
+			consolecore.Details{}, nil)
+	}
+	return evidence.Target(ref.TargetScope), nil
 }
 
 // Close shuts down the service. It cancels all transfers, invalidates handles,
@@ -539,7 +556,7 @@ func (service *Service) removeInstalledBundleLocked(entry *entry) *consolecore.E
 		if workspace.IsFatal(classified) {
 			domain := consolecore.NewError(consolecore.CodeConsoleError,
 				"The Console workspace is no longer safe.",
-				string(entry.key.scopeID), consolecore.Details{}, classified)
+				entry.key.owner.ID(), consolecore.Details{}, classified)
 			if service.fatal != nil {
 				service.fatal(classified)
 			}
@@ -555,6 +572,7 @@ func (service *Service) removeInstalledBundleLocked(entry *entry) *consolecore.E
 func (service *Service) buildAcquiredArtifactLocked(entry *entry) AcquiredArtifact {
 	deadline, hasExpiry := service.idleDeadline(entry)
 	return AcquiredArtifact{
+		Owner:         entry.key.owner,
 		Handle:        entry.handle,
 		Metadata:      entry.metadata,
 		LocalBytes:    entry.localBytes,

@@ -15,6 +15,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/browserauth"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 )
@@ -40,6 +41,12 @@ type fakeArtifactService struct {
 	removeCalled       bool
 	clearExpiredCalled bool
 	clearAllCalled     bool
+	importResult       artifact.AcquiredArtifact
+	importErr          *consolecore.Error
+	importLimit        int64
+	importCalled       bool
+	importDeclared     int64
+	importBody         []byte
 }
 
 func (f *fakeArtifactService) Acquire(_ context.Context, _ target.Scope, traceID string) (artifact.AcquiredArtifact, *consolecore.Error) {
@@ -51,7 +58,29 @@ func (f *fakeArtifactService) Acquire(_ context.Context, _ target.Scope, traceID
 	return f.acquireResult, nil
 }
 
-func (f *fakeArtifactService) Lookup(_ target.ScopeID, _ string) (artifact.LookupResult, *consolecore.Error) {
+func (f *fakeArtifactService) Import(_ context.Context, reader io.Reader, declared int64) (artifact.AcquiredArtifact, *consolecore.Error) {
+	f.importCalled = true
+	f.importDeclared = declared
+	var readErr error
+	f.importBody, readErr = io.ReadAll(reader)
+	if readErr != nil {
+		return artifact.AcquiredArtifact{}, consolecore.NewError(consolecore.CodeInvalidArtifact,
+			"The trace artifact could not be validated.", "", consolecore.Details{}, readErr)
+	}
+	if f.importErr != nil {
+		return artifact.AcquiredArtifact{}, f.importErr
+	}
+	return f.importResult, nil
+}
+
+func (f *fakeArtifactService) ImportLimit() int64 {
+	if f.importLimit > 0 {
+		return f.importLimit
+	}
+	return 4 << 30
+}
+
+func (f *fakeArtifactService) Lookup(_ evidence.Reference, _ string) (artifact.LookupResult, *consolecore.Error) {
 	f.lookupCalled = true
 	if f.lookupErr != nil {
 		return artifact.LookupResult{}, f.lookupErr
@@ -59,7 +88,7 @@ func (f *fakeArtifactService) Lookup(_ target.ScopeID, _ string) (artifact.Looku
 	return f.lookupResult, nil
 }
 
-func (f *fakeArtifactService) StorageSnapshot(_ target.ScopeID) (artifact.StorageSnapshot, *consolecore.Error) {
+func (f *fakeArtifactService) StorageSnapshot() (artifact.StorageSnapshot, *consolecore.Error) {
 	f.snapshotCalled = true
 	if f.snapshotErr != nil {
 		return artifact.StorageSnapshot{}, f.snapshotErr
@@ -67,23 +96,29 @@ func (f *fakeArtifactService) StorageSnapshot(_ target.ScopeID) (artifact.Storag
 	return f.snapshotResult, nil
 }
 
-func (f *fakeArtifactService) Remove(_ target.ScopeID, traceID string) *consolecore.Error {
+func (f *fakeArtifactService) Remove(_ evidence.Reference, traceID string) *consolecore.Error {
 	f.lastRemoveTraceID = traceID
 	f.removeCalled = true
 	return f.removeErr
 }
 
-func (f *fakeArtifactService) ClearExpired(_ target.ScopeID) *consolecore.Error {
+func (f *fakeArtifactService) ClearExpired() *consolecore.Error {
 	f.clearExpiredCalled = true
 	return f.clearExpiredErr
 }
 
-func (f *fakeArtifactService) ClearAllUnused(_ target.ScopeID) *consolecore.Error {
+func (f *fakeArtifactService) ClearAllUnused() *consolecore.Error {
 	f.clearAllCalled = true
 	return f.clearAllErr
 }
 
 func artifactTestRouter(t *testing.T, artifacts ArtifactService) (*Router, string, *http.Cookie) {
+	t.Helper()
+	router, tabID, _, cookie := artifactTestRouterWithCSRF(t, artifacts)
+	return router, tabID, cookie
+}
+
+func artifactTestRouterWithCSRF(t *testing.T, artifacts ArtifactService) (*Router, string, string, *http.Cookie) {
 	t.Helper()
 	entropy := bytes.Repeat([]byte{20}, 32*16)
 	pairing := browserauth.NewPairing(nil, bytes.NewReader(entropy))
@@ -113,7 +148,7 @@ func artifactTestRouter(t *testing.T, artifacts ArtifactService) (*Router, strin
 		Artifacts:  artifacts,
 	})
 	bootstrapResult, _ := registry.Bootstrap(sessionID, "")
-	return router, bootstrapResult.TabID, browserauth.SessionCookie(sessionID)
+	return router, bootstrapResult.TabID, bootstrapResult.CSRF, browserauth.SessionCookie(sessionID)
 }
 
 func artifactRequestWithCSRF(handler http.Handler, path, body string, cookie *http.Cookie, tabID, csrf string) *httptest.ResponseRecorder {
@@ -290,7 +325,7 @@ func TestArtifactRemoveReturnsRemoved(t *testing.T) {
 	})
 	ck := browserauth.SessionCookie(sid)
 	result, _ := reg.Bootstrap(sid, "")
-	resp := artifactRequestWithCSRF(r, "/api/console/v1/artifacts/remove", `{"traceId":"trace-1"}`, ck, result.TabID, result.CSRF)
+	resp := artifactRequestWithCSRF(r, "/api/console/v1/artifacts/remove", `{"source":"TARGET","traceId":"trace-1"}`, ck, result.TabID, result.CSRF)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -324,7 +359,7 @@ func TestArtifactRemoveMapsArtifactInUse(t *testing.T) {
 	})
 	ck := browserauth.SessionCookie(sid)
 	result, _ := reg.Bootstrap(sid, "")
-	resp := artifactRequestWithCSRF(r, "/api/console/v1/artifacts/remove", `{"traceId":"trace-1"}`, ck, result.TabID, result.CSRF)
+	resp := artifactRequestWithCSRF(r, "/api/console/v1/artifacts/remove", `{"source":"TARGET","traceId":"trace-1"}`, ck, result.TabID, result.CSRF)
 	if resp.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for ARTIFACT_IN_USE, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -392,6 +427,57 @@ func TestArtifactClearAllUnusedReturnsCleared(t *testing.T) {
 	}
 	if !fake.clearAllCalled {
 		t.Fatal("expected clearAllUnused to be called")
+	}
+}
+
+func TestArtifactClearErrorsNeverExposeArtifactOwnerAsTargetScope(t *testing.T) {
+	const importedOwner = "opaque-imported-owner"
+	tests := []struct {
+		name      string
+		path      string
+		configure func(*fakeArtifactService, *consolecore.Error)
+	}{
+		{
+			name: "expired",
+			path: "/api/console/v1/artifacts/clear-expired",
+			configure: func(fake *fakeArtifactService, domain *consolecore.Error) {
+				fake.clearExpiredErr = domain
+			},
+		},
+		{
+			name: "all unused",
+			path: "/api/console/v1/artifacts/clear-all-unused",
+			configure: func(fake *fakeArtifactService, domain *consolecore.Error) {
+				fake.clearAllErr = domain
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeArtifactService{}
+			domain := consolecore.NewError(
+				consolecore.CodeConsoleError,
+				"The Console workspace is no longer safe.",
+				importedOwner,
+				consolecore.Details{},
+				nil,
+			)
+			test.configure(fake, domain)
+			router, tabID, csrf, cookie := artifactTestRouterWithCSRF(t, fake)
+			response := artifactRequestWithCSRF(router, test.path, `{}`, cookie, tabID, csrf)
+
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("expected 500, got %d: %s", response.Code, response.Body.String())
+			}
+			body := response.Body.String()
+			if !strings.Contains(body, `"code":"CONSOLE_ERROR"`) {
+				t.Fatalf("body does not contain CONSOLE_ERROR: %s", body)
+			}
+			if strings.Contains(body, `"targetScopeId"`) || strings.Contains(body, importedOwner) {
+				t.Fatalf("body exposes internal artifact owner: %s", body)
+			}
+		})
 	}
 }
 
@@ -667,7 +753,7 @@ func TestArtifactRemoveMapsTargetChanged(t *testing.T) {
 	})
 	ck := browserauth.SessionCookie(sid)
 	result, _ := reg.Bootstrap(sid, "")
-	resp := artifactRequestWithCSRF(r, "/api/console/v1/artifacts/remove", `{"traceId":"trace-1"}`, ck, result.TabID, result.CSRF)
+	resp := artifactRequestWithCSRF(r, "/api/console/v1/artifacts/remove", `{"source":"TARGET","traceId":"trace-1"}`, ck, result.TabID, result.CSRF)
 	if resp.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for TARGET_CHANGED, got %d: %s", resp.Code, resp.Body.String())
 	}

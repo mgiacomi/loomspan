@@ -26,6 +26,7 @@ const record: TraceRecord = {
 
 function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange {
   return {
+    source: "TARGET",
     targetScopeId: "scope-1",
     actualStart: 0,
     actualEnd: content.length,
@@ -63,8 +64,8 @@ test("loads every raw-record range and pretty prints only the plan data", async 
   const output = await screen.findByText((_, element) => element?.tagName === "PRE");
   expect(output).toHaveTextContent(JSON.stringify(plan, null, 2), { normalizeWhitespace: false });
   expect(screen.getByRole("region", { name: "Plan for record 7" })).not.toHaveTextContent("traceId");
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 7, undefined);
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 7, "next");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 7, undefined, "TARGET");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 7, "next", "TARGET");
 });
 
 test("reconstructs a chunked plan payload using the current trace contract", async () => {
@@ -76,7 +77,7 @@ test("reconstructs a chunked plan payload using the current trace contract", asy
 
   const output = await screen.findByText((_, element) => element?.tagName === "PRE");
   expect(output).toHaveTextContent(JSON.stringify(plan, null, 2), { normalizeWhitespace: false });
-  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "payload-plan", undefined);
+  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "payload-plan", undefined, "TARGET");
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 });
 
@@ -107,6 +108,7 @@ test("summarizes a plan update against the latest earlier snapshot with the same
   };
   const nestedPlan = { planId: "nested-plan", tasks: [] };
   getTraceRecordsMock.mockResolvedValue({
+    source: "TARGET",
     targetScopeId: "scope-1",
     items: [previousRecord, interleavedRecord],
     hasMore: false,
@@ -128,8 +130,8 @@ test("summarizes a plan update against the latest earlier snapshot with the same
   expect(changes).toHaveTextContent(/Note:.*None.*Starting tool understandIntent/);
   expect(getTraceRecordsMock).toHaveBeenCalledWith("trace-1", undefined, {
     types: ["PLAN_CREATED", "PLAN_UPDATED"],
-    maxSequence: 40,
-  });
+	maxSequence: 40,
+  }, "TARGET");
   expect(getRawRecordRangeMock.mock.calls.map((call) => call[1])).toEqual([41, 35, 26]);
 
   fireEvent.click(screen.getByRole("tab", { name: "Full plan" }));

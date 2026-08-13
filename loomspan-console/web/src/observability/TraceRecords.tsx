@@ -1,13 +1,13 @@
 import { Fragment, useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { getPayloadRange, getRawRecordRange, getTraceRecords } from "../api/client";
-import type { TraceRange } from "../api/contracts";
+import type { TraceRange, TraceSource } from "../api/contracts";
 import type { TraceFailure, TraceRecord } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
 import { comparePlans, toPlanSnapshot } from "./planComparison";
 import type { PlanComparison, PlanSnapshot } from "./planComparison";
 
-type Props = { traceId?: string; records: TraceRecord[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onPayload: (payloadId: string) => void };
+type Props = { traceId?: string; source?: TraceSource; records: TraceRecord[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onPayload: (payloadId: string) => void };
 
 type PlanCacheEntry = {
   loading: boolean;
@@ -164,11 +164,11 @@ function joinBytes(parts: Uint8Array[]): Uint8Array {
   return result;
 }
 
-async function readCompleteRecord(traceId: string, sequence: number): Promise<string> {
+async function readCompleteRecord(traceId: string, sequence: number, source: TraceSource): Promise<string> {
   const parts: Uint8Array[] = [];
   let cursor: string | undefined;
   do {
-    const range = await getRawRecordRange(traceId, sequence, cursor);
+    const range = await getRawRecordRange(traceId, sequence, cursor, source);
     parts.push(decodeBytes(range));
     if (!range.hasMore) break;
     if (!range.nextCursor || range.nextCursor === cursor) throw new Error("Content continuation was invalid.");
@@ -177,11 +177,11 @@ async function readCompleteRecord(traceId: string, sequence: number): Promise<st
   return new TextDecoder("utf-8", { fatal: true }).decode(joinBytes(parts)).trim();
 }
 
-async function readCompletePayload(traceId: string, payloadId: string): Promise<string> {
+async function readCompletePayload(traceId: string, payloadId: string, source: TraceSource): Promise<string> {
   const parts: Uint8Array[] = [];
   let cursor: string | undefined;
   do {
-    const range = await getPayloadRange(traceId, payloadId, cursor);
+    const range = await getPayloadRange(traceId, payloadId, cursor, source);
     parts.push(decodeBytes(range));
     if (!range.hasMore) break;
     if (!range.nextCursor || range.nextCursor === cursor) throw new Error("Content continuation was invalid.");
@@ -383,15 +383,15 @@ function parsePlanRecord(rawRecord: string): PlanSnapshot {
   return toPlanSnapshot(plan);
 }
 
-async function readPlanSnapshot(traceId: string, record: TraceRecord): Promise<PlanSnapshot> {
+async function readPlanSnapshot(traceId: string, record: TraceRecord, source: TraceSource): Promise<PlanSnapshot> {
   if (record.payloadId) {
-    const raw = await readCompletePayload(traceId, record.payloadId);
+    const raw = await readCompletePayload(traceId, record.payloadId, source);
     return toPlanSnapshot(parseJsonObject(raw, "Plan payload"));
   }
-  return parsePlanRecord(await readCompleteRecord(traceId, record.sequence));
+  return parsePlanRecord(await readCompleteRecord(traceId, record.sequence, source));
 }
 
-async function findPreviousPlan(traceId: string, sequence: number, planId: string): Promise<{ sequence: number; snapshot: PlanSnapshot } | undefined> {
+async function findPreviousPlan(traceId: string, sequence: number, planId: string, source: TraceSource): Promise<{ sequence: number; snapshot: PlanSnapshot } | undefined> {
   if (sequence <= 1) return undefined;
   const candidates: TraceRecord[] = [];
   let cursor: string | undefined;
@@ -399,7 +399,7 @@ async function findPreviousPlan(traceId: string, sequence: number, planId: strin
     const page = await getTraceRecords(traceId, cursor, {
       types: ["PLAN_CREATED", "PLAN_UPDATED"],
       maxSequence: sequence - 1,
-    });
+    }, source);
     candidates.push(...page.items);
     if (!page.hasMore) break;
     if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Plan history continuation was invalid.");
@@ -410,7 +410,7 @@ async function findPreviousPlan(traceId: string, sequence: number, planId: strin
   for (const candidate of candidates) {
     let snapshot: PlanSnapshot;
     try {
-      snapshot = await readPlanSnapshot(traceId, candidate);
+      snapshot = await readPlanSnapshot(traceId, candidate, source);
     } catch {
       continue;
     }
@@ -419,7 +419,7 @@ async function findPreviousPlan(traceId: string, sequence: number, planId: strin
   return undefined;
 }
 
-async function findProposedAction(traceId: string, record: TraceRecord): Promise<{ sequence: number; detail: StepActionDetail } | undefined> {
+async function findProposedAction(traceId: string, record: TraceRecord, source: TraceSource): Promise<{ sequence: number; detail: StepActionDetail } | undefined> {
   if (!record.frameId || record.sequence <= 1) return undefined;
   const candidates: TraceRecord[] = [];
   let cursor: string | undefined;
@@ -428,7 +428,7 @@ async function findProposedAction(traceId: string, record: TraceRecord): Promise
       types: ["STEP_ACTION_PROPOSED"],
       frameId: record.frameId,
       maxSequence: record.sequence - 1,
-    });
+    }, source);
     candidates.push(...page.items);
     if (!page.hasMore) break;
     if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Proposed action continuation was invalid.");
@@ -436,11 +436,11 @@ async function findProposedAction(traceId: string, record: TraceRecord): Promise
   } while (true);
   const candidate = candidates.sort((left, right) => right.sequence - left.sequence)[0];
   if (!candidate) return undefined;
-  const detail = parseStepActionDetail(await readCompleteRecord(traceId, candidate.sequence), candidate.route, "proposed");
+  const detail = parseStepActionDetail(await readCompleteRecord(traceId, candidate.sequence, source), candidate.route, "proposed");
   return { sequence: candidate.sequence, detail };
 }
 
-async function findTaskTitle(traceId: string, sequence: number, skillName: string, taskId: string): Promise<string | undefined> {
+async function findTaskTitle(traceId: string, sequence: number, skillName: string, taskId: string, source: TraceSource): Promise<string | undefined> {
   if (sequence <= 1) return undefined;
   const candidates: TraceRecord[] = [];
   let cursor: string | undefined;
@@ -448,7 +448,7 @@ async function findTaskTitle(traceId: string, sequence: number, skillName: strin
     const page = await getTraceRecords(traceId, cursor, {
       types: ["PLAN_CREATED", "PLAN_UPDATED"],
       maxSequence: sequence - 1,
-    });
+    }, source);
     candidates.push(...page.items);
     if (!page.hasMore) break;
     if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Plan history continuation was invalid.");
@@ -457,7 +457,7 @@ async function findTaskTitle(traceId: string, sequence: number, skillName: strin
   candidates.sort((left, right) => right.sequence - left.sequence);
   for (const candidate of candidates) {
     try {
-      const snapshot = await readPlanSnapshot(traceId, candidate);
+      const snapshot = await readPlanSnapshot(traceId, candidate, source);
       if (snapshot.capabilityName !== skillName) continue;
       const task = snapshot.tasks.find((current) => current.taskId === taskId);
       if (task) return task.title;
@@ -468,10 +468,10 @@ async function findTaskTitle(traceId: string, sequence: number, skillName: strin
   return undefined;
 }
 
-async function readStepActionDetail(traceId: string, record: TraceRecord, kind: StepActionKind): Promise<StepActionDetail> {
-  let detail = parseStepActionDetail(await readCompleteRecord(traceId, record.sequence), record.route, kind);
+async function readStepActionDetail(traceId: string, record: TraceRecord, kind: StepActionKind, source: TraceSource): Promise<StepActionDetail> {
+  let detail = parseStepActionDetail(await readCompleteRecord(traceId, record.sequence, source), record.route, kind);
   if (kind !== "proposed") {
-    const proposed = await findProposedAction(traceId, record);
+    const proposed = await findProposedAction(traceId, record, source);
     if (proposed && proposed.detail.actionType === detail.actionType) {
       detail = {
         ...detail,
@@ -482,13 +482,13 @@ async function readStepActionDetail(traceId: string, record: TraceRecord, kind: 
     }
   }
   if (detail.taskId) {
-    detail = { ...detail, taskTitle: await findTaskTitle(traceId, record.sequence, detail.skillName, detail.taskId) };
+    detail = { ...detail, taskTitle: await findTaskTitle(traceId, record.sequence, detail.skillName, detail.taskId, source) };
   }
   return detail;
 }
 
-async function readToolResultDetail(traceId: string, record: TraceRecord): Promise<ToolResultDetail> {
-  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence), "Tool result record");
+async function readToolResultDetail(traceId: string, record: TraceRecord, source: TraceSource): Promise<ToolResultDetail> {
+  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence, source), "Tool result record");
   const capabilityName = optionalNonemptyString(metadata.capabilityName) ?? optionalNonemptyString(data.capabilityName);
   const taskId = optionalNonemptyString(metadata.linkedTaskId) ?? optionalNonemptyString(data.linkedTaskId);
   const eventId = optionalNonemptyString(data.eventId);
@@ -505,7 +505,7 @@ async function readToolResultDetail(traceId: string, record: TraceRecord): Promi
       types: ["STEP_STARTED"],
       frameId: record.parentFrameId,
       maxSequence: record.sequence - 1,
-    });
+    }, source);
     const step = [...page.items].sort((left, right) => right.sequence - left.sequence)[0];
     if (step) owningSkill = parseStepRoute(step.route).skillName;
   }
@@ -513,14 +513,14 @@ async function readToolResultDetail(traceId: string, record: TraceRecord): Promi
     kind: "tool-result",
     capabilityName,
     taskId,
-    taskTitle: taskId && owningSkill ? await findTaskTitle(traceId, record.sequence, owningSkill, taskId) : undefined,
+    taskTitle: taskId && owningSkill ? await findTaskTitle(traceId, record.sequence, owningSkill, taskId, source) : undefined,
     eventId,
     note: optionalNonemptyString(data.note),
     result,
   };
 }
 
-async function findOwningSkill(traceId: string, record: TraceRecord): Promise<string | undefined> {
+async function findOwningSkill(traceId: string, record: TraceRecord, source: TraceSource): Promise<string | undefined> {
   if (!record.parentFrameId || record.sequence <= 1) return undefined;
   let cursor: string | undefined;
   do {
@@ -528,7 +528,7 @@ async function findOwningSkill(traceId: string, record: TraceRecord): Promise<st
       types: ["STEP_STARTED"],
       frameId: record.parentFrameId,
       maxSequence: record.sequence - 1,
-    });
+    }, source);
     const step = [...page.items].sort((left, right) => right.sequence - left.sequence)[0];
     if (step) return parseStepRoute(step.route).skillName;
     if (!page.hasMore) break;
@@ -542,7 +542,7 @@ async function findOwningSkill(traceId: string, record: TraceRecord): Promise<st
       types: ["FRAME_OPENED"],
       frameId: record.parentFrameId,
       maxSequence: record.sequence - 1,
-    });
+    }, source);
     const parent = [...page.items].sort((left, right) => right.sequence - left.sequence)[0];
     if (parent) {
       if (parent.frameType === "STEP_EXECUTION") return parseStepRoute(parent.route).skillName;
@@ -562,8 +562,8 @@ async function findOwningSkill(traceId: string, record: TraceRecord): Promise<st
   return undefined;
 }
 
-async function readToolInputDetail(traceId: string, record: TraceRecord): Promise<ToolInputDetail> {
-  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence), "Tool input record");
+async function readToolInputDetail(traceId: string, record: TraceRecord, source: TraceSource): Promise<ToolInputDetail> {
+  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence, source), "Tool input record");
   const capabilityName = optionalNonemptyString(metadata.capabilityName) ?? optionalNonemptyString(data.capabilityName);
   const taskId = optionalNonemptyString(metadata.linkedTaskId) ?? optionalNonemptyString(data.linkedTaskId);
   const eventId = optionalNonemptyString(data.eventId);
@@ -579,12 +579,12 @@ async function readToolInputDetail(traceId: string, record: TraceRecord): Promis
   }
   const details = data.details as Record<string, unknown>;
   if (!("arguments" in details)) throw new Error("Tool input details did not contain arguments.");
-  const owningSkill = taskId ? await findOwningSkill(traceId, record) : undefined;
+  const owningSkill = taskId ? await findOwningSkill(traceId, record, source) : undefined;
   return {
     kind: "tool-input",
     capabilityName,
     taskId,
-    taskTitle: taskId && owningSkill ? await findTaskTitle(traceId, record.sequence, owningSkill, taskId) : undefined,
+    taskTitle: taskId && owningSkill ? await findTaskTitle(traceId, record.sequence, owningSkill, taskId, source) : undefined,
     unplanned,
     eventId,
     note: optionalNonemptyString(data.note),
@@ -628,8 +628,8 @@ function parseStructuredOutputDetail(rawRecord: string): StructuredOutputDetail 
   };
 }
 
-async function readStepCompletedDetail(traceId: string, record: TraceRecord): Promise<StepCompletedDetail> {
-  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence), "Completed step record");
+async function readStepCompletedDetail(traceId: string, record: TraceRecord, source: TraceSource): Promise<StepCompletedDetail> {
+  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence, source), "Completed step record");
   const route = parseStepRoute(record.route);
   const stepNumber = requiredNonnegativeInteger(metadata.stepNumber, "Completed step number");
   const actionType = optionalNonemptyString(metadata.stepAction);
@@ -662,7 +662,7 @@ async function readStepCompletedDetail(traceId: string, record: TraceRecord): Pr
       types: ["MODEL_RESPONSE_RECEIVED"],
       route: `${record.route}-model`,
       maxSequence: record.sequence - 1,
-    });
+    }, source);
     relatedRecord = [...page.items].sort((left, right) => right.sequence - left.sequence)[0];
   }
   return {
@@ -672,7 +672,7 @@ async function readStepCompletedDetail(traceId: string, record: TraceRecord): Pr
     actionType,
     status: recordedStatus,
     taskId,
-    taskTitle: taskId ? await findTaskTitle(traceId, record.sequence, route.skillName, taskId) : undefined,
+    taskTitle: taskId ? await findTaskTitle(traceId, record.sequence, route.skillName, taskId, source) : undefined,
     toolName,
     resultPreview,
     error,
@@ -680,8 +680,8 @@ async function readStepCompletedDetail(traceId: string, record: TraceRecord): Pr
   };
 }
 
-async function readEvidenceDetail(traceId: string, record: TraceRecord): Promise<EvidenceDetail> {
-  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence), "Evidence record");
+async function readEvidenceDetail(traceId: string, record: TraceRecord, source: TraceSource): Promise<EvidenceDetail> {
+  const { metadata, data } = recordParts(await readCompleteRecord(traceId, record.sequence, source), "Evidence record");
   const skillName = optionalNonemptyString(data.successfulSkill);
   const capabilityName = optionalNonemptyString(metadata.capabilityName);
   const taskId = optionalNonemptyString(metadata.linkedTaskId);
@@ -710,7 +710,7 @@ async function readEvidenceDetail(traceId: string, record: TraceRecord): Promise
     const page = await getTraceRecords(traceId, cursor, {
       types: ["TOOL_CALL_COMPLETED"],
       maxSequence: record.sequence - 1,
-    });
+    }, source);
     candidates.push(...page.items.filter((candidate) => candidate.parentFrameId === record.frameId && candidate.route === capabilityName));
     if (!page.hasMore) break;
     if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Source result continuation was invalid.");
@@ -721,7 +721,7 @@ async function readEvidenceDetail(traceId: string, record: TraceRecord): Promise
     kind: "evidence",
     skillName,
     taskId,
-    taskTitle: taskId ? await findTaskTitle(traceId, record.sequence, parseStepRoute(record.route).skillName, taskId) : undefined,
+    taskTitle: taskId ? await findTaskTitle(traceId, record.sequence, parseStepRoute(record.route).skillName, taskId, source) : undefined,
     unplanned: metadata.unplanned,
     availableSources,
     sourceResult: candidates.sort((left, right) => right.sequence - left.sequence)[0],
@@ -855,7 +855,7 @@ function RecordDetailView({ detail, onOpenRelated, onSelectFailure }: { detail: 
     {detail.status === "EXHAUSTED" && <p className="trace-step-note">The output did not satisfy its schema and no validation retries remain.</p>}
     {detail.issues.length > 0 && <section className="trace-validation-issues" aria-label="Output schema issues">
       <h5>Issues</h5>
-      <ul>{detail.issues.map((issue, index) => <li key={`${issue.path}-${index}`}><code>{issue.path}</code> — {issue.message}{issue.canonicalField && <> <span>(field: <code>{issue.canonicalField}</code>)</span></>}</li>)}</ul>
+      <ul>{detail.issues.map((issue, index) => <li key={`${issue.path}-${index}`}><code>{issue.path}</code> &mdash; {issue.message}{issue.canonicalField && <> <span>(field: <code>{issue.canonicalField}</code>)</span></>}</li>)}</ul>
     </section>}
   </>;
 
@@ -949,7 +949,7 @@ function PlanChanges({ comparison, previousSequence }: { comparison: PlanCompari
   </section>;
 }
 
-export function TraceRecords({ traceId, records, failures, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onPayload }: Props) {
+export function TraceRecords({ traceId, source = "TARGET", records, failures, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onPayload }: Props) {
   const related = onRelatedFrame ?? (() => undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cache, setCache] = useState<Record<string, PlanCacheEntry>>({});
@@ -980,7 +980,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
     const existing = cache[key];
     if (existing?.json || existing?.loading) return;
     setCache((prev) => ({ ...prev, [key]: { loading: true } }));
-    void readPlanSnapshot(traceId, record)
+    void readPlanSnapshot(traceId, record, source)
       .then(async (snapshot) => {
         const json = JSON.stringify(snapshot.value, null, 2);
         setCache((prev) => ({ ...prev, [key]: { loading: false, json, snapshot, comparisonLoading: isUpdate } }));
@@ -990,7 +990,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
           return;
         }
         try {
-          const previous = await findPreviousPlan(traceId, seq, snapshot.planId);
+          const previous = await findPreviousPlan(traceId, seq, snapshot.planId, source);
           const comparison = previous ? comparePlans(previous.snapshot, snapshot) : undefined;
           setCache((prev) => ({ ...prev, [key]: { ...prev[key], comparisonLoading: false, comparisonReady: true, comparison, previousSequence: previous?.sequence } }));
         } catch (err: unknown) {
@@ -1017,10 +1017,10 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
     if (existing?.detail || existing?.loading) return;
     const kind = record.type === "MODEL_RESPONSE_RECEIVED" ? "response" : "request";
     setModelCache((previous) => ({ ...previous, [key]: { loading: true } }));
-    const source = record.payloadId
-      ? readCompletePayload(traceId, record.payloadId).then((raw) => parseJsonObject(raw, "Model payload"))
-      : readCompleteRecord(traceId, record.sequence).then(recordData);
-    void source
+	const detailSource = record.payloadId
+      ? readCompletePayload(traceId, record.payloadId, source).then((raw) => parseJsonObject(raw, "Model payload"))
+      : readCompleteRecord(traceId, record.sequence, source).then(recordData);
+	void detailSource
       .then((value) => {
         const detail = parseModelDetail(kind, value);
         setModelCache((previous) => ({ ...previous, [key]: { loading: false, detail } }));
@@ -1043,7 +1043,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
     const existing = rawCache[key];
     if (existing?.json || existing?.loading) return;
     setRawCache((previous) => ({ ...previous, [key]: { loading: true } }));
-    void readCompleteRecord(traceId, record.sequence)
+    void readCompleteRecord(traceId, record.sequence, source)
       .then((raw) => {
         const value: unknown = JSON.parse(raw);
         const json = JSON.stringify(value, null, 2);
@@ -1067,7 +1067,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
     const existing = stepCache[key];
     if (existing?.detail || existing?.loading) return;
     setStepCache((previous) => ({ ...previous, [key]: { loading: true } }));
-    void readCompleteRecord(traceId, record.sequence)
+    void readCompleteRecord(traceId, record.sequence, source)
       .then((raw) => {
         const detail = parseStepStartedDetail(raw, record.route);
         setStepCache((previous) => ({ ...previous, [key]: { loading: false, detail } }));
@@ -1090,7 +1090,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
     const existing = stepActionCache[key];
     if (existing?.detail || existing?.loading) return;
     setStepActionCache((previous) => ({ ...previous, [key]: { loading: true } }));
-    void readStepActionDetail(traceId, record, kind)
+    void readStepActionDetail(traceId, record, kind, source)
       .then((detail) => {
         setStepActionCache((previous) => ({ ...previous, [key]: { loading: false, detail } }));
       })
@@ -1113,16 +1113,16 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
     if (existing?.detail || existing?.loading) return;
     setRecordDetailCache((previous) => ({ ...previous, [key]: { loading: true } }));
     const request = record.type === "TOOL_CALL_STARTED"
-      ? readToolInputDetail(traceId, record)
+      ? readToolInputDetail(traceId, record, source)
       : record.type === "TOOL_CALL_COMPLETED"
-        ? readToolResultDetail(traceId, record)
+        ? readToolResultDetail(traceId, record, source)
       : record.type === "STRUCTURED_OUTPUT_RECORDED"
-        ? readCompleteRecord(traceId, record.sequence).then(parseStructuredOutputDetail)
+        ? readCompleteRecord(traceId, record.sequence, source).then(parseStructuredOutputDetail)
         : record.type === "EVIDENCE_RECORDED"
-          ? readEvidenceDetail(traceId, record)
+          ? readEvidenceDetail(traceId, record, source)
           : record.type === "TRACE_COMPLETED"
-            ? readCompleteRecord(traceId, record.sequence).then(parseCompletionDetail)
-            : readStepCompletedDetail(traceId, record);
+            ? readCompleteRecord(traceId, record.sequence, source).then(parseCompletionDetail)
+            : readStepCompletedDetail(traceId, record, source);
     void request
       .then((detail) => setRecordDetailCache((previous) => ({ ...previous, [key]: { loading: false, detail } })))
       .catch((error: unknown) => {
@@ -1223,7 +1223,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
               <td colSpan={5}>
                 <div id={`raw-detail-${record.sequence}`} className="trace-raw-expanded" role="region" aria-label={`Raw record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
-                  {traceId && rawEntry?.loading && <p role="status">Loading raw recordâ€¦</p>}
+                  {traceId && rawEntry?.loading && <p role="status">Loading raw record&hellip;</p>}
                   {rawEntry?.error && <p role="alert">{rawEntry.error}</p>}
                   {rawEntry?.json && <pre>{rawEntry.json}</pre>}
                 </div>
@@ -1235,7 +1235,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
               <td colSpan={5}>
                 <div id={`plan-detail-${record.sequence}`} className="trace-plan-expanded" role="region" aria-label={`${isPlanUpdated ? "Plan update" : "Plan"} for record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
-                  {traceId && entry?.loading && <p role="status">Loading plan…</p>}
+                  {traceId && entry?.loading && <p role="status">Loading plan&hellip;</p>}
                   {entry?.error && <p role="alert">{entry.error}</p>}
                   {entry?.json && isPlanUpdated && <>
                     <div role="tablist" aria-label={`Plan record ${record.sequence} views`}>
@@ -1258,7 +1258,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
                       >{view === "changes" ? "Changes" : "Full plan"}</button>)}
                     </div>
                     {planView === "changes" && <div id={`plan-${record.sequence}-panel-changes`} aria-labelledby={`plan-${record.sequence}-tab-changes`} role="tabpanel">
-                      {entry.comparisonLoading && <p role="status">Finding the previous plan versionâ€¦</p>}
+                      {entry.comparisonLoading && <p role="status">Finding the previous plan version&hellip;</p>}
                       {entry.comparisonError && <p role="alert">Changes could not be determined: {entry.comparisonError}</p>}
                       {entry.comparisonReady && entry.comparison && entry.previousSequence !== undefined && <PlanChanges comparison={entry.comparison} previousSequence={entry.previousSequence} />}
                       {entry.comparisonReady && !entry.comparison && <p>The earlier version of this plan is not available in the trace.</p>}
@@ -1275,7 +1275,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
               <td colSpan={5}>
                 <div id={`model-detail-${record.sequence}`} className="trace-model-expanded" role="region" aria-label={`${modelRegionLabel} for record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
-                  {traceId && modelEntry?.loading && <p role="status">Loading {modelLabel.toLowerCase()}â€¦</p>}
+                  {traceId && modelEntry?.loading && <p role="status">Loading {modelLabel.toLowerCase()}&hellip;</p>}
                   {modelEntry?.error && <p role="alert">{modelEntry.error}</p>}
                   {modelEntry?.detail && <ModelDetailView detail={modelEntry.detail} />}
                 </div>
@@ -1287,7 +1287,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
               <td colSpan={5}>
                 <div id={`step-detail-${record.sequence}`} className="trace-step-expanded" role="region" aria-label={`Step details for record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
-                  {traceId && stepEntry?.loading && <p role="status">Loading step detailsâ€¦</p>}
+                  {traceId && stepEntry?.loading && <p role="status">Loading step details&hellip;</p>}
                   {stepEntry?.error && <p role="alert">{stepEntry.error}</p>}
                   {stepEntry?.detail && <>
                     <dl className="trace-step-facts">
@@ -1307,7 +1307,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
               <td colSpan={5}>
                 <div id={`step-action-detail-${record.sequence}`} className={`trace-step-expanded${stepActionKind === "rejected" ? " trace-step-rejected" : ""}`} role="region" aria-label={`Action details for record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
-                  {traceId && stepActionEntry?.loading && <p role="status">Loading action details…</p>}
+                  {traceId && stepActionEntry?.loading && <p role="status">Loading action details&hellip;</p>}
                   {stepActionEntry?.error && <p role="alert">{stepActionEntry.error}</p>}
                   {stepActionEntry?.detail && <StepActionDetailView detail={stepActionEntry.detail} />}
                 </div>
@@ -1319,7 +1319,7 @@ export function TraceRecords({ traceId, records, failures, selectedRecordSequenc
               <td colSpan={5}>
                 <div id={`record-detail-${record.sequence}`} className={`trace-step-expanded${recordDetailEntry?.detail?.kind === "structured-output" && recordDetailEntry.detail.status !== "PASSED" ? " trace-step-rejected" : ""}`} role="region" aria-label={`${recordDetailLabel} for record ${record.sequence}`}>
                   {!traceId && <p role="status">Trace context unavailable.</p>}
-                  {traceId && recordDetailEntry?.loading && <p role="status">Loading details…</p>}
+                  {traceId && recordDetailEntry?.loading && <p role="status">Loading details&hellip;</p>}
                   {recordDetailEntry?.error && <p role="alert">{recordDetailEntry.error}</p>}
                   {recordDetailEntry?.detail && <RecordDetailView detail={recordDetailEntry.detail} onOpenRelated={openRelatedRecord} onSelectFailure={onSelectFailure} />}
                 </div>

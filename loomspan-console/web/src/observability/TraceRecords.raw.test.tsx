@@ -31,6 +31,7 @@ function record(type = "FRAME_OPENED"): TraceRecord {
 
 function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange {
   return {
+    source: "TARGET",
     targetScopeId: "scope-1",
     actualStart: 0,
     actualEnd: content.length,
@@ -63,8 +64,8 @@ test("loads all ranges and pretty prints the complete raw record envelope", asyn
   const detail = await screen.findByRole("region", { name: "Raw record 7" });
   const output = within(detail).getByText((_, element) => element?.tagName === "PRE");
   expect(output).toHaveTextContent(JSON.stringify(JSON.parse(rawRecord), null, 2), { normalizeWhitespace: false });
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 7, undefined);
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 7, "next");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 7, undefined, "TARGET");
+  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 7, "next", "TARGET");
 });
 
 test("switches from the response view to the raw envelope on the same row", async () => {

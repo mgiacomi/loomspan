@@ -111,7 +111,7 @@ test("trace detail places the trace download in the summary and omits artifact m
   render(<TraceDetailView />);
   await screen.findByText("trace-1");
   const summary = screen.getByLabelText("Finalized trace summary");
-  const download = screen.getByRole("link", { name: "Download Trace" });
+  const download = screen.getByRole("link", { name: "Save trace file" });
   expect(summary).toContainElement(download);
   expect(download).toHaveAttribute("download");
   expect(download.getAttribute("href")).toContain(encodeURIComponent("trace-1"));
@@ -148,6 +148,7 @@ test("trace detail renders error state", async () => {
 });
 
 const acquiredArtifact = {
+  source: "TARGET" as const,
   artifactHandle: "handle-abc",
   traceId: "trace-1",
   sessionId: "session-1",
@@ -167,7 +168,7 @@ test("trace detail exposes a direct trace download", async () => {
     expect(screen.getByText("trace-1")).toBeInTheDocument();
   });
   expect(screen.getByRole("button", { name: "Acquire for analysis" })).toBeInTheDocument();
-  const link = screen.getByRole("link", { name: "Download Trace" });
+  const link = screen.getByRole("link", { name: "Save trace file" });
   expect(link).toHaveAttribute("download");
   expect(link.getAttribute("href")).toContain(encodeURIComponent("trace-1"));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -225,7 +226,7 @@ test("rejected analysis explicitly preserves raw download guidance", async () =>
   render(<TraceDetailView />);
   await screen.findByText("trace-1");
   fireEvent.click(screen.getByRole("button", { name: "Acquire for analysis" }));
-  expect(await screen.findByText(/trace remains available through Download Trace/)).toBeVisible();
+  expect(await screen.findByText(/trace remains available through Save trace file/)).toBeVisible();
 });
 
 test("trace detail hides application availability and local artifact status", async () => {

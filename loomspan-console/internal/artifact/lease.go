@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // Lease pins an installed artifact entry for downstream analysis. It increments
@@ -16,7 +16,7 @@ import (
 type Lease struct {
 	service *Service
 	entry   *entry
-	scopeID target.ScopeID
+	owner   evidence.Owner
 	closed  bool
 	readers map[io.ReadCloser]struct{}
 }
@@ -126,18 +126,14 @@ func (lease *Lease) Close(success bool) error {
 	return nil
 }
 
-// ScopeID returns the target scope ID the lease was issued for. Callers can
-// compare it against the current scope to detect rotation.
-func (lease *Lease) ScopeID() target.ScopeID {
-	return lease.scopeID
-}
+func (lease *Lease) Owner() evidence.Owner { return lease.owner }
 
 // useEntry issues a lease for an installed entry, incrementing its pin count.
 // The caller must hold the service mutex.
-func (service *Service) useEntryLocked(entry *entry, scopeID target.ScopeID) (*Lease, *consolecore.Error) {
+func (service *Service) useEntryLocked(entry *entry, owner evidence.Owner) (*Lease, *consolecore.Error) {
 	if entry.state != stateInstalled {
 		return nil, consolecore.NewError(consolecore.CodeArtifactExpired,
-			"The artifact is no longer available.", string(scopeID), consolecore.Details{}, nil)
+			"The artifact is no longer available.", owner.ID(), consolecore.Details{}, nil)
 	}
 	if entry.leases == nil {
 		entry.leases = make(map[*Lease]struct{})
@@ -146,7 +142,7 @@ func (service *Service) useEntryLocked(entry *entry, scopeID target.ScopeID) (*L
 	lease := &Lease{
 		service: service,
 		entry:   entry,
-		scopeID: scopeID,
+		owner:   owner,
 		readers: make(map[io.ReadCloser]struct{}),
 	}
 	entry.leases[lease] = struct{}{}

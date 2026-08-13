@@ -11,6 +11,17 @@ coverage: source-verified
 
 Use execution traces to explain what Loomspan and the model provider did during one run: prompt mutation, physical provider attempts, validation retries, tools, evidence, failures, and final usage. Traces are diagnostics for the current checkout and current run. They are not a durable cross-version API, and authors MUST NOT build application behavior on their serialized shape.
 
+### Same-version portability
+
+A complete raw trace may be saved and opened by Console when its framework-owned
+`TRACE_STARTED.metadata.consoleCompatibilityVersion` exactly matches Console.
+Matching `development` values are best-effort for the same checkout; they do not
+promise compatibility after canonical trace changes. Imported evidence is a
+transient process-local copy and is not adopted after restart. The marker is a
+reader-compatibility fact only: it does not authenticate the producer, verify
+integrity, or establish provenance. Continue to treat the serialized shape as
+an internal diagnostic format rather than an application dependency.
+
 ## Trace identity
 
 `entrySkill` is the exact registered name of the top-level YAML skill whose invocation owns the session. Loomspan records it before execution begins, keeps it unchanged across nested skill invocations, and exposes it in Trace Catalog and Trace Detail without requiring artifact acquisition. It is a recorded fact: it does not prove that the skill is still registered or that it is more important than nested work.

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
 // ApplicationAvailability records the last observed upstream availability of a
@@ -42,6 +42,7 @@ type TraceMetadata struct {
 // opaque handle and the immutable metadata a caller needs without ever
 // exposing a filesystem path.
 type AcquiredArtifact struct {
+	Owner         evidence.Owner
 	Handle        Handle
 	Metadata      TraceMetadata
 	LocalBytes    int64
@@ -64,7 +65,7 @@ const (
 // entryKey uniquely identifies an artifact within the service by target scope
 // and trace ID.
 type entryKey struct {
-	scopeID target.ScopeID
+	owner   evidence.Owner
 	traceID string
 }
 
@@ -126,6 +127,7 @@ type acquireResult struct {
 // by trace ID within the current scope. It carries the opaque handle and
 // availability facts without exposing a filesystem path.
 type LookupResult struct {
+	Owner                   evidence.Owner
 	Handle                  Handle
 	Metadata                TraceMetadata
 	LocalAvailable          bool
@@ -153,18 +155,20 @@ type StorageSnapshot struct {
 // StoredEntry is one entry in a StorageSnapshot. It carries cache facts without
 // exposing a filesystem path or the raw opaque handle.
 type StoredEntry struct {
-	TraceID                   string    `json:"traceId"`
-	SessionID                 string    `json:"sessionId"`
-	Outcome                   string    `json:"outcome"`
-	PersistencePolicy         string    `json:"persistencePolicy"`
-	FinalizedAt               time.Time `json:"finalizedAt"`
-	AcquiredAt                time.Time `json:"acquiredAt"`
-	LastUsedAt                time.Time `json:"lastUsedAt"`
-	ExpiresAt                 time.Time `json:"expiresAt"`
-	HasIdleExpiry             bool      `json:"hasIdleExpiry"`
-	LocalBytes                int64     `json:"localBytes"`
-	ApplicationTraceExpiresAt time.Time `json:"applicationTraceExpiresAt"`
-	ApplicationAvailability   string    `json:"applicationAvailability"`
-	LocalAvailable            bool      `json:"localAvailable"`
-	ActivePin                 bool      `json:"activePin"`
+	Source                    evidence.Source `json:"source"`
+	TargetScopeID             string          `json:"targetScopeId,omitempty"`
+	TraceID                   string          `json:"traceId"`
+	SessionID                 string          `json:"sessionId"`
+	Outcome                   string          `json:"outcome"`
+	PersistencePolicy         string          `json:"persistencePolicy"`
+	FinalizedAt               time.Time       `json:"finalizedAt"`
+	AcquiredAt                time.Time       `json:"acquiredAt"`
+	LastUsedAt                time.Time       `json:"lastUsedAt"`
+	ExpiresAt                 time.Time       `json:"expiresAt"`
+	HasIdleExpiry             bool            `json:"hasIdleExpiry"`
+	LocalBytes                int64           `json:"localBytes"`
+	ApplicationTraceExpiresAt *time.Time      `json:"applicationTraceExpiresAt,omitempty"`
+	ApplicationAvailability   string          `json:"applicationAvailability,omitempty"`
+	LocalAvailable            bool            `json:"localAvailable"`
+	ActivePin                 bool            `json:"activePin"`
 }

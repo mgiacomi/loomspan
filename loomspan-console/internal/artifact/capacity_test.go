@@ -72,7 +72,7 @@ func TestCapacityEvictsLRUUnpinnedToMakeRoom(t *testing.T) {
 	svc.streamOpener = opener2.opener()
 	acquireSync(t, svc, context.Background(), scope, "trace-2")
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry after eviction, got %d", snapshot.AcquiredCount)
 	}
@@ -96,7 +96,7 @@ func TestCapacityDoesNotEvictPinnedEntries(t *testing.T) {
 
 	// Acquire and pin trace-1.
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
 	// Acquire trace-2, which should fail because trace-1 is pinned.
@@ -153,7 +153,7 @@ func TestCapacityChargesExactInstalledBytes(t *testing.T) {
 	svc.streamOpener = opener2.opener()
 	acquireSync(t, svc, context.Background(), scope, "trace-2")
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.ChargedBytes != 500+fakeDerivedSize() {
 		t.Fatalf("expected charged bytes %d, got %d", 500+fakeDerivedSize(), snapshot.ChargedBytes)
 	}
@@ -190,11 +190,11 @@ func TestCapacityLRUTieBreakIsDeterministic(t *testing.T) {
 	// Now advance the clock and refresh both entries' lastUsedAt to the same time.
 	clock.advance(time.Minute)
 	handleA := acquireHandle(t, svc, scope, "trace-a")
-	leaseA, _ := svc.Use(scope.ID, handleA)
+	leaseA, _ := svc.Use(targetRef(scope.ID), handleA)
 	_ = leaseA.Close(true)
 
 	handleB := acquireHandle(t, svc, scope, "trace-b")
-	leaseB, _ := svc.Use(scope.ID, handleB)
+	leaseB, _ := svc.Use(targetRef(scope.ID), handleB)
 	_ = leaseB.Close(true)
 
 	// Both entries now have the same lastUsedAt. Acquire trace-c.
@@ -206,7 +206,7 @@ func TestCapacityLRUTieBreakIsDeterministic(t *testing.T) {
 	svc.streamOpener = opener3.opener()
 	acquireSync(t, svc, context.Background(), scope, "trace-c")
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 2 {
 		t.Fatalf("expected 2 entries after eviction, got %d", snapshot.AcquiredCount)
 	}
@@ -266,7 +266,7 @@ func TestCapacityEvictsExpiredBeforeLRU(t *testing.T) {
 	svc.streamOpener = opener3.opener()
 	acquireSync(t, svc, context.Background(), scope, "trace-c")
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 2 {
 		t.Fatalf("expected 2 entries after expired eviction, got %d", snapshot.AcquiredCount)
 	}
@@ -312,7 +312,7 @@ func TestCapacityExactFitSucceeds(t *testing.T) {
 		t.Fatalf("expected %d local bytes, got %d", perEntry, artifact.LocalBytes)
 	}
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 2 {
 		t.Fatalf("expected 2 entries (exact fit), got %d", snapshot.AcquiredCount)
 	}

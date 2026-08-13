@@ -74,7 +74,7 @@ func TestAcquireJoinsConcurrentWaitersIntoOneInstalledArtifact(t *testing.T) {
 			t.Fatalf("waiter %d got different handle %q vs %q", i+1, result.Handle, firstHandle)
 		}
 	}
-	snapshot, domain := svc.StorageSnapshot(scope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("snapshot failed: %v", domain)
 	}
@@ -218,7 +218,7 @@ func TestAcquireCancelsLeaderAndCleansWhenLastWaiterLeaves(t *testing.T) {
 	}
 
 	// No entry should exist; no capacity should be charged.
-	snapshot, domain := svc.StorageSnapshot(scope.ID)
+	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil {
 		t.Fatalf("snapshot failed: %v", domain)
 	}
@@ -313,7 +313,7 @@ func TestAcquirePublishesOnlyAfterSyncCloseSizeAndAtomicRename(t *testing.T) {
 		if domain.Code != consolecore.CodeLocalStorageUnavailable && domain.Code != consolecore.CodeConsoleError {
 			t.Fatalf("expected LOCAL_STORAGE_UNAVAILABLE or CONSOLE_ERROR, got %s", domain.Code)
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries after sync failure, got %d", snapshot.AcquiredCount)
 		}
@@ -337,7 +337,7 @@ func TestAcquirePublishesOnlyAfterSyncCloseSizeAndAtomicRename(t *testing.T) {
 		if domain == nil {
 			t.Fatal("expected error on close failure")
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries after close failure, got %d", snapshot.AcquiredCount)
 		}
@@ -361,7 +361,7 @@ func TestAcquirePublishesOnlyAfterSyncCloseSizeAndAtomicRename(t *testing.T) {
 		if domain == nil {
 			t.Fatal("expected error on rename failure")
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries after rename failure, got %d", snapshot.AcquiredCount)
 		}
@@ -387,7 +387,7 @@ func TestAcquirePublishesOnlyAfterSyncCloseSizeAndAtomicRename(t *testing.T) {
 		if domain.Details.RawDownloadAvailable == nil || !*domain.Details.RawDownloadAvailable {
 			t.Fatal("expected rawDownloadAvailable to be true")
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries after size mismatch, got %d", snapshot.AcquiredCount)
 		}
@@ -411,7 +411,7 @@ func TestAcquireRejectsShortLongFailedOrStaleTransferWithoutHandle(t *testing.T)
 		if domain == nil || domain.Code != consolecore.CodeNotFound {
 			t.Fatalf("expected NOT_FOUND, got %v", domain)
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries, got %d", snapshot.AcquiredCount)
 		}
@@ -431,7 +431,7 @@ func TestAcquireRejectsShortLongFailedOrStaleTransferWithoutHandle(t *testing.T)
 		if domain == nil || domain.Code != consolecore.CodeTargetAuthentication {
 			t.Fatalf("expected TARGET_AUTHENTICATION_REQUIRED, got %v", domain)
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries, got %d", snapshot.AcquiredCount)
 		}
@@ -465,7 +465,7 @@ func TestAcquireRejectsShortLongFailedOrStaleTransferWithoutHandle(t *testing.T)
 		case <-time.After(2 * time.Second):
 			t.Fatal("acquisition did not return after scope rotation")
 		}
-		snapshot, _ := svc.StorageSnapshot(scope.ID)
+		snapshot, _ := svc.StorageSnapshot()
 		if snapshot.AcquiredCount != 0 {
 			t.Fatalf("expected 0 entries after scope rotation, got %d", snapshot.AcquiredCount)
 		}
@@ -490,7 +490,7 @@ func TestAcquireHandleDoesNotContainPath(t *testing.T) {
 		strings.Contains(string(artifact.Handle), "installed") {
 		t.Fatalf("handle contains path-like content: %q", artifact.Handle)
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	for _, entry := range snapshot.Entries {
 		if strings.Contains(entry.TraceID, "transient") {
 			t.Fatalf("snapshot entry contains path: %q", entry.TraceID)
@@ -562,7 +562,7 @@ func TestAcquireUnknownLengthStreamChargesIncrementally(t *testing.T) {
 	if artifact.LocalBytes != int64(len(data))+fakeDerivedSize() {
 		t.Fatalf("expected local bytes %d, got %d", int64(len(data))+fakeDerivedSize(), artifact.LocalBytes)
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.ChargedBytes != int64(len(data))+fakeDerivedSize() {
 		t.Fatalf("expected charged bytes %d, got %d", int64(len(data))+fakeDerivedSize(), snapshot.ChargedBytes)
 	}
@@ -584,7 +584,7 @@ func TestAcquireRejectsUndeclaredTransferBeyondKnownMetadataSize(t *testing.T) {
 	if domain == nil || domain.Code != consolecore.CodeInvalidArtifact {
 		t.Fatalf("expected INVALID_ARTIFACT, got %v", domain)
 	}
-	snapshot, snapshotDomain := svc.StorageSnapshot(scope.ID)
+	snapshot, snapshotDomain := svc.StorageSnapshot()
 	if snapshotDomain != nil {
 		t.Fatal(snapshotDomain)
 	}
@@ -615,7 +615,7 @@ func TestAcquireZeroByteArtifactInstallsWhenTransportAgrees(t *testing.T) {
 	if artifact.LocalBytes != fakeDerivedSize() {
 		t.Fatalf("expected %d local bytes (derived only), got %d", fakeDerivedSize(), artifact.LocalBytes)
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry, got %d", snapshot.AcquiredCount)
 	}
@@ -641,7 +641,7 @@ func TestAcquireShortWriteFails(t *testing.T) {
 	if domain == nil {
 		t.Fatal("expected error on short write")
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after short write, got %d", snapshot.AcquiredCount)
 	}
@@ -693,7 +693,7 @@ func TestAcquireRejectsLongTransfer(t *testing.T) {
 	if domain == nil || domain.Code != consolecore.CodeInvalidArtifact {
 		t.Fatalf("expected INVALID_ARTIFACT for long transfer, got %v", domain)
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after long transfer rejection, got %d", snapshot.AcquiredCount)
 	}
@@ -792,7 +792,7 @@ func TestAcquireCancelsOneWaiterDuringCopyWithoutCancellingLeader(t *testing.T) 
 	}
 
 	// The artifact should be installed.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 installed entry, got %d", snapshot.AcquiredCount)
 	}
@@ -823,7 +823,7 @@ func TestAcquireGuardedReaderBackpressureCompletesSuccessfully(t *testing.T) {
 	if artifact.LocalBytes != int64(len(data))+fakeDerivedSize() {
 		t.Fatalf("expected local bytes %d, got %d", int64(len(data))+fakeDerivedSize(), artifact.LocalBytes)
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry, got %d", snapshot.AcquiredCount)
 	}

@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -12,9 +13,12 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
+
+func targetRef(scopeID target.ScopeID) evidence.Reference { return evidence.ForTarget(scopeID) }
 
 // manualClock is an injectable clock whose current time can be advanced
 // deterministically.
@@ -600,6 +604,23 @@ func (p *fakeProcessor) Process(req ProcessRequest) (ProcessResult, *consolecore
 		ComponentSizes: map[ComponentName]int64{
 			name: int64(len(p.derivedBytes)),
 		},
+		Metadata: req.Metadata,
+	}, nil
+}
+
+func (p *fakeProcessor) PreflightImport(ctx context.Context, raw io.Reader) (ImportPreflight, *consolecore.Error) {
+	if err := ctx.Err(); err != nil {
+		return ImportPreflight{}, consolecore.NewError(consolecore.CodeConsoleError,
+			"The import was canceled.", "", consolecore.Details{}, err)
+	}
+	data, err := io.ReadAll(raw)
+	if err != nil {
+		return ImportPreflight{}, consolecore.NewError(consolecore.CodeInvalidArtifact,
+			"The trace artifact could not be validated.", "", consolecore.Details{}, err)
+	}
+	return ImportPreflight{
+		Header: ImportHeader{TraceID: "trace-import", SessionID: "session-import"},
+		Raw:    bytes.NewReader(data),
 	}, nil
 }
 

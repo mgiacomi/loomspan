@@ -3,6 +3,7 @@ package artifact
 import (
 	"context"
 
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 )
 
@@ -33,7 +34,7 @@ func (service *Service) InvalidateTargetScope(previous target.ScopeID, cancelled
 	// channels so we can wait for their bounded cleanup.
 	var finishChans []chan struct{}
 	for _, entry := range service.entries {
-		if entry.key.scopeID != previous {
+		if entry.key.owner != evidence.Target(previous) {
 			continue
 		}
 		if entry.acquireCancel != nil {
@@ -57,7 +58,7 @@ func (service *Service) InvalidateTargetScope(previous target.ScopeID, cancelled
 	// Now remove all old-scope entries and release their charges.
 	service.mu.Lock()
 	for key, entry := range service.entries {
-		if key.scopeID != previous {
+		if key.owner != evidence.Target(previous) {
 			continue
 		}
 		service.invalidateLeasesLocked(entry)

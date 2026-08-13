@@ -69,7 +69,7 @@ func TestAcquisitionRejectsInconsistentProcessorBundles(t *testing.T) {
 			if domain == nil || domain.Code != consolecore.CodeConsoleError {
 				t.Fatalf("expected CONSOLE_ERROR, got %v", domain)
 			}
-			snapshot, _ := svc.StorageSnapshot(scope.ID)
+			snapshot, _ := svc.StorageSnapshot()
 			if snapshot.AcquiredCount != 0 || snapshot.ChargedBytes != 0 || bundleDirCount(t, svc) != 0 {
 				t.Fatalf("inconsistent processor bundle leaked state: %+v", snapshot)
 			}
@@ -94,7 +94,7 @@ func TestAcquisitionInstallsBundleWithRawAndDerivedComponents(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquired := acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, domain := svc.Use(scope.ID, acquired.Handle)
+	lease, domain := svc.Use(targetRef(scope.ID), acquired.Handle)
 	if domain != nil {
 		t.Fatalf("Use failed: %v", domain)
 	}
@@ -150,7 +150,7 @@ func TestAcquisitionChargesAggregateRawPlusDerivedBytes(t *testing.T) {
 		t.Fatalf("expected aggregate local bytes %d, got %d", expected, acquired.LocalBytes)
 	}
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.ChargedBytes != expected {
 		t.Fatalf("expected aggregate charged bytes %d, got %d", expected, snapshot.ChargedBytes)
 	}
@@ -179,7 +179,7 @@ func TestProcessorFailureRemovesBundleAndPublishesNoHandle(t *testing.T) {
 	}
 
 	// No entry, no charge, no bundle on disk.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 || snapshot.ChargedBytes != 0 {
 		t.Fatalf("processor failure retained state: %+v", snapshot)
 	}
@@ -231,7 +231,7 @@ func TestLeaseOpenComponentRejectsUnknownName(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
 	_, err := lease.OpenComponent("nonexistent-component")
@@ -253,7 +253,7 @@ func TestLeaseOpenComponentRejectsPathSeparator(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
 	for _, name := range []ComponentName{"../escape", "sub/dir", "with\\backslash"} {
@@ -282,7 +282,7 @@ func TestRemoveClearsEntireBundleDirectory(t *testing.T) {
 		t.Fatalf("expected 1 bundle dir before remove, got %d", bundleDirCount(t, svc))
 	}
 
-	if domain := svc.Remove(scope.ID, "trace-1"); domain != nil {
+	if domain := svc.Remove(targetRef(scope.ID), "trace-1"); domain != nil {
 		t.Fatalf("Remove failed: %v", domain)
 	}
 
@@ -331,7 +331,7 @@ func TestLeaseComponentReaderIsSeekable(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
 	reader, err := lease.OpenComponent(ComponentRawArtifact)
@@ -423,7 +423,7 @@ func TestLeaseOpenComponentFailsAfterClose(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	_ = lease.Close(true)
 
 	_, err := lease.OpenComponent(ComponentRawArtifact)
@@ -445,7 +445,7 @@ func TestLeaseMultipleComponentsConcurrent(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	defer lease.Close(true)
 
 	rawReader1, _ := lease.OpenComponent(ComponentRawArtifact)

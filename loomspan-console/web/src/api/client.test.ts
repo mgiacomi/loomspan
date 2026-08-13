@@ -18,6 +18,7 @@ import {
   targetStatus,
   acquireArtifact,
   getStorageSnapshot,
+	importTraceFile,
   removeArtifact,
   clearExpiredArtifacts,
   clearAllUnusedArtifacts,
@@ -304,14 +305,26 @@ test("removeArtifact posts traceId with security headers", async () => {
     }),
   );
   vi.stubGlobal("fetch", fetch);
-  await removeArtifact("trace-1", { tabId: "tab", csrfToken: "csrf" });
+  await removeArtifact("trace-1", "TARGET", { tabId: "tab", csrfToken: "csrf" });
   expect(fetch.mock.calls[0]?.[0]).toBe("/api/console/v1/artifacts/remove");
   const options = fetch.mock.calls[0]?.[1] as RequestInit;
-  expect(JSON.parse(options.body as string)).toEqual({ traceId: "trace-1" });
+  expect(JSON.parse(options.body as string)).toEqual({ traceId: "trace-1", source: "TARGET" });
   expect(options.headers).toMatchObject({
     "X-loomspan-Console-Tab": "tab",
     "X-loomspan-Console-CSRF": "csrf",
   });
+});
+
+test("importTraceFile streams the File as raw NDJSON with import security headers", async () => {
+  const imported = { source: "IMPORTED", artifactHandle: "h", traceId: "trace-import", sessionId: "session-import", outcome: "SUCCEEDED", finalizedAt: "2026-08-12T00:00:00Z", localBytes: 12, acquiredAt: "2026-08-12T00:00:01Z", lastUsedAt: "2026-08-12T00:00:01Z", expiresAt: "2026-08-12T01:00:01Z", hasIdleExpiry: true };
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(imported), { status: 200, headers: { "Content-Type": "application/json" } }));
+  vi.stubGlobal("fetch", fetch);
+  const file = new File(["{}\n"], "trace.ndjson", { type: "application/x-ndjson" });
+  await expect(importTraceFile(file, { tabId: "tab", csrfToken: "csrf" })).resolves.toEqual(imported);
+  const [url, options] = fetch.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("/api/console/v1/artifacts/import");
+  expect(options).toMatchObject({ method: "POST", body: file, credentials: "same-origin", cache: "no-store", redirect: "error" });
+  expect(options.headers).toMatchObject({ "Content-Type": "application/x-ndjson", "X-loomspan-Console-Tab": "tab", "X-loomspan-Console-CSRF": "csrf" });
 });
 
 test("clearExpiredArtifacts posts with security headers", async () => {

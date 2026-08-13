@@ -13,11 +13,13 @@ export type BrowserErrorCode =
   | "TARGET_ACCESS_BLOCKED"
   | "TARGET_UNAVAILABLE"
   | "INCOMPATIBLE_TARGET"
+	| "INCOMPATIBLE_ARTIFACT"
   | "TARGET_CHANGED"
   | "INVALID_CURSOR"
   | "STALE_CURSOR"
   | "ARTIFACT_EXPIRED"
   | "ARTIFACT_IN_USE"
+	| "ARTIFACT_ALREADY_EXISTS"
   | "INVALID_ARTIFACT"
   | "LIVE_MONITORING_UNAVAILABLE"
   | "LOCAL_STORAGE_UNAVAILABLE"
@@ -176,7 +178,12 @@ export type Trace = {
   applicationAvailability?: string;
 };
 
+export type TraceSource = "TARGET" | "IMPORTED";
+export type EvidenceEnvelope = { source: TraceSource; targetScopeId?: string };
+
 export type AcquiredArtifact = {
+	 source: TraceSource;
+	 targetScopeId?: string;
   artifactHandle: string;
   traceId: string;
   sessionId: string;
@@ -190,6 +197,8 @@ export type AcquiredArtifact = {
 };
 
 export type StoredEntry = {
+	 source: TraceSource;
+	 targetScopeId?: string;
   traceId: string;
   sessionId: string;
   outcome: string;
@@ -200,14 +209,13 @@ export type StoredEntry = {
   expiresAt: string;
   hasIdleExpiry: boolean;
   localBytes: number;
-  applicationTraceExpiresAt: string;
-  applicationAvailability: string;
+  applicationTraceExpiresAt?: string;
+  applicationAvailability?: string;
   localAvailable: boolean;
   activePin: boolean;
 };
 
 export type StorageSnapshot = {
-  targetScopeId: string;
   workspaceLabel: string;
   maxBytes: number;
   unlimited: boolean;
@@ -226,8 +234,8 @@ export type Page<T> = {
   observedAt: string;
 };
 
-export type TraceAnalysisSummary = {
-  targetScopeId: string; traceId: string; sessionId: string; outcome: string;
+export type TraceAnalysisSummary = EvidenceEnvelope & {
+  traceId: string; sessionId: string; outcome: string;
   terminalFailureId: string | null; recordCount: number; frameCount: number;
   attemptCount: number; retryCount: number; validationCount: number;
   failureCount: number; payloadCount: number; gapCount: number;
@@ -253,9 +261,9 @@ export type TraceRecord = {
   frameType: string; route: string; threadName: string; timestampMillis: number;
   representation: string; isChunk: boolean; isEnvelope: boolean; payloadId: string;
 };
-export type TraceAnalysisPage<T> = { targetScopeId: string; items: T[]; hasMore: boolean; nextCursor: string | null };
-export type TraceRange = { targetScopeId: string; actualStart: number; actualEnd: number; totalLength: number; contentType: string; encoding: "TEXT" | "BASE64"; content: string; hasMore: boolean; nextCursor: string | null };
-export type TraceUsage = { targetScopeId: string; attributed: TraceUsageValue; unattributed: TraceUsageValue; unframedAttributed: TraceUsageValue; terminal: TraceUsageValue };
+export type TraceAnalysisPage<T> = EvidenceEnvelope & { items: T[]; hasMore: boolean; nextCursor: string | null };
+export type TraceRange = EvidenceEnvelope & { actualStart: number; actualEnd: number; totalLength: number; contentType: string; encoding: "TEXT" | "BASE64"; content: string; hasMore: boolean; nextCursor: string | null };
+export type TraceUsage = EvidenceEnvelope & { attributed: TraceUsageValue; unattributed: TraceUsageValue; unframedAttributed: TraceUsageValue; terminal: TraceUsageValue };
 export type TraceUsageValue = { promptUnits: number; completionUnits: number; totalUnits: number };
 export type TraceAttempt = { retrySequenceId: string; attemptId: string; attemptNumber: number;
   attemptReason: "INITIAL" | "SEMANTIC_RETRY" | "PROVIDER_RETRY"; providerAttemptNumber: number;
@@ -268,7 +276,7 @@ export type TraceFailure = { failureId: string; terminal: boolean; sequence: num
   recordType: string; frameId: string; route: string; attemptId: string;
   retrySequenceId: string; validationStatus: string; exceptionType?: string; contextSummary?: string; diagnostics?: TraceDiagnosticDescriptor[] };
 export type TraceDiagnosticDescriptor = { ordinal: number; kind: string; contentType: string; truncated: boolean; captureLimitBytes: number; decodedBytes: number };
-export type TraceFailureDiagnostic = { targetScopeId: string; failureId: string; descriptor: TraceDiagnosticDescriptor; text: string };
+export type TraceFailureDiagnostic = EvidenceEnvelope & { failureId: string; descriptor: TraceDiagnosticDescriptor; text: string };
 export type TraceValidation = { status: string; retrySequenceId: string; attemptId: string; attemptNumber: number };
 export type TraceGap = { kind: string; frameId: string; attemptId: string };
 export type TraceUncertainty = { kind: string; frameId: string };

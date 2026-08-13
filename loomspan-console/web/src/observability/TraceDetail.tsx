@@ -103,7 +103,8 @@ export function TraceDetailView() {
 
       {trace && (
         <>
-          <TraceSummary trace={trace} action={<a className="trace-download-link" href={rawArtifactDownloadURL(trace.traceId)} download>Download Trace</a>} />
+		  <p>Trace files may contain sensitive diagnostics and application paths. Review them before saving or sharing.</p>
+		  <TraceSummary trace={trace} action={<a className="trace-download-link" href={rawArtifactDownloadURL(trace.traceId)} download>Save trace file</a>} />
 
           {!trace.localAvailable && <div className="trace-analysis-unavailable">
             <p>Analysis is not available locally.</p>
@@ -120,7 +121,7 @@ export function TraceDetailView() {
             {acquireError && (
               <div className="target-error" role="alert">
                 <strong>{acquireError.message}</strong>
-                {acquireError.details?.rawDownloadAvailable && <p>The analysis copy was rejected, but the trace remains available through Download Trace above.</p>}
+				{acquireError.details?.rawDownloadAvailable && <p>The analysis copy was rejected, but the trace remains available through Save trace file above.</p>}
               </div>
             )}
           </div>}

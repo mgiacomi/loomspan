@@ -22,7 +22,7 @@ func TestExpiryRemovesIdleArtifactAfterTTL(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry, got %d", snapshot.AcquiredCount)
 	}
@@ -31,7 +31,7 @@ func TestExpiryRemovesIdleArtifactAfterTTL(t *testing.T) {
 	clock.advance(6 * time.Minute)
 	timers.fireAll()
 
-	snapshot, _ = svc.StorageSnapshot(scope.ID)
+	snapshot, _ = svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after TTL expiry, got %d", snapshot.AcquiredCount)
 	}
@@ -51,11 +51,11 @@ func TestExpiryIsEnforcedOnUseAtExactDeadlineBeforeTimerRuns(t *testing.T) {
 	acquired := acquireSync(t, svc, context.Background(), scope, "trace-1")
 	clock.advance(5 * time.Minute)
 
-	_, domain := svc.Use(scope.ID, acquired.Handle)
+	_, domain := svc.Use(targetRef(scope.ID), acquired.Handle)
 	if domain == nil || domain.Code != consolecore.CodeArtifactExpired {
 		t.Fatalf("expected ARTIFACT_EXPIRED at exact deadline, got %v", domain)
 	}
-	snapshot, snapshotDomain := svc.StorageSnapshot(scope.ID)
+	snapshot, snapshotDomain := svc.StorageSnapshot()
 	if snapshotDomain != nil {
 		t.Fatal(snapshotDomain)
 	}
@@ -102,21 +102,21 @@ func TestExpiryDefersRemovalWhileLeased(t *testing.T) {
 	svc.ActivateActivity(scope)
 
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 
 	// Advance past the TTL and fire the timer.
 	clock.advance(6 * time.Minute)
 	timers.fireAll()
 
 	// The entry should still be present because it is pinned.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 pinned entry after TTL, got %d", snapshot.AcquiredCount)
 	}
 
 	// Close the lease; the deferred removal should trigger.
 	_ = lease.Close(true)
-	snapshot, _ = svc.StorageSnapshot(scope.ID)
+	snapshot, _ = svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after lease close, got %d", snapshot.AcquiredCount)
 	}
@@ -142,7 +142,7 @@ func TestExpiryLeaseCloseRefreshesLastUsedAt(t *testing.T) {
 	// another 3 minutes. The total elapsed is 6 minutes, but the last-use
 	// refresh means the idle deadline is 5 minutes from the 3-minute mark.
 	clock.advance(3 * time.Minute)
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	_ = lease.Close(true)
 
 	clock.advance(3 * time.Minute)
@@ -150,7 +150,7 @@ func TestExpiryLeaseCloseRefreshesLastUsedAt(t *testing.T) {
 
 	// The entry should still be present because the last-use refresh extended
 	// the deadline.
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry after last-use refresh, got %d", snapshot.AcquiredCount)
 	}
@@ -158,7 +158,7 @@ func TestExpiryLeaseCloseRefreshesLastUsedAt(t *testing.T) {
 	// Advance past the refreshed deadline.
 	clock.advance(3 * time.Minute)
 	timers.fireAll()
-	snapshot, _ = svc.StorageSnapshot(scope.ID)
+	snapshot, _ = svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after refreshed deadline, got %d", snapshot.AcquiredCount)
 	}
@@ -187,7 +187,7 @@ func TestExpiryNeverExpireDoesNotScheduleTimers(t *testing.T) {
 	// Advance far past the TTL; the entry should still be present.
 	clock.advance(24 * time.Hour)
 	timers.fireAll()
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 entry in never-expire mode, got %d", snapshot.AcquiredCount)
 	}
@@ -209,18 +209,18 @@ func TestClearExpiredRemovesExpiredUnpinned(t *testing.T) {
 	acquireSync(t, svc, context.Background(), scope, "trace-1")
 	clock.advance(6 * time.Minute)
 
-	domain := svc.ClearExpired(scope.ID)
+	domain := svc.ClearExpired()
 	if domain != nil {
 		t.Fatalf("ClearExpired failed: %v", domain)
 	}
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after ClearExpired, got %d", snapshot.AcquiredCount)
 	}
 }
 
-// PR12-R11: ClearExpired returns TARGET_CHANGED after scope rotation.
-func TestClearExpiredReturnsTargetChangedAfterRotation(t *testing.T) {
+// PR25: ClearExpired is global and remains available after target rotation.
+func TestClearExpiredRemainsAvailableAfterRotation(t *testing.T) {
 	data := []byte("test")
 	loader := newFakeLoader(testTraceMetadata("trace-1", int64(len(data))))
 	opener := newFakeOpener(data, int64(len(data)))
@@ -234,9 +234,9 @@ func TestClearExpiredReturnsTargetChangedAfterRotation(t *testing.T) {
 	defer cancelScope2()
 	svc.ActivateActivity(scope2)
 
-	domain := svc.ClearExpired(scope.ID)
-	if domain == nil || domain.Code != consolecore.CodeTargetChanged {
-		t.Fatalf("expected TARGET_CHANGED, got %v", domain)
+	domain := svc.ClearExpired()
+	if domain != nil {
+		t.Fatalf("ClearExpired failed after rotation: %v", domain)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestExpiryFailedLeaseCloseDoesNotRefreshLastUsedAt(t *testing.T) {
 
 	// Advance 3 minutes, then open and close a lease with success=false.
 	clock.advance(3 * time.Minute)
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	_ = lease.Close(false)
 
 	// Advance another 3 minutes. Total elapsed is 6 minutes from acquisition.
@@ -268,7 +268,7 @@ func TestExpiryFailedLeaseCloseDoesNotRefreshLastUsedAt(t *testing.T) {
 	clock.advance(3 * time.Minute)
 	timers.fireAll()
 
-	snapshot, _ := svc.StorageSnapshot(scope.ID)
+	snapshot, _ := svc.StorageSnapshot()
 	if snapshot.AcquiredCount != 0 {
 		t.Fatalf("expected 0 entries after failed close did not refresh, got %d", snapshot.AcquiredCount)
 	}
@@ -304,7 +304,7 @@ func TestExpiryTimerScheduledAtExactDeadline(t *testing.T) {
 	// The new deadline is t=1000000+2min+5min = t=1000000+7min.
 	// The delay from the current clock (t=1000000+2min) is 5 minutes.
 	clock.advance(2 * time.Minute)
-	lease, _ := svc.Use(scope.ID, acquireHandle(t, svc, scope, "trace-1"))
+	lease, _ := svc.Use(targetRef(scope.ID), acquireHandle(t, svc, scope, "trace-1"))
 	_ = lease.Close(true)
 
 	latest = timers.latest()
