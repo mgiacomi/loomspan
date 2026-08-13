@@ -23,7 +23,7 @@ the design through implementation.
 
 The roadmap uses rolling-wave planning:
 
-1. Keep all nineteen ticket briefs available for scope and dependency control.
+1. Keep all ticket briefs available for scope and dependency control.
 2. Run fresh codebase research for the next ticket.
 3. Create and approve one detailed implementation plan.
 4. Create its focused testing plan before implementation.
@@ -79,6 +79,9 @@ Phase 2:
 Phase 3:
 16 -> 17 -> 18 -> 19
 
+Portable trace extension:
+15 -> 25 -> 18
+
 Cross-phase:
 01 -> 07
 06 -> 09
@@ -87,6 +90,7 @@ Cross-phase:
 11 -> 17
 12 -> 18
 13 -> 18
+25 -> 18
 ```
 
 PR 07 may begin after PR 01 settles the current-release trace direction. PR 09
@@ -118,6 +122,7 @@ Phase 2.
 | 13 | [Trace parser, indexes, and shared calculations](../tickets/loomspan-console-pr-13-trace-analysis-services.md) | Validate and query traces with authoritative hierarchy, duration, usage, failure, and payload semantics. |
 | 14 | [Trace explorer foundation](../tickets/loomspan-console-pr-14-trace-explorer.md) | Present navigable hierarchy, timeline, usage, records, payloads, raw download, and evidence links. |
 | 15 | [Diagnostic workflows and Phase 2 hardening](../tickets/loomspan-console-pr-15-diagnostic-workflows.md) | Complete the settled workflows, degraded paths, accessibility, security, E2E, and release verification. |
+| 25 | [Save and open complete same-version traces](../tickets/loomspan-console-pr-25-portable-trace-import.md) | Add exact-version portable trace files and transient target-independent import shared by the browser and future MCP adapter. |
 
 ## Phase 3 — LLM runtime inspector
 
@@ -136,8 +141,9 @@ Every detailed plan must preserve the applicable invariants below.
 
 - Classify affected surfaces using the six categories in the framework design
   lens before deciding compatibility.
-- Treat traces as current-run ephemeral diagnostic formats, not historical or
-  cross-version persisted contracts.
+- Permit only the PR 25 same-`consoleCompatibilityVersion` portable trace
+  contract; treat Console imports and all derived trace state as transient, not
+  historical or cross-version persisted state.
 - Remove approved obsolete internal paths atomically; do not add an overload,
   alias, legacy reader, fallback, bridge, or dual behavior without an identified
   protected contract and explicit approval.
@@ -145,6 +151,8 @@ Every detailed plan must preserve the applicable invariants below.
   REST, SSE, acquisition, problem, or consumed-NDJSON meaning changes.
 - Use the exact complete Loomspan release string as
   `consoleCompatibilityVersion`; do not add an independent trace version.
+- Permit matching `development` trace imports to attempt normal complete
+  validation without promising compatibility or adding fallback behavior.
 
 ### Execution and evidence
 
