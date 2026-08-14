@@ -15,8 +15,18 @@ func main() {
 }
 
 func run(arguments []string) error {
+	if len(arguments) > 0 && arguments[0] == "mcp-conformance" {
+		if len(arguments) != 1 {
+			return fmt.Errorf("mcp-conformance accepts no arguments")
+		}
+		paths, err := resolveProjectPaths()
+		if err != nil {
+			return err
+		}
+		return runMCPConformance(paths)
+	}
 	if len(arguments) == 0 || (arguments[0] != string(modeVerify) && arguments[0] != string(modeBuild) && arguments[0] != string(modePackage) && arguments[0] != string(modeSmoke)) {
-		return fmt.Errorf("usage: go run ./internal/buildtool <verify|build|package|smoke> [--expected-version VERSION] [--archive FILE]")
+		return fmt.Errorf("usage: go run ./internal/buildtool <verify|build|package|smoke|mcp-conformance> [--expected-version VERSION] [--archive FILE]")
 	}
 	mode := buildMode(arguments[0])
 	flags := flag.NewFlagSet("buildtool", flag.ContinueOnError)

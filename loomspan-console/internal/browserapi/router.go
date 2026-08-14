@@ -12,6 +12,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
@@ -67,6 +68,17 @@ type Options struct {
 	TraceAnalysis         TraceAnalysisService
 	TargetAddressDefault  string
 	ApplicationKeyDefault string
+	MCP                   MCPManager
+	MCPEndpoint           string
+}
+
+type MCPManager interface {
+	Status() mcpcredential.Snapshot
+	Enable(context.Context) (string, error)
+	Reveal() (string, error)
+	Regenerate(context.Context) (string, error)
+	Disable(context.Context) error
+	RemoveInvalid(context.Context) error
 }
 
 type Router struct {
@@ -125,6 +137,18 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 		router.withSession(response, request, true, router.targetCredential)
 	case "/api/console/v1/target/recheck":
 		router.withSession(response, request, true, router.targetRecheck)
+	case "/api/console/v1/mcp/status":
+		router.withSession(response, request, false, router.mcpStatus)
+	case "/api/console/v1/mcp/enable":
+		router.withSession(response, request, true, router.mcpEnable)
+	case "/api/console/v1/mcp/reveal":
+		router.withSession(response, request, true, router.mcpReveal)
+	case "/api/console/v1/mcp/regenerate":
+		router.withSession(response, request, true, router.mcpRegenerate)
+	case "/api/console/v1/mcp/disable":
+		router.withSession(response, request, true, router.mcpDisable)
+	case "/api/console/v1/mcp/remove-invalid":
+		router.withSession(response, request, true, router.mcpRemoveInvalid)
 	case "/api/console/v1/observability/instance":
 		router.withSession(response, request, false, router.observabilityInstance)
 	case "/api/console/v1/skills/list":

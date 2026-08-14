@@ -8,6 +8,7 @@ import { test as base } from "@playwright/test";
 type ConsoleProcess = {
   origin: string;
   pairingUrl: string;
+  profileDirectory: string;
 };
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -59,7 +60,7 @@ export const test = base.extend<{ consoleProcess: ConsoleProcess }>({
     try {
       const pairingUrl = await waitForPairing(child);
       const parsed = new URL(pairingUrl);
-      await use({ origin: parsed.origin, pairingUrl });
+      await use({ origin: parsed.origin, pairingUrl, profileDirectory: path.join(root, "profile") });
     } finally {
       child.kill();
       await new Promise<void>((resolve) => {

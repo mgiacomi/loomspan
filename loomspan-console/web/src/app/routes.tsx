@@ -10,6 +10,7 @@ import { Traces } from "../observability/Traces";
 import { TraceDetailView } from "../observability/TraceDetail";
 import { TraceStorage } from "../observability/TraceStorage";
 import { ImportedTraceView } from "../observability/ImportedTrace";
+import { MCPIntegration } from "../settings/MCPIntegration";
 
 function definitions() {
   return [
@@ -27,6 +28,7 @@ function definitions() {
 		{ path: "traces/:traceId", element: <TraceDetailView /> },
 		{ path: "traces/imported/:traceId", element: <ImportedTraceView /> },
         { path: "trace-storage", element: <TraceStorage /> },
+		{ path: "settings/mcp", element: <MCPIntegration /> },
         { path: "*", element: <NotFound /> },
       ],
     },

@@ -13,6 +13,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-mcp:
+    name: Native MCP (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: windows-x86_64
+            os: windows-latest
+          - name: macos-arm64
+            os: macos-15
+          - name: macos-x86_64
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: loomspan-console/go.sum
+      - name: Verify native MCP credential and lifecycle behavior
+        working-directory: loomspan-console
+        run: go test ./internal/mcpcredential ./internal/mcpadapter ./internal/console ./internal/webhost
+
+  mcp-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: loomspan-console/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: loomspan-console/mcp-conformance/package-lock.json
+      - name: Pin npm
+        run: npm install --global npm@12.0.2
+      - name: Run pinned MCP conformance
+        working-directory: loomspan-console
+        run: go run ./internal/buildtool mcp-conformance
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 45

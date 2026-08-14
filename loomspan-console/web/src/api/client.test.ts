@@ -23,6 +23,8 @@ import {
   clearExpiredArtifacts,
   clearAllUnusedArtifacts,
   rawArtifactDownloadURL,
+	enableMCP,
+	regenerateMCP,
 } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -64,6 +66,20 @@ test("uses memory security values only as protected request headers", async () =
     "X-loomspan-Console-Tab": "tab",
     "X-loomspan-Console-CSRF": "csrf",
   });
+  expect(localStorage.length).toBe(0);
+  expect(sessionStorage.length).toBe(0);
+});
+
+test("MCP credentials stay out of URLs and disruptive confirmation is exact", async () => {
+  const payload = { endpoint: "http://127.0.0.1:7345/mcp", state: "ENABLED", setup: [], credential: "lsmcp_secret" };
+  const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }));
+  vi.stubGlobal("fetch", fetch);
+  const security = { tabId: "tab", csrfToken: "csrf" };
+  await enableMCP(security);
+  await regenerateMCP(security);
+  expect(fetch.mock.calls[0]?.[0]).toBe("/api/console/v1/mcp/enable");
+  expect(String(fetch.mock.calls[0]?.[0])).not.toContain("lsmcp_secret");
+  expect(JSON.parse((fetch.mock.calls[1]?.[1] as RequestInit).body as string)).toEqual({ confirmation: "REGENERATE" });
   expect(localStorage.length).toBe(0);
   expect(sessionStorage.length).toBe(0);
 });

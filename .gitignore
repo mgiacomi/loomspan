@@ -56,6 +56,7 @@ logs/
 
 # loomspan Console build outputs
 loomspan-console/web/node_modules/
+loomspan-console/mcp-conformance/node_modules/
 loomspan-console/web/coverage/
 loomspan-console/web/test-results/
 loomspan-console/web/playwright-report/

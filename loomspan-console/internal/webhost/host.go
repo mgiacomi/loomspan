@@ -12,11 +12,12 @@ import (
 type ListenFunc func(network, address string) (net.Listener, error)
 
 type Host struct {
-	Address  string
-	Handler  http.Handler
-	Prepare  func(Authority) (http.Handler, error)
-	Listen   ListenFunc
-	OnListen func(net.Addr)
+	Address     string
+	Handler     http.Handler
+	Prepare     func(Authority) (http.Handler, error)
+	PreShutdown func(context.Context) error
+	Listen      ListenFunc
+	OnListen    func(net.Addr)
 }
 
 func ValidateLoopbackAddress(address string) error {
@@ -25,8 +26,8 @@ func ValidateLoopbackAddress(address string) error {
 		return fmt.Errorf("invalid listener address %q: %w", address, err)
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("listener address %q must use an explicit loopback IP", address)
+	if ip == nil || !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+		return fmt.Errorf("listener address %q must use the exact IPv4 loopback IP 127.0.0.1", address)
 	}
 	return nil
 }
@@ -82,6 +83,13 @@ func (host Host) Run(runContext context.Context) error {
 	case <-runContext.Done():
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		if host.PreShutdown != nil {
+			if err := host.PreShutdown(shutdownContext); err != nil {
+				_ = server.Close()
+				<-result
+				return fmt.Errorf("prepare Console host shutdown: %w", err)
+			}
+		}
 		if err := server.Shutdown(shutdownContext); err != nil {
 			return fmt.Errorf("shut down Console host: %w", err)
 		}

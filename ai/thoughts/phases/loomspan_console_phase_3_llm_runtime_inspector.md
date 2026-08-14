@@ -6,6 +6,38 @@ Initial product and architecture direction. This document records decisions esta
 
 The MCP specification and client ecosystem are evolving. Implementation planning must revalidate the current stable specification, representative client support, and available Go SDKs rather than assume the planning-time ecosystem remains unchanged.
 
+### PR 16 implementation supersession (2026-08-13)
+
+PR 16 completed the revalidation required above. Its
+[`MCP Authentication and Lifecycle Foundation`](../tickets/loomspan-console-pr-16-mcp-foundation.md)
+ticket and
+[`supporting research`](../research/2026-08-13-loomspan-console-pr-16-mcp-foundation.md#decision-resolution-2026-08-13)
+are the implementation-facing authority for the foundation. The following
+validated decisions supersede older planning-time details later in this document
+where they differ:
+
+- use final MCP `2026-07-28` and the official Go SDK pinned at `v1.7.0`;
+- use stateless Streamable HTTP with older-client compatibility instead of
+  persistent stateful sessions or a Loomspan session registry;
+- release exactly `/mcp` on the existing IPv4 loopback listener, advertise the
+  literal `127.0.0.1` endpoint, and defer IPv6 listener support;
+- add no MCP YAML section or fields in PR 16; canonical `mcp-access-key` file
+  presence remains the sole persistent enabled state;
+- retain `.loomspan-console.lock` and use the Loomspan-specific `lsmcp_` key
+  prefix rather than the illustrative lock basename and legacy `bfmcp_` prefix;
+- implement credential commits separately for Linux, macOS, and Windows and use
+  admission freeze/cancel/drain ordering for mutation and shutdown;
+- keep `LOOMSPAN_get_runtime` as a minimal MCP adapter envelope around the
+  existing `consolecore.StatusSnapshot`, without another Loomspan schema
+  version or duplicated transport metadata; and
+- gate protocol behavior with official `2025-11-25` and `2026-07-28`
+  conformance plus tiered local-client validation.
+
+The broader product model, evidence semantics, security boundaries, later tool
+families, and portable skill direction in this document remain active. This note
+avoids rewriting the historical planning context while preventing its older MCP
+ecosystem assumptions from being treated as current implementation requirements.
+
 ## Related designs
 
 Phase 3 depends on:

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,48 @@ func TestProjectDeclarationsMatchPinnedToolchains(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^go 1\.26\.0$`).Match(goModule) ||
 		!regexp.MustCompile(`(?m)^toolchain go1\.26\.5$`).Match(goModule) {
 		t.Fatalf("go.mod does not declare the pinned toolchain:\n%s", goModule)
+	}
+}
+
+func TestMCPDependenciesAndSDKBoundaryArePinned(t *testing.T) {
+	paths, err := resolveProjectPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goModule := readTestFile(t, filepath.Join(paths.module, "go.mod"))
+	if !regexp.MustCompile(`(?m)^\s*github\.com/modelcontextprotocol/go-sdk v1\.7\.0$`).MatchString(goModule) {
+		t.Fatal("go.mod does not pin the official MCP Go SDK at v1.7.0")
+	}
+	manifest := readTestFile(t, filepath.Join(paths.module, "mcp-conformance", "package.json"))
+	lock := readTestFile(t, filepath.Join(paths.module, "mcp-conformance", "package-lock.json"))
+	const conformanceRevision = "c321dd32035556e6769d3724a8ee97d87c3faaac"
+	if !strings.Contains(manifest, conformanceRevision) || !strings.Contains(lock, conformanceRevision) {
+		t.Fatal("MCP conformance manifest and lockfile must pin the reviewed revision")
+	}
+	err = filepath.WalkDir(paths.module, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && path != paths.module {
+			switch entry.Name() {
+			case ".git", "build", "dist", "node_modules":
+				return fs.SkipDir
+			}
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.Contains(filepath.ToSlash(path), "/internal/mcpadapter/") || filepath.Base(path) == "projectdeclarations_test.go" {
+			return nil
+		}
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(contents), "github.com/modelcontextprotocol/go-sdk") {
+			t.Errorf("official MCP SDK import escaped internal/mcpadapter: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -74,7 +117,7 @@ func TestConsoleWorkflowsArePinnedAndLeastPrivilege(t *testing.T) {
 			}
 		}
 	}
-	for _, required := range []string{"pull_request:", "contents: read", "go-version: 1.26.5", "node-version: 24.18.0", "npm@12.0.2", "-f ../pom.xml help:evaluate", "go run ./internal/buildtool verify", "npm --prefix web run test:e2e"} {
+	for _, required := range []string{"pull_request:", "contents: read", "go-version: 1.26.5", "node-version: 24.18.0", "npm@12.0.2", "-f ../pom.xml help:evaluate", "go run ./internal/buildtool verify", "npm --prefix web run test:e2e", "go run ./internal/buildtool mcp-conformance", "windows-x86_64", "linux-x86_64", "macos-arm64", "macos-x86_64", "macos-15-intel"} {
 		if !strings.Contains(ci, required) {
 			t.Errorf("CI workflow does not contain %q", required)
 		}

@@ -36,6 +36,8 @@ import type {
   TracePayload,
   TraceSearchResult,
 	TraceSource,
+	MCPStatus,
+	MCPCredentialResponse,
 } from "./contracts";
 import { openActivityStream as openStream } from "./activityStream";
 
@@ -135,6 +137,30 @@ export function supplyTargetCredential(
 
 export function recheckTarget(security: SecurityState): Promise<TargetResponse> {
   return post("/api/console/v1/target/recheck", {}, security);
+}
+
+export function getMCPStatus(): Promise<MCPStatus> {
+  return post("/api/console/v1/mcp/status", {});
+}
+
+export function enableMCP(security: SecurityState): Promise<MCPCredentialResponse> {
+  return post("/api/console/v1/mcp/enable", {}, security);
+}
+
+export function revealMCP(security: SecurityState): Promise<MCPCredentialResponse> {
+  return post("/api/console/v1/mcp/reveal", {}, security);
+}
+
+export function regenerateMCP(security: SecurityState): Promise<MCPCredentialResponse> {
+  return post("/api/console/v1/mcp/regenerate", { confirmation: "REGENERATE" }, security);
+}
+
+export function disableMCP(security: SecurityState): Promise<MCPStatus> {
+  return post("/api/console/v1/mcp/disable", { confirmation: "DISABLE" }, security);
+}
+
+export function removeInvalidMCP(security: SecurityState): Promise<MCPStatus> {
+  return post("/api/console/v1/mcp/remove-invalid", { confirmation: "REMOVE_INVALID" }, security);
 }
 
 export function getObservabilityInstance(): Promise<InstanceStatus> {

@@ -120,8 +120,8 @@ target:
 ```
 
 Unknown fields, duplicate keys, multiple documents, aliases, unsafe bounds, and
-unsupported versions are rejected. Listener addresses must contain one
-explicit IPv4 or IPv6 loopback literal and a port. `max-bytes` accepts positive
+unsupported versions are rejected. Listener addresses must contain the
+explicit IPv4 loopback literal `127.0.0.1` and a port. `max-bytes` accepts positive
 integer `KiB`, `MiB`, `GiB`, or `TiB` values and the exact sentinel
 `unlimited`. `idle-ttl` accepts positive integer `s`, `m`, or `h` values and the
 exact sentinel `never`. Numeric zero is invalid. Configuration never contains
@@ -207,10 +207,45 @@ the owning terminal, or another paired tab can create a new fragment link.
 Every browser API request requires the exact bound Host and matching Origin.
 Sensitive operations additionally require the browser cookie, tab identity,
 and CSRF header. Browser/MCP route realms are selected before authentication,
-so a future MCP bearer credential cannot substitute for browser controls.
+so an MCP bearer credential cannot substitute for browser controls.
 Authenticated and security responses are `no-store`; only verified
 content-addressed static assets are immutable. The browser stores only the
 presentation theme in `sessionStorage`.
+
+## MCP integration
+
+MCP is disabled until a paired developer enables it on **Settings > MCP
+Integration**. Console then creates the protected profile sibling
+`mcp-access-key`; its exact contents are `lsmcp_`, 43 unpadded base64url
+characters, and one LF. The key is independent from browser, pairing, CSRF,
+and target-application credentials. It survives Console restart until
+explicitly disabled. An existing malformed or insufficiently protected
+canonical file keeps MCP disabled and must be removed explicitly in Settings;
+Console never repairs or reveals its contents.
+
+The only endpoint is exact `http://127.0.0.1:PORT/mcp` (a client may use
+`localhost` with the same port). There is no `/mcp/` or `/api/mcp/` alias and no
+MCP YAML setting. Clients send exactly one `Authorization: Bearer KEY` header.
+Requests are stateless Streamable HTTP, bounded to 1 MiB and ten seconds, and
+negotiate MCP `2026-07-28` or compatible `2025-11-25`. Console validates the
+current-port Host, any supplied Origin, enabled state, and bearer key before
+protocol body processing. Forwarded host headers, IPv6 authorities, foreign
+origins, wrong ports, OAuth discovery, and cross-realm credentials are rejected.
+
+PR 16 exposes exactly one side-effect-free tool, `LOOMSPAN_get_runtime`, and
+one Loomspan capability, `loomspan.runtime-status.v1`. It reports current
+Console/target status without contacting the target. Regenerating or disabling
+freezes new work, cancels and drains admitted work, and closes temporary SDK
+sessions before publishing the credential change. Shutdown permanently drains
+MCP before HTTP shutdown but leaves a valid key file intact.
+
+Settings reveals a key only after an explicit enable, reveal, or regenerate
+operation; the response is `no-store` and the browser keeps it only in component
+memory. Configure clients in user/global settings with a protected or
+environment-backed bearer-header facility. Never put the key in a URL,
+repository configuration, shell command, log, screenshot, or support bundle.
+See [client compatibility](docs/mcp-client-compatibility.md) for the release
+evidence procedure and scope.
 
 ## Development hot reload
 

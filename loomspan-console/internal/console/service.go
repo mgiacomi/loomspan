@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
@@ -16,6 +18,8 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/lifecycle"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpadapter"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/profile"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
@@ -73,6 +77,13 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 	if dependencies.Output != nil {
 		fmt.Fprintf(dependencies.Output, "loomspan Console workspace: %s\n", ownedWorkspace.Root)
 	}
+	mcpStore, err := mcpcredential.Open(ownedProfile.Directory, nil)
+	if err != nil {
+		return err
+	}
+	mcpTracker := mcpadapter.NewTracker()
+	var mcpServer *mcpadapter.Server
+	var mcpLifecycle *mcpadapter.Lifecycle
 
 	networkPolicy := applicationclient.NetworkPolicy{
 		ConnectTimeout:        config.DefaultConnectTimeout,
@@ -217,8 +228,24 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 	}
 	host := webhost.Host{
 		Address: address,
+		PreShutdown: func(ctx context.Context) error {
+			if mcpLifecycle == nil {
+				return nil
+			}
+			return mcpLifecycle.Shutdown(ctx)
+		},
 		Prepare: func(authority webhost.Authority) (http.Handler, error) {
 			origin = authority.Origin
+			_, portText, err := net.SplitHostPort(authority.Host)
+			if err != nil {
+				return nil, err
+			}
+			port, err := strconv.Atoi(portText)
+			if err != nil {
+				return nil, err
+			}
+			mcpServer = mcpadapter.NewServer(port, mcpStore, mcpTracker, func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status })
+			mcpLifecycle = mcpadapter.NewLifecycle(mcpStore, mcpTracker, mcpServer.CloseSessions)
 			policy, err := browserapi.NewPolicy(authority.Host, authority.Origin, options.DevelopmentOrigin)
 			if err != nil {
 				return nil, err
@@ -241,6 +268,8 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 				TraceAnalysis:         traceAnalysisService,
 				TargetAddressDefault:  options.TargetAddressDefault,
 				ApplicationKeyDefault: options.ApplicationKeyDefault,
+				MCP:                   mcpLifecycle,
+				MCPEndpoint:           "http://127.0.0.1:" + portText + "/mcp",
 			})
 			if err != nil {
 				return nil, err
@@ -258,7 +287,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 					fmt.Fprintln(dependencies.Output, "Browser opener unavailable; use the printed pairing URL.")
 				}
 			}
-			return webhost.Routes(policy, api, dependencies.Files), nil
+			return webhost.Routes(policy, api, mcpServer.Handler(), dependencies.Files), nil
 		},
 	}
 	targetContext.StartServing()

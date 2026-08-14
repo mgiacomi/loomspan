@@ -23,7 +23,26 @@ export type BrowserErrorCode =
   | "INVALID_ARTIFACT"
   | "LIVE_MONITORING_UNAVAILABLE"
   | "LOCAL_STORAGE_UNAVAILABLE"
+	| "CONFIRMATION_REQUIRED"
+	| "MCP_STATE_CHANGED"
   | "CONSOLE_ERROR";
+
+export type MCPState = "DISABLED" | "ENABLED" | "DISABLED_INVALID";
+
+export type MCPSetup = {
+  client: string;
+  scope: string;
+  guidance: string;
+};
+
+export type MCPStatus = {
+  endpoint: string;
+  state: MCPState;
+  diagnostic?: string;
+  setup: MCPSetup[];
+};
+
+export type MCPCredentialResponse = MCPStatus & { credential: string };
 
 export type TargetStatus = {
   observedAt: string;

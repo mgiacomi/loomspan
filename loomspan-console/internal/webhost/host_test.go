@@ -31,7 +31,7 @@ func TestHostAnnouncesOnlyAfterListenSucceeds(t *testing.T) {
 }
 
 func TestHostRejectsNonLoopbackAddress(t *testing.T) {
-	for _, address := range []string{"0.0.0.0:0", "[::]:0", "192.168.1.10:8080", "localhost:8080", "example.com:80"} {
+	for _, address := range []string{"0.0.0.0:0", "127.0.0.2:0", "127.255.255.255:8080", "[::]:0", "[::1]:0", "192.168.1.10:8080", "localhost:8080", "example.com:80"} {
 		t.Run(address, func(t *testing.T) {
 			called := false
 			host := Host{
@@ -50,7 +50,7 @@ func TestHostRejectsNonLoopbackAddress(t *testing.T) {
 			}
 		})
 	}
-	for _, address := range []string{"127.0.0.1:0", "[::1]:0"} {
+	for _, address := range []string{"127.0.0.1:0"} {
 		if err := ValidateLoopbackAddress(address); err != nil {
 			t.Fatalf("%s rejected: %v", address, err)
 		}
@@ -93,5 +93,51 @@ func TestHostShutsDownOnContextCancellation(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("host did not shut down")
+	}
+}
+
+func TestHostRunsPreShutdownBeforeWaitingForHTTPHandlers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listenerAddress := make(chan string, 1)
+	releaseHandler := make(chan struct{})
+	requestStarted := make(chan struct{})
+	host := Host{
+		Address: "127.0.0.1:0",
+		Handler: http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			close(requestStarted)
+			<-releaseHandler
+			response.WriteHeader(http.StatusNoContent)
+		}),
+		Listen:   net.Listen,
+		OnListen: func(address net.Addr) { listenerAddress <- address.String() },
+		PreShutdown: func(context.Context) error {
+			close(releaseHandler)
+			return nil
+		},
+	}
+	result := make(chan error, 1)
+	go func() { result <- host.Run(ctx) }()
+	address := <-listenerAddress
+	requestResult := make(chan error, 1)
+	go func() {
+		response, err := http.Get("http://" + address)
+		if err == nil {
+			_ = response.Body.Close()
+		}
+		requestResult <- err
+	}()
+	<-requestStarted
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("shutdown waited for HTTP handler before running MCP pre-shutdown hook")
+	}
+	if err := <-requestResult; err != nil {
+		t.Fatal(err)
 	}
 }

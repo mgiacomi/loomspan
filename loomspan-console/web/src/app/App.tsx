@@ -29,6 +29,7 @@ export function App() {
               <NavLink to="/active-executions">Active Executions</NavLink>
               <NavLink to="/traces">Traces</NavLink>
               <NavLink to="/trace-storage">Trace Storage</NavLink>
+			  <NavLink to="/settings/mcp">Settings</NavLink>
             </nav>
           )}
           <div className="app-bar-actions">

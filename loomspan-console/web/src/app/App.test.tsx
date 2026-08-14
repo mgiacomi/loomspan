@@ -12,6 +12,7 @@ test("renders the console shell and runtime compatibility version", () => {
   expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/skills");
   expect(screen.getByRole("link", { name: "Active Executions" })).toHaveAttribute("href", "/active-executions");
   expect(screen.getByRole("link", { name: "Traces" })).toHaveAttribute("href", "/traces");
+  expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/mcp");
   expect(screen.getByTestId("console-version")).toHaveTextContent("0.1.0-SNAPSHOT");
 });
 
