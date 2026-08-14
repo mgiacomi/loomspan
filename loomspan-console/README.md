@@ -232,12 +232,58 @@ current-port Host, any supplied Origin, enabled state, and bearer key before
 protocol body processing. Forwarded host headers, IPv6 authorities, foreign
 origins, wrong ports, OAuth discovery, and cross-realm credentials are rejected.
 
-PR 16 exposes exactly one side-effect-free tool, `LOOMSPAN_get_runtime`, and
-one Loomspan capability, `loomspan.runtime-status.v1`. It reports current
-Console/target status without contacting the target. Regenerating or disabling
-freezes new work, cancels and drains admitted work, and closes temporary SDK
-sessions before publishing the credential change. Shutdown permanently drains
-MCP before HTTP shutdown but leaves a valid key file intact.
+The read-only tool surface is:
+
+- `LOOMSPAN_get_runtime` for side-effect-free Console/target status;
+- `LOOMSPAN_list_skills` and `LOOMSPAN_get_skill` for registered skill
+  metadata and unchanged YAML;
+- `LOOMSPAN_list_executions` and `LOOMSPAN_get_execution` for bounded,
+  provisional active-execution snapshots; and
+- `LOOMSPAN_get_execution_activity` for a bounded, ordered recent-activity
+  snapshot from the Console's one current continuity interval.
+
+Runtime discovery advertises `loomspan.runtime-status.v1`,
+`loomspan.skill-inspection.v1`,
+`loomspan.active-execution-inspection.v1`, and
+`loomspan.recent-activity-inspection.v1`. Each inspection capability is an
+installed server-surface promise and remains advertised independently of the
+current target, authentication, compatibility, live availability, or evidence
+state.
+
+List and activity calls require `pageSize` from 1 through 64. A returned
+`continuation` is an opaque, current-process, target-scope-bound Loomspan token;
+clients pass it back only to the same operation (and the same `sessionId` for
+activity). It is not an application cursor or authority credential. `hasMore`
+on activity means more matching items are retained now, not that a live stream
+will produce more. Recent activity is bounded current context, not durable or
+lossless execution history.
+
+All five inspection tools return exactly one structured envelope arm:
+`{"result": {...}}` for success or `{"error": {"code": ..., "message":
+..., "details": {}}}` for a Loomspan domain failure. Domain failures also set
+MCP `isError`; malformed tool arguments and protocol/authentication failures
+remain SDK or HTTP failures. Every success includes a deterministic concise
+text fallback. Skill YAML and activity content are untrusted diagnostic data,
+not server instructions. `sourcePath` is descriptive text only and is never a
+Console filesystem locator.
+
+Clients that support resources may read unchanged YAML through
+`loomspan://targets/{targetScopeId}/skills/{skillName}`. Each variable is one
+canonical percent-encoded UTF-8 path segment; the current target scope must
+match. Tools remain the portable complete contract.
+
+Top-level activity `observedAt` is the time the shared window was queried;
+`continuity.observedAt` is the upstream interval observation fact. A reset or
+`beginningUnavailable` explicitly limits the returned interval. When live
+monitoring is unavailable, active-execution application operations and recent
+activity return `LIVE_MONITORING_UNAVAILABLE`; retained activity is not exposed
+as current. Finalized trace discovery and analysis are intentionally outside
+this surface and belong to the later trace-inspection capability.
+
+Regenerating or disabling freezes new work, cancels and drains admitted work,
+and closes temporary SDK sessions before publishing the credential change.
+Shutdown permanently drains MCP before HTTP shutdown but leaves a valid key
+file intact.
 
 Settings reveals a key only after an explicit enable, reveal, or regenerate
 operation; the response is `no-store` and the browser keeps it only in component

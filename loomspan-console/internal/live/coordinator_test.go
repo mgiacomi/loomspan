@@ -27,6 +27,15 @@ func makeActivity(cursor, sessionID, kind string) Activity {
 	}
 }
 
+func requireRecent(t *testing.T, service *Service, request RecentRequest) RecentResponse {
+	t.Helper()
+	response, domain := service.Recent(request)
+	if domain != nil {
+		t.Fatalf("Recent returned %s: %s", domain.Code, domain.Message)
+	}
+	return response
+}
+
 func TestRecentActivityIgnoresExactDuplicate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -47,9 +56,50 @@ func TestRecentActivityIgnoresExactDuplicate(t *testing.T) {
 		t.Fatal("exact duplicate cursor should be ignored")
 	}
 
-	items, _, _, _, _ := service.Recent("", "", 10)
+	items := requireRecent(t, service, RecentRequest{Limit: 10}).Items
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item after duplicate, got %d", len(items))
+	}
+}
+
+func TestRecentActivityQueryDoesNotReturnRetainedStateWhenLiveUnavailable(t *testing.T) {
+	service := NewService(context.Background())
+	defer service.Close()
+
+	service.mu.Lock()
+	service.interval = &interval{instanceID: testInstanceID}
+	service.appendActivity(makeActivity("1", "session-1", "TRACE_STARTED"))
+	service.liveUnavailable = true
+	service.mu.Unlock()
+
+	response, domain := service.Recent(RecentRequest{SessionID: "session-1", Limit: 10})
+	if domain == nil || domain.Code != "LIVE_MONITORING_UNAVAILABLE" {
+		t.Fatalf("live-unavailable error = %#v", domain)
+	}
+	if len(response.Items) != 0 {
+		t.Fatalf("live-unavailable query returned %d retained activities", len(response.Items))
+	}
+}
+
+func TestRecentActivityQueryCapturesObservedAtWithWindowSnapshot(t *testing.T) {
+	queryTime := time.Date(2026, 8, 13, 20, 0, 0, 123, time.FixedZone("test", -7*60*60))
+	continuityTime := time.Date(2026, 8, 13, 18, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: queryTime}
+	service := NewServiceWithClock(context.Background(), clock.now)
+	defer service.Close()
+	service.mu.Lock()
+	service.interval = &interval{instanceID: testInstanceID, observedAt: continuityTime}
+	service.mu.Unlock()
+
+	response := requireRecent(t, service, RecentRequest{Limit: 10})
+	if !response.ObservedAt.Equal(queryTime.UTC()) {
+		t.Fatalf("query observedAt = %s, want %s", response.ObservedAt, queryTime.UTC())
+	}
+	if response.Continuity == nil || !response.Continuity.ObservedAt.Equal(continuityTime) {
+		t.Fatalf("continuity observedAt = %#v, want %s", response.Continuity, continuityTime)
+	}
+	if response.Items == nil {
+		t.Fatal("empty recent items must be an array, not null")
 	}
 }
 
@@ -88,7 +138,8 @@ func TestRecentActivityResetClearsBeforePostBoundaryAdmission(t *testing.T) {
 
 	service.InvalidateTargetScope("scope-1", context.Background())
 
-	items, _, _, continuity, _ := service.Recent("", "", 10)
+	recent := requireRecent(t, service, RecentRequest{Limit: 10})
+	items, continuity := recent.Items, recent.Continuity
 	if len(items) != 0 {
 		t.Fatal("expected 0 items after reset")
 	}
@@ -123,7 +174,8 @@ func TestRecentActivityNeverReturnsMultipleIntervals(t *testing.T) {
 	}
 	service.mu.Unlock()
 
-	items, _, _, continuity, _ := service.Recent("", "", 100)
+	recent := requireRecent(t, service, RecentRequest{Limit: 100})
+	items, continuity := recent.Items, recent.Continuity
 	if len(items) != 3 {
 		t.Fatalf("expected 3 items from new interval only, got %d", len(items))
 	}
@@ -144,7 +196,7 @@ func TestRecentActivityQueryFiltersBySessionID(t *testing.T) {
 	service.appendActivity(makeActivity("3", "session-a", "STEP_COMPLETED"))
 	service.mu.Unlock()
 
-	items, _, _, _, _ := service.Recent("", "session-a", 100)
+	items := requireRecent(t, service, RecentRequest{SessionID: "session-a", Limit: 100}).Items
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items for session-a, got %d", len(items))
 	}
@@ -167,7 +219,8 @@ func TestRecentActivityQueryClampsPageSize(t *testing.T) {
 		service.mu.Unlock()
 	}
 
-	items, hasMore, next, _, _ := service.Recent("", "", 2)
+	recent := requireRecent(t, service, RecentRequest{Limit: 2})
+	items, hasMore, next := recent.Items, recent.HasMore, recent.NextCursor
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
 	}
@@ -191,7 +244,7 @@ func TestRecentActivityQueryClampsMaxPageSize(t *testing.T) {
 		service.mu.Unlock()
 	}
 
-	items, _, _, _, _ := service.Recent("", "", 1000)
+	items := requireRecent(t, service, RecentRequest{Limit: 1000}).Items
 	if len(items) != 5 {
 		t.Fatalf("expected 5 items (clamped to available), got %d", len(items))
 	}
@@ -220,7 +273,7 @@ func TestRecentActivityQueryReportsEvictedBeginningAsFact(t *testing.T) {
 	}
 	service.mu.Unlock()
 
-	_, _, _, _, beginningUnavailable := service.Recent("5", "", 10)
+	beginningUnavailable := requireRecent(t, service, RecentRequest{Cursor: "5", Limit: 10}).BeginningUnavailable
 	if !beginningUnavailable {
 		t.Fatal("expected beginningUnavailable=true when querying after cursor from old interval")
 	}
@@ -396,15 +449,15 @@ func TestActivityValidationRejectsZeroTimestamp(t *testing.T) {
 func TestAll18ActivityKindsAreValid(t *testing.T) {
 	kinds := []ActivityKind{
 		KindTraceStarted, KindFrameOpened, KindFrameClosed,
-		KindModelRequestSent, KindModelResponseReceived,
+		KindModelRequestSent, KindModelResponseReceived, KindModelAttemptFailed,
 		KindPlanCreated, KindPlanUpdated, KindPlanValidationFailed,
 		KindPlanRetryRequested, KindToolCallStarted, KindToolCallCompleted,
 		KindToolCallFailed, KindStepStarted, KindStepActionRejected,
 		KindStepCompleted, KindErrorRecorded, KindTraceCompleted,
 		KindExecutionObservationEnded,
 	}
-	if len(kinds) != 18 {
-		t.Fatalf("expected 18 kinds, got %d", len(kinds))
+	if len(kinds) != 19 {
+		t.Fatalf("expected 19 kinds, got %d", len(kinds))
 	}
 	for _, kind := range kinds {
 		if !IsValidKind(kind) {
@@ -415,12 +468,12 @@ func TestAll18ActivityKindsAreValid(t *testing.T) {
 
 func TestKindLabelsCoverAllKinds(t *testing.T) {
 	labels := KindLabels()
-	if len(labels) != 18 {
-		t.Fatalf("expected 18 labels, got %d", len(labels))
+	if len(labels) != 19 {
+		t.Fatalf("expected 19 labels, got %d", len(labels))
 	}
 	for _, kind := range []ActivityKind{
 		KindTraceStarted, KindFrameOpened, KindFrameClosed,
-		KindModelRequestSent, KindModelResponseReceived,
+		KindModelRequestSent, KindModelResponseReceived, KindModelAttemptFailed,
 		KindPlanCreated, KindPlanUpdated, KindPlanValidationFailed,
 		KindPlanRetryRequested, KindToolCallStarted, KindToolCallCompleted,
 		KindToolCallFailed, KindStepStarted, KindStepActionRejected,
@@ -430,6 +483,9 @@ func TestKindLabelsCoverAllKinds(t *testing.T) {
 		if labels[kind] == "" {
 			t.Fatalf("missing label for kind %s", kind)
 		}
+	}
+	if labels[KindModelAttemptFailed] != "Model attempt failed" {
+		t.Fatalf("model attempt failed label = %q", labels[KindModelAttemptFailed])
 	}
 }
 
@@ -480,7 +536,7 @@ func TestRecentActivityShutdownLeavesNoAdoptableState(t *testing.T) {
 
 	service.Close()
 
-	items, _, _, _, _ := service.Recent("", "", 100)
+	items := requireRecent(t, service, RecentRequest{Limit: 100}).Items
 	if len(items) != 0 {
 		t.Fatalf("expected 0 items after shutdown, got %d", len(items))
 	}

@@ -23,7 +23,10 @@ type RuntimeOutput struct {
 }
 
 func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator) {
-	mcp.AddTool(server, &mcp.Tool{Name: RuntimeToolName, Description: "Return current Loomspan Console runtime and target status without contacting the target."},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: RuntimeToolName, Description: "Return current Loomspan Console runtime and target status without contacting the target.",
+		Annotations: readOnlyAnnotations,
+	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, RuntimeOutput, error) {
 			output, err := buildRuntimeOutput(ctx, provider, credentials)
 			if err != nil {
@@ -41,7 +44,7 @@ func buildRuntimeOutput(ctx context.Context, provider StatusProvider, credential
 	if generation, ok := admittedGeneration(ctx); ok && credentials.Snapshot().Generation != generation {
 		return RuntimeOutput{}, fmt.Errorf("INTERNAL: MCP authentication generation changed")
 	}
-	return RuntimeOutput{Capabilities: []string{RuntimeStatusCapability}, Status: status}, nil
+	return RuntimeOutput{Capabilities: installedCapabilities(), Status: status}, nil
 }
 
 func runtimeText(output RuntimeOutput) string {
@@ -52,16 +55,20 @@ func runtimeText(output RuntimeOutput) string {
 		}
 		return value
 	}
-	return strings.Join([]string{
-		"capability: " + RuntimeStatusCapability,
-		"targetScopeId: " + value(status.TargetScopeID),
-		"targetSelection: " + string(status.TargetSelection),
-		"targetConnection: " + string(status.TargetConnection),
-		"targetAuthentication: " + string(status.TargetAuthentication),
-		"javaGoCompatibility: " + string(status.JavaGoCompatibility),
-		"runtimeIdentity: " + string(status.RuntimeIdentity),
-		"instanceId: " + value(status.InstanceID),
-		"liveMonitoring: " + string(status.LiveMonitoring),
-		"observedAt: " + status.ObservedAt.UTC().Format(time.RFC3339Nano),
-	}, "\n")
+	lines := make([]string, 0, len(output.Capabilities)+9)
+	for _, capability := range output.Capabilities {
+		lines = append(lines, "capability: "+capability)
+	}
+	lines = append(lines,
+		"targetScopeId: "+value(status.TargetScopeID),
+		"targetSelection: "+string(status.TargetSelection),
+		"targetConnection: "+string(status.TargetConnection),
+		"targetAuthentication: "+string(status.TargetAuthentication),
+		"javaGoCompatibility: "+string(status.JavaGoCompatibility),
+		"runtimeIdentity: "+string(status.RuntimeIdentity),
+		"instanceId: "+value(status.InstanceID),
+		"liveMonitoring: "+string(status.LiveMonitoring),
+		"observedAt: "+status.ObservedAt.UTC().Format(time.RFC3339Nano),
+	)
+	return strings.Join(lines, "\n")
 }

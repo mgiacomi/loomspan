@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/profile"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,9 +29,20 @@ type authTransport struct {
 
 func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testing.T) {
 	credentials := fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 4}, key: "secret"}
-	server := NewServer(7345, credentials, NewTracker(), func() consolecore.StatusSnapshot {
-		return consolecore.NoTargetStatus(time.Unix(1, 0).UTC())
+	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
+		if strings.Contains(endpoint, "/skills?") {
+			return []byte(`{"items":[{"registeredName":"skill-☃","sourcePath":"nested/skill.yaml"}],"hasMore":false,"nextCursor":null,"observedAt":"2026-08-13T20:30:00Z"}`), nil
+		}
+		if strings.Contains(endpoint, "/skills/") {
+			if strings.HasSuffix(endpoint, "/missing") {
+				return nil, &applicationclient.Failure{Kind: applicationclient.FailureNotFound}
+			}
+			return []byte(`{"registeredName":"skill-☃","sourcePath":"nested/skill.yaml","yaml":"name: skill-☃\n"}`), nil
+		}
+		return nil, fmt.Errorf("unexpected endpoint: %s", endpoint)
 	})
+	options.Credentials = credentials
+	server := NewServer(options)
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
 	post := func(payload string) map[string]any {
@@ -62,15 +78,30 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	}
 	listed := post(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
 	tools := listed["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["name"] != RuntimeToolName {
+	if len(tools) != 6 || !rawToolNamesContain(tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName) {
 		t.Fatalf("tools = %+v", tools)
 	}
 	called := post(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"LOOMSPAN_get_runtime","arguments":{}}}`)
 	callResult := called["result"].(map[string]any)
 	structured := callResult["structuredContent"].(map[string]any)
 	capabilities := structured["capabilities"].([]any)
-	if len(capabilities) != 1 || capabilities[0] != RuntimeStatusCapability || callResult["isError"] == true {
+	if len(capabilities) != 4 || capabilities[0] != RuntimeStatusCapability || callResult["isError"] == true {
 		t.Fatalf("runtime result = %+v", callResult)
+	}
+	skillCall := post(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"LOOMSPAN_list_skills","arguments":{"pageSize":1}}}`)
+	if skillCall["result"].(map[string]any)["isError"] == true {
+		t.Fatalf("skill result = %+v", skillCall)
+	}
+	templateList := post(`{"jsonrpc":"2.0","id":5,"method":"resources/templates/list","params":{}}`)
+	templates := templateList["result"].(map[string]any)["resourceTemplates"].([]any)
+	if len(templates) != 1 || templates[0].(map[string]any)["uriTemplate"] != SkillResourceTemplate {
+		t.Fatalf("resource templates = %+v", templates)
+	}
+	resourceURI := skillResourceURI("scope-1", "skill-☃")
+	resourceRead := post(fmt.Sprintf(`{"jsonrpc":"2.0","id":6,"method":"resources/read","params":{"uri":%q}}`, resourceURI))
+	contents := resourceRead["result"].(map[string]any)["contents"].([]any)
+	if len(contents) != 1 || contents[0].(map[string]any)["text"] != "name: skill-☃\n" {
+		t.Fatalf("resource read = %+v", resourceRead)
 	}
 }
 
@@ -100,7 +131,20 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	tracker := NewTracker()
-	server := NewServer(7345, store, tracker, func() consolecore.StatusSnapshot { return consolecore.NoTargetStatus(time.Unix(1, 0).UTC()) })
+	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
+		if strings.Contains(endpoint, "/skills?") {
+			return []byte(`{"items":[{"registeredName":"skill-☃","sourcePath":"nested/skill.yaml"}],"hasMore":false,"nextCursor":null,"observedAt":"2026-08-13T20:30:00Z"}`), nil
+		}
+		if strings.Contains(endpoint, "/skills/") {
+			if strings.HasSuffix(endpoint, "/missing") {
+				return nil, &applicationclient.Failure{Kind: applicationclient.FailureNotFound}
+			}
+			return []byte(`{"registeredName":"skill-☃","sourcePath":"nested/skill.yaml","yaml":"name: skill-☃\n"}`), nil
+		}
+		return nil, fmt.Errorf("unexpected endpoint: %s", endpoint)
+	})
+	options.Port, options.Credentials, options.Tracker = 7345, store, tracker
+	server := NewServer(options)
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
 	clientHTTP := &http.Client{Transport: authTransport{base: http.DefaultTransport, host: "127.0.0.1:7345", key: key}}
@@ -117,10 +161,31 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 1 || tools.Tools[0].Name != RuntimeToolName {
+	if len(tools.Tools) != 6 || !toolNamesContain(tools.Tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName) {
 		t.Fatalf("tools = %+v", tools.Tools)
 	}
-	schema, err := json.Marshal(tools.Tools[0].InputSchema)
+	for _, tool := range tools.Tools {
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint ||
+			tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint ||
+			tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint {
+			t.Fatalf("tool %s annotations = %#v", tool.Name, tool.Annotations)
+		}
+	}
+	templates, err := session.ListResourceTemplates(context.Background(), nil)
+	if err != nil || len(templates.ResourceTemplates) != 1 || templates.ResourceTemplates[0].URITemplate != SkillResourceTemplate {
+		t.Fatalf("resource templates=%#v err=%v", templates, err)
+	}
+	var runtimeTool *mcp.Tool
+	for _, tool := range tools.Tools {
+		if tool.Name == RuntimeToolName {
+			runtimeTool = tool
+			break
+		}
+	}
+	if runtimeTool == nil {
+		t.Fatal("runtime tool was not discovered")
+	}
+	schema, err := json.Marshal(runtimeTool.InputSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,4 +203,157 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 	if !invalid.IsError {
 		t.Fatalf("runtime accepted unknown input: %+v", invalid)
 	}
+	skills, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ListSkillsToolName, Arguments: map[string]any{"pageSize": 1}})
+	if err != nil || skills.IsError || skills.StructuredContent == nil || len(skills.Content) != 1 {
+		t.Fatalf("skills=%#v err=%v", skills, err)
+	}
+	missing, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: GetSkillToolName, Arguments: map[string]any{"registeredName": "missing"}})
+	if err != nil || missing == nil || !missing.IsError || len(missing.Content) != 1 {
+		t.Fatalf("missing skill=%#v err=%v", missing, err)
+	}
+	missingEnvelope, ok := missing.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("missing skill structured content type = %T", missing.StructuredContent)
+	}
+	missingError, ok := missingEnvelope["error"].(map[string]any)
+	if !ok || missingError["code"] != string(consolecore.CodeNotFound) {
+		t.Fatalf("missing skill envelope = %#v", missingEnvelope)
+	}
+	if text := missing.Content[0].(*mcp.TextContent).Text; text != "NOT_FOUND: The requested observability resource was not found." {
+		t.Fatalf("missing skill text = %q", text)
+	}
+	for _, arguments := range []map[string]any{{}, {"pageSize": 0}, {"pageSize": 65}, {"pageSize": 1, "extra": true}} {
+		invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ListSkillsToolName, Arguments: arguments})
+		if err != nil || !invalid.IsError || invalid.StructuredContent != nil {
+			t.Fatalf("invalid arguments %#v result=%#v err=%v", arguments, invalid, err)
+		}
+	}
+	resourceURI := skillResourceURI("scope-1", "skill-☃")
+	resource, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: resourceURI})
+	if err != nil || len(resource.Contents) != 1 || resource.Contents[0].Text != "name: skill-☃\n" || resource.Contents[0].MIMEType != skillResourceMIMEType {
+		t.Fatalf("resource=%#v err=%v", resource, err)
+	}
+}
+
+func TestPR17ToolCancellationCancelsUpstreamAndSuppressesResult(t *testing.T) {
+	started := make(chan struct{})
+	client := &mcpTestTargetClient{getContext: func(ctx context.Context, _ string) ([]byte, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	options := newMCPTestOptionsWithClient(t, client)
+	server := NewServer(options)
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	session := connectMCPTestSession(t, httpServer.URL, "mcp-secret")
+	defer session.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	completed := make(chan error, 1)
+	go func() {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: ListSkillsToolName, Arguments: map[string]any{"pageSize": 1}})
+		if result != nil {
+			completed <- fmt.Errorf("canceled call published a result: %#v", result)
+			return
+		}
+		completed <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("skill request did not reach the upstream client")
+	}
+	cancel()
+	select {
+	case err := <-completed:
+		if err == nil {
+			t.Fatal("canceled call returned neither a result nor an error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled skill request did not finish")
+	}
+}
+
+func TestTwoMCPClientsShareLiveWindowButCancelIndependently(t *testing.T) {
+	var openCalls atomic.Int32
+	client := &mcpTestTargetClient{
+		get: func(string) ([]byte, error) { return nil, nil },
+		openActivity: func(context.Context, string, string, applicationclient.Credential) (*applicationclient.ActivityStream, error) {
+			openCalls.Add(1)
+			return nil, &applicationclient.Failure{Kind: applicationclient.FailureLiveMonitoringUnavailable}
+		},
+	}
+	options := newMCPTestOptionsWithClient(t, client)
+	liveService := live.NewService(context.Background())
+	t.Cleanup(liveService.Close)
+	scope, domain := options.Target.Capture()
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	liveService.ActivateActivity(scope)
+	options.Live = liveService
+	deadline := time.Now().Add(time.Second)
+	for !liveService.LiveUnavailable() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !liveService.LiveUnavailable() || openCalls.Load() != 1 {
+		t.Fatalf("shared live service state unavailable=%t upstream opens=%d", liveService.LiveUnavailable(), openCalls.Load())
+	}
+
+	server := NewServer(options)
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	first := connectMCPTestSession(t, httpServer.URL, "mcp-secret")
+	second := connectMCPTestSession(t, httpServer.URL, "mcp-secret")
+	defer second.Close()
+	arguments := map[string]any{"sessionId": "session-1", "pageSize": 1}
+	firstResult, err := first.CallTool(context.Background(), &mcp.CallToolParams{Name: GetExecutionActivityToolName, Arguments: arguments})
+	if err != nil || !firstResult.IsError {
+		t.Fatalf("first activity result=%#v err=%v", firstResult, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	secondResult, err := second.CallTool(context.Background(), &mcp.CallToolParams{Name: GetExecutionActivityToolName, Arguments: arguments})
+	if err != nil || !secondResult.IsError || openCalls.Load() != 1 {
+		t.Fatalf("second activity result=%#v err=%v upstream opens=%d", secondResult, err, openCalls.Load())
+	}
+}
+
+func connectMCPTestSession(t *testing.T, endpoint, key string) *mcp.ClientSession {
+	t.Helper()
+	httpClient := &http.Client{Transport: authTransport{base: http.DefaultTransport, host: "127.0.0.1:7345", key: key}}
+	client := mcp.NewClient(&mcp.Implementation{Name: "loomspan-test", Version: "1"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: httpClient, DisableStandaloneSSE: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func rawToolNamesContain(tools []any, names ...string) bool {
+	found := make(map[string]bool)
+	for _, tool := range tools {
+		found[tool.(map[string]any)["name"].(string)] = true
+	}
+	for _, name := range names {
+		if !found[name] {
+			return false
+		}
+	}
+	return true
+}
+
+func toolNamesContain(tools []*mcp.Tool, names ...string) bool {
+	found := make(map[string]bool)
+	for _, tool := range tools {
+		found[tool.Name] = true
+	}
+	for _, name := range names {
+		if !found[name] {
+			return false
+		}
+	}
+	return true
 }

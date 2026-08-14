@@ -53,7 +53,10 @@ func runMCPConformance(paths projectPaths) error {
 	_, portText, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portText)
 	tracker := mcpadapter.NewTracker()
-	mcpServer := mcpadapter.NewServer(port, store, tracker, func() consolecore.StatusSnapshot { return consolecore.NoTargetStatus(time.Now().UTC()) })
+	mcpServer := mcpadapter.NewServer(mcpadapter.ServerOptions{
+		Port: port, Credentials: store, Tracker: tracker,
+		Status: func() consolecore.StatusSnapshot { return consolecore.NoTargetStatus(time.Now().UTC()) },
+	})
 	productionHTTP := &http.Server{Handler: mcpServer.Handler()}
 	go productionHTTP.Serve(listener)
 	defer productionHTTP.Close()

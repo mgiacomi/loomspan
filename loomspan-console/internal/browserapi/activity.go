@@ -175,20 +175,14 @@ func (router *Router) activityRecent(response http.ResponseWriter, request *http
 		writeDomainError(response, domain)
 		return
 	}
-	items, hasMore, nextCursor, continuity, beginningUnavailable := router.options.Live.Recent(body.Cursor, body.SessionID, body.Limit)
-	if continuity != nil && continuity.TargetScopeID != "" && continuity.TargetScopeID != string(scope.ID) {
-		writeDomainError(response, router.options.Target.RequireCurrent(target.ScopeID(continuity.TargetScopeID)))
+	result, domain := router.options.Live.Recent(body)
+	if domain != nil {
+		writeDomainError(response, domain)
 		return
 	}
-	if items == nil {
-		items = []live.Activity{}
-	}
-	result := live.RecentResponse{
-		Items:                items,
-		HasMore:              hasMore,
-		NextCursor:           nextCursor,
-		Continuity:           continuity,
-		BeginningUnavailable: beginningUnavailable,
+	if result.Continuity != nil && result.Continuity.TargetScopeID != "" && result.Continuity.TargetScopeID != string(scope.ID) {
+		writeDomainError(response, router.options.Target.RequireCurrent(target.ScopeID(result.Continuity.TargetScopeID)))
+		return
 	}
 	content, err := json.Marshal(result)
 	if err != nil {

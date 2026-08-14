@@ -65,7 +65,11 @@ func TestActivitySSEEndToEndRelay(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	items, _, _, _, _ := liveService.Recent("", "", 10)
+	recent, domain := liveService.Recent(live.RecentRequest{Limit: 10})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	items := recent.Items
 	if len(items) != 1 {
 		t.Fatalf("expected 1 activity in ring buffer, got %d", len(items))
 	}

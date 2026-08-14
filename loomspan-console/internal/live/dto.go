@@ -38,7 +38,7 @@ const (
 
 var allKinds = map[ActivityKind]bool{
 	KindTraceStarted: true, KindFrameOpened: true, KindFrameClosed: true,
-	KindModelRequestSent: true, KindModelResponseReceived: true,
+	KindModelRequestSent: true, KindModelResponseReceived: true, KindModelAttemptFailed: true,
 	KindPlanCreated: true, KindPlanUpdated: true, KindPlanValidationFailed: true,
 	KindPlanRetryRequested: true, KindToolCallStarted: true, KindToolCallCompleted: true,
 	KindToolCallFailed: true, KindStepStarted: true, KindStepActionRejected: true,
@@ -57,6 +57,7 @@ func KindLabels() map[ActivityKind]string {
 		KindFrameClosed:               "Skill execution completed",
 		KindModelRequestSent:          "Model request sent",
 		KindModelResponseReceived:     "Model response received",
+		KindModelAttemptFailed:        "Model attempt failed",
 		KindPlanCreated:               "Plan created",
 		KindPlanUpdated:               "Plan updated",
 		KindPlanValidationFailed:      "Plan validation failed",
@@ -177,6 +178,7 @@ type RecentRequest struct {
 }
 
 type RecentResponse struct {
+	ObservedAt           time.Time   `json:"observedAt"`
 	Items                []Activity  `json:"items"`
 	HasMore              bool        `json:"hasMore"`
 	NextCursor           string      `json:"nextCursor"`

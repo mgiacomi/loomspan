@@ -655,9 +655,24 @@ func (service *Service) acceptActivity(activity Activity) (bool, error) {
 	return true, nil
 }
 
-func (service *Service) Recent(cursor string, sessionID string, limit int) ([]Activity, bool, string, *Continuity, bool) {
+func (service *Service) Recent(request RecentRequest) (RecentResponse, *consolecore.Error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	response := RecentResponse{ObservedAt: service.now().UTC(), Items: []Activity{}}
+	if service.liveUnavailable {
+		scopeID := ""
+		if service.scope != nil {
+			scopeID = string(service.scope.ID)
+		}
+		return RecentResponse{}, consolecore.NewError(
+			consolecore.CodeLiveMonitoringUnavailable,
+			"Live monitoring is unavailable.",
+			scopeID,
+			consolecore.Details{},
+			nil,
+		)
+	}
+	cursor, sessionID, limit := request.Cursor, request.SessionID, request.Limit
 	if limit <= 0 {
 		limit = recentDefaultLimit
 	}
@@ -678,10 +693,12 @@ func (service *Service) Recent(cursor string, sessionID string, limit int) ([]Ac
 			}
 		}
 		if !found {
-			return nil, false, "", service.continuityLocked(), true
+			response.Continuity = service.continuityLocked()
+			response.BeginningUnavailable = true
+			return response, nil
 		}
 	}
-	var items []Activity
+	items := make([]Activity, 0)
 	var hasMore bool
 	var nextCursor string
 	if sessionID != "" {
@@ -726,7 +743,12 @@ func (service *Service) Recent(cursor string, sessionID string, limit int) ([]Ac
 		}
 	}
 	beginningUnavailable := start > 0 || service.evicted || (service.interval != nil && service.interval.reset != nil)
-	return items, hasMore, nextCursor, service.continuityLocked(), beginningUnavailable
+	response.Items = items
+	response.HasMore = hasMore
+	response.NextCursor = nextCursor
+	response.Continuity = service.continuityLocked()
+	response.BeginningUnavailable = beginningUnavailable
+	return response, nil
 }
 
 func (service *Service) continuityLocked() *Continuity {

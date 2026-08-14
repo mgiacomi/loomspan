@@ -14,7 +14,7 @@ import (
 
 func TestRuntimeOutputGoldenAndTextAgree(t *testing.T) {
 	output := RuntimeOutput{
-		Capabilities: []string{RuntimeStatusCapability},
+		Capabilities: installedCapabilities(),
 		Status:       consolecore.NoTargetStatus(time.Unix(1, 0).UTC()),
 	}
 	actual, err := json.Marshal(output)
@@ -31,6 +31,9 @@ func TestRuntimeOutputGoldenAndTextAgree(t *testing.T) {
 	text := runtimeText(output)
 	for _, required := range []string{
 		"capability: " + RuntimeStatusCapability,
+		"capability: " + SkillInspectionCapability,
+		"capability: " + ActiveExecutionInspectionCapability,
+		"capability: " + RecentActivityInspectionCapability,
 		"targetSelection: NONE",
 		"targetConnection: NOT_APPLICABLE",
 		"observedAt: 1970-01-01T00:00:01Z",
@@ -70,7 +73,7 @@ func TestRuntimeOutputSucceedsForEveryTargetStatusFactAndRejectsInvalidInvariant
 	for name, status := range statuses {
 		t.Run(name, func(t *testing.T) {
 			output, err := buildRuntimeOutput(context.Background(), func() consolecore.StatusSnapshot { return status }, credentials)
-			if err != nil || len(output.Capabilities) != 1 || output.Capabilities[0] != RuntimeStatusCapability || output.Status != status {
+			if err != nil || len(output.Capabilities) != 4 || output.Capabilities[0] != RuntimeStatusCapability || output.Status != status {
 				t.Fatalf("output=%+v err=%v", output, err)
 			}
 		})

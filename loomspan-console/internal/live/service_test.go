@@ -79,7 +79,8 @@ func TestServiceReceivesActivitiesViaStream(t *testing.T) {
 	defer targetContext.Close()
 	defer service.Close()
 	time.Sleep(200 * time.Millisecond)
-	items, hasMore, next, _, _ := service.Recent("", "", 10)
+	recent := requireRecent(t, service, RecentRequest{Limit: 10})
+	items, hasMore, next := recent.Items, recent.HasMore, recent.NextCursor
 	if len(items) != 2 {
 		t.Fatalf("expected 2 activities, got %d", len(items))
 	}
@@ -101,7 +102,8 @@ func TestServiceRecentWithCursorReturnsOnlyNewer(t *testing.T) {
 	defer targetContext.Close()
 	defer service.Close()
 	time.Sleep(200 * time.Millisecond)
-	items, hasMore, _, _, _ := service.Recent("7", "", 10)
+	recent := requireRecent(t, service, RecentRequest{Cursor: "7", Limit: 10})
+	items, hasMore := recent.Items, recent.HasMore
 	if len(items) != 1 || items[0].Cursor != "8" {
 		t.Fatalf("expected 1 activity after cursor 7, got %d items", len(items))
 	}
@@ -161,7 +163,7 @@ func TestServiceRebaselinesAndReconnectsAfterStaleCursor(t *testing.T) {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		items, _, _, _, _ := service.Recent("", "", 10)
+		items := requireRecent(t, service, RecentRequest{Limit: 10}).Items
 		if len(items) == 1 {
 			if activityRequests.Load() < 2 || baselineLoads.Load() < 2 {
 				t.Fatalf("recovery counts activity=%d baseline=%d", activityRequests.Load(), baselineLoads.Load())
@@ -252,13 +254,13 @@ func TestServiceInvalidateClearsActivities(t *testing.T) {
 	defer targetContext.Close()
 	defer service.Close()
 	time.Sleep(200 * time.Millisecond)
-	items, _, _, _, _ := service.Recent("", "", 10)
+	items := requireRecent(t, service, RecentRequest{Limit: 10}).Items
 	if len(items) != 1 {
 		t.Fatalf("expected 1 activity before invalidation, got %d", len(items))
 	}
 	service.InvalidateTargetScope("scope-1", context.Background())
 	time.Sleep(50 * time.Millisecond)
-	items, _, _, _, _ = service.Recent("", "", 10)
+	items = requireRecent(t, service, RecentRequest{Limit: 10}).Items
 	if len(items) != 0 {
 		t.Fatalf("expected 0 activities after invalidation, got %d", len(items))
 	}
@@ -396,7 +398,7 @@ func TestActivityHandlerRejectsPayloadFromChangedInstance(t *testing.T) {
 		t.Fatalf("expected instance_changed reset, got %#v", reset)
 	}
 
-	items, _, _, _, _ := service.Recent("", "", 10)
+	items := requireRecent(t, service, RecentRequest{Limit: 10}).Items
 	if len(items) != 0 {
 		t.Fatalf("expected mismatched-instance activity to be discarded, got %d", len(items))
 	}
@@ -419,7 +421,8 @@ func TestRecentWithSessionFilterPaginatesCorrectly(t *testing.T) {
 	defer service.Close()
 	time.Sleep(200 * time.Millisecond)
 
-	items, hasMore, nextCursor, _, _ := service.Recent("", "session-a", 2)
+	recent := requireRecent(t, service, RecentRequest{SessionID: "session-a", Limit: 2})
+	items, hasMore, nextCursor := recent.Items, recent.HasMore, recent.NextCursor
 	if len(items) != 2 {
 		t.Fatalf("expected 2 filtered items, got %d", len(items))
 	}

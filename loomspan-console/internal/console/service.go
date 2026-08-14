@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
@@ -244,7 +245,12 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 			if err != nil {
 				return nil, err
 			}
-			mcpServer = mcpadapter.NewServer(port, mcpStore, mcpTracker, func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status })
+			mcpServer = mcpadapter.NewServer(mcpadapter.ServerOptions{
+				Port: port, Credentials: mcpStore, Tracker: mcpTracker,
+				Status: func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status },
+				Target: targetContext, Observability: observabilityService, Live: liveService,
+				Now: time.Now,
+			})
 			mcpLifecycle = mcpadapter.NewLifecycle(mcpStore, mcpTracker, mcpServer.CloseSessions)
 			policy, err := browserapi.NewPolicy(authority.Host, authority.Origin, options.DevelopmentOrigin)
 			if err != nil {
