@@ -26,6 +26,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/webhost"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
@@ -203,6 +204,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 	// adapter-facing query methods (PR 14 browser, PR 18 MCP) can acquire
 	// leases by handle.
 	traceAnalysisService.SetArtifactService(artifactService)
+	traceInventoryService := traceinventory.New(artifactService, observabilityService, targetContext, time.Now)
 	if err := targetContext.RegisterOwner("artifacts", artifactService); err != nil {
 		return err
 	}
@@ -249,6 +251,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 				Port: port, Credentials: mcpStore, Tracker: mcpTracker,
 				Status: func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status },
 				Target: targetContext, Observability: observabilityService, Live: liveService,
+				Artifacts: artifactService, TraceAnalysis: traceAnalysisService, TraceInventory: traceInventoryService,
 				Now: time.Now,
 			})
 			mcpLifecycle = mcpadapter.NewLifecycle(mcpStore, mcpTracker, mcpServer.CloseSessions)
@@ -272,6 +275,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 				Live:                  liveService,
 				Artifacts:             artifactService,
 				TraceAnalysis:         traceAnalysisService,
+				TraceInventory:        traceInventoryService,
 				TargetAddressDefault:  options.TargetAddressDefault,
 				ApplicationKeyDefault: options.ApplicationKeyDefault,
 				MCP:                   mcpLifecycle,

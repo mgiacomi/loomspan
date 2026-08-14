@@ -27,10 +27,12 @@ const (
 	maxInlinePayloadBytes = 8 << 10 // 8 KiB
 
 	// defaultRangeBytes is the default byte range size for payload/raw ranges.
-	defaultRangeBytes = 64 << 10 // 64 KiB
+	DefaultRangeBytes = 64 << 10 // 64 KiB
+	defaultRangeBytes = DefaultRangeBytes
 
 	// maxRangeBytes is the maximum accepted byte range size per call.
-	maxRangeBytes = 1 << 20 // 1 MiB
+	MaxRangeBytes = 16 << 20 // 16 MiB
+	maxRangeBytes = MaxRangeBytes
 
 	// maxLiteralTextBytes is the maximum byte size of a literal search query.
 	maxLiteralTextBytes = 1 << 10 // 1 KiB

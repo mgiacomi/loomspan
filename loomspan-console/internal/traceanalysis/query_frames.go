@@ -137,19 +137,22 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 	var nextPosition int64
 	hasMore := false
 	var canceled *consolecore.Error
-	err = scanFactRows[frameResult](lease, componentName, int64(startPosition), func(frame frameResult, next int64) bool {
+	err = scanFactRowsContext[persistedFrameResult](ctx, lease, componentName, int64(startPosition), func(frame persistedFrameResult, next int64) bool {
 		if e := ctx.Err(); e != nil {
 			canceled = canceledError(e)
 			return true
 		}
-		if !frameMatchesFilter(frame, query.Filter, idSet) {
+		if !frameMatchesFilter(frame.frameResult, query.Filter, idSet) {
 			return false
 		}
 		if len(items) == pageSize {
 			hasMore = true
 			return true
 		}
-		items = append(items, frameResultToSummary(frame, traceCtx))
+		summary := frameResultToSummary(frame.frameResult, traceCtx)
+		summary.GapKinds = append([]string{}, frame.GapKinds...)
+		summary.UncertaintyKinds = append([]string{}, frame.UncertaintyKinds...)
+		items = append(items, summary)
 		nextPosition = next
 		return false
 	})
@@ -168,6 +171,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 	}
 	success = true
 	return Page[FrameSummary]{
+		Context:    traceCtx,
 		Items:      items,
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
@@ -251,7 +255,18 @@ func frameResultToSummary(f frameResult, ctx TraceContext) FrameSummary {
 		RetrySequenceIDs:        append([]string(nil), f.RetrySequenceIDs...),
 		ValidationStatuses:      append([]string(nil), f.ValidationStatuses...),
 		FailureIDs:              append([]string(nil), f.FailureIDs...),
+		GapKinds:                []string{},
+		UncertaintyKinds:        []string{},
 	}
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 // errCursorOpMismatch is returned when a cursor's operation does not match the

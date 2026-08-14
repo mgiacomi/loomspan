@@ -148,6 +148,8 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
 	items := make([]RecordSummary, 0, pageSize)
+	pageRecords := make([]*Record, 0, pageSize)
+	pagePositions := make([]int64, 0, pageSize)
 	var nextPosition int64
 	hasMore := false
 	for position := scanStart; position < recordCount; position++ {
@@ -180,29 +182,48 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 			break
 		}
 		summary := recordToSummary(rec, row, traceCtx, query.Representation)
-		// Inline payload if requested and the record is an envelope with a
-		// small enough payload.
-		if query.InlinePayload && rec.IsEnvelope {
-			desc, findErr := findPayloadDescriptorInIndex(lease, rec.PayloadID)
-			if findErr != nil {
-				return Page[RecordSummary]{}, storageError(scopeID.ID(), findErr)
+		items = append(items, summary)
+		pageRecords = append(pageRecords, rec)
+		pagePositions = append(pagePositions, position)
+		nextPosition = position + 1
+	}
+
+	var factReader *recordFactReader
+	if len(pageRecords) > 0 {
+		factReader, err = openRecordFactReader(ctx, lease)
+		if err != nil {
+			return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
+		}
+		defer factReader.Close()
+	}
+	for index, rec := range pageRecords {
+		storedFacts, readErr := factReader.Read(ctx, pagePositions[index])
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return Page[RecordSummary]{}, canceledError(ctx.Err())
 			}
-			if desc != nil && desc.StoreLength <= int64(maxInlinePayloadBytes) {
-				payload, derr := readInlinePayload(ctx, lease, *desc)
-				if derr != nil {
+			return Page[RecordSummary]{}, storageError(scopeID.ID(), readErr)
+		}
+		items[index].Facts, err = materializeRecordFacts(storedFacts, rec, query.Filter, scopeID, query.Handle, traceCtx)
+		if err != nil {
+			return Page[RecordSummary]{}, invalidityErrorWithCause(CategoryUnsupportedValue, scopeID.ID(), err)
+		}
+		if query.InlinePayload && rec.IsEnvelope {
+			for _, desc := range storedFacts.Payloads {
+				if desc.PayloadID != rec.PayloadID || desc.StoreLength > int64(maxInlinePayloadBytes) {
+					continue
+				}
+				payload, readErr := readInlinePayload(ctx, lease, payloadDescriptor{PayloadID: desc.PayloadID, Sequence: desc.Sequence, ContentType: desc.ContentType, ChunkCount: desc.ChunkCount, StoreOffset: desc.StoreOffset, StoreLength: desc.StoreLength})
+				if readErr != nil {
 					if ctx.Err() != nil {
 						return Page[RecordSummary]{}, canceledError(ctx.Err())
 					}
-					return Page[RecordSummary]{}, storageError(scopeID.ID(), derr)
+					return Page[RecordSummary]{}, storageError(scopeID.ID(), readErr)
 				}
-				summary.InlinePayload = &InlinePayload{
-					ContentType: desc.ContentType,
-					Bytes:       payload,
-				}
+				items[index].InlinePayload = &InlinePayload{ContentType: desc.ContentType, Bytes: payload}
+				break
 			}
 		}
-		items = append(items, summary)
-		nextPosition = position + 1
 	}
 
 	var nextCursor string
@@ -214,6 +235,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 	}
 	success = true
 	return Page[RecordSummary]{
+		Context:    traceCtx,
 		Items:      items,
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
@@ -327,6 +349,7 @@ func recordToSummary(rec *Record, row recordIndexRow, ctx TraceContext, rep Reco
 		IsEnvelope:      rec.IsEnvelope,
 		PayloadID:       rec.PayloadID,
 		Raw:             rec.Raw,
+		Facts:           RecordFacts{Attempts: []AttemptSummary{}, Retries: []RetrySummary{}, Validations: []ValidationSummary{}, Failures: []FailureSummary{}, Payloads: []PayloadDescriptor{}, SearchMatches: []SearchResult{}},
 	}
 }
 

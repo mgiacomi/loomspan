@@ -46,6 +46,8 @@ func TestBundleContainsOnlyClosedInternalComponents(t *testing.T) {
 		artifact.ComponentName(ComponentUncertainty):   true,
 		artifact.ComponentName(ComponentPayloadStore):  true,
 		artifact.ComponentName(ComponentPayloadIndex):  true,
+		artifact.ComponentName(ComponentRecordFacts):   true,
+		artifact.ComponentName(ComponentRecordFactIdx): true,
 	}
 
 	// Every written component must be in the expected set.

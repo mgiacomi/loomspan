@@ -376,6 +376,11 @@ func (service *Service) StorageSnapshot() (StorageSnapshot, *consolecore.Error) 
 		Entries:        []StoredEntry{},
 	}
 	for _, entry := range service.entries {
+		if entry.state == stateAcquiring {
+			snapshot.PendingAcquisitionCount++
+			snapshot.PendingWaiterCount += entry.waiters
+			continue
+		}
 		if entry.state != stateInstalled && entry.state != stateDeferredRemoval {
 			continue
 		}

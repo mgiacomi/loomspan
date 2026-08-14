@@ -149,7 +149,11 @@ type StorageSnapshot struct {
 	NeverExpire    bool
 	ChargedBytes   int64
 	AcquiredCount  int
-	Entries        []StoredEntry
+	// PendingAcquisitionCount and PendingWaiterCount make joined, in-flight
+	// work observable without exposing artifact paths or mutating cache state.
+	PendingAcquisitionCount int
+	PendingWaiterCount      int
+	Entries                 []StoredEntry
 }
 
 // StoredEntry is one entry in a StorageSnapshot. It carries cache facts without

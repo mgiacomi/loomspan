@@ -6,11 +6,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,14 +24,31 @@ type Server struct {
 }
 
 type ServerOptions struct {
-	Port          int
-	Credentials   authenticator
-	Tracker       *Tracker
-	Status        StatusProvider
-	Target        *target.Context
-	Observability *observability.Service
-	Live          *live.Service
-	Now           func() time.Time
+	Port           int
+	Credentials    authenticator
+	Tracker        *Tracker
+	Status         StatusProvider
+	Target         *target.Context
+	Observability  *observability.Service
+	Live           *live.Service
+	Artifacts      TraceArtifactService
+	TraceAnalysis  TraceAnalysisService
+	TraceInventory TraceInventoryService
+	Now            func() time.Time
+}
+
+type TraceInventoryService interface {
+	List(context.Context, traceinventory.Query) (traceinventory.Result, *consolecore.Error)
+}
+type TraceArtifactService interface {
+	Acquire(context.Context, target.Scope, string) (artifact.AcquiredArtifact, *consolecore.Error)
+}
+type TraceAnalysisService interface {
+	GetSummary(context.Context, evidence.Reference, traceanalysis.SummaryRequest) (traceanalysis.TraceSummary, *consolecore.Error)
+	QueryFrames(context.Context, evidence.Reference, traceanalysis.FrameQuery) (traceanalysis.Page[traceanalysis.FrameSummary], *consolecore.Error)
+	QueryRecords(context.Context, evidence.Reference, traceanalysis.RecordQuery) (traceanalysis.Page[traceanalysis.RecordSummary], *consolecore.Error)
+	ReadPayloadRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
+	ReadRawArtifactRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
 }
 
 func NewServer(options ServerOptions) *Server {
@@ -39,7 +60,9 @@ func NewServer(options ServerOptions) *Server {
 	addSkillTools(sdk, options)
 	addExecutionTools(sdk, options)
 	addActivityTool(sdk, options)
+	addTraceTools(sdk, options)
 	addSkillResource(sdk, options)
+	addTraceResources(sdk, options)
 	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return sdk }, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxRequestBody, PropagateRequestCancellation: true,
 	})

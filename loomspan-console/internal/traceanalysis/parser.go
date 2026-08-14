@@ -250,6 +250,9 @@ func decodeRecord(content []byte, address RawAddress) (*Record, *consolecore.Err
 
 	// Extract chunk/envelope payload identity from metadata for fast access.
 	rec.PayloadID, rec.IsEnvelope = payloadIdentity(rec)
+	if rec.PayloadID != "" && !contentReferenceIdentifierFits(rec.PayloadID) {
+		return nil, invalidityError(CategoryUnsupportedValue, rec.TraceID)
+	}
 
 	return rec, nil
 }

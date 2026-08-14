@@ -26,7 +26,7 @@ func newFailureGraph() *failureGraph {
 // failures.
 func (g *failureGraph) onErrorRecord(rec *Record) *consolecore.Error {
 	failureID := rec.metadataStringOrEmpty("failureId")
-	if failureID == "" {
+	if failureID == "" || !contentReferenceIdentifierFits(failureID) {
 		return invalidityError(CategoryUnsupportedValue, rec.TraceID)
 	}
 	fact := failureResult{FailureID: failureID, Sequence: rec.Sequence,

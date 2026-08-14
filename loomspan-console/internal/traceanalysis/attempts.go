@@ -23,6 +23,7 @@ type attemptBuild struct {
 	providerErrorCode     string
 	payloadID             string
 	lifecycle             []TraceRecordType
+	ownerSequence         int64
 }
 
 // attemptGraph tracks attempt/retry membership using only explicit attemptId
@@ -58,6 +59,7 @@ func (g *attemptGraph) onAdvisorRecord(rec *Record) *consolecore.Error {
 		RetrySequenceID: retryID,
 		AttemptID:       attemptID,
 		AttemptNumber:   number,
+		sequence:        rec.Sequence,
 	})
 	return nil
 }
@@ -121,6 +123,7 @@ func (g *attemptGraph) onModelRecord(rec *Record) *consolecore.Error {
 		return invalidityError(CategoryInvalidAttempt, rec.TraceID)
 	}
 	a.lifecycle = append(a.lifecycle, rec.Type)
+	a.ownerSequence = rec.Sequence
 
 	if rec.Type == RecordModelResponseReceived {
 		a.hasResponse = true

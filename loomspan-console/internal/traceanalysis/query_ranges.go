@@ -18,10 +18,19 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID evidence.R
 	if domain := validateRangeRequestShape(scopeID, req, RangeSourcePayload); domain != nil {
 		return ByteRangeResult{}, domain
 	}
-	if req.PayloadID == "" {
+	if req.PayloadID == "" && req.PayloadRef == "" {
 		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeInvalidArgument,
-			"A payload ID is required for payload ranges.",
+			"A payload reference is required for payload ranges.",
 			scopeID.ID(), consolecore.Details{}, nil)
+	}
+	if req.PayloadRef != "" {
+		contentRef, err := decodeContentReference(req.PayloadRef)
+		if err != nil || validateContentReference(contentRef, scopeID, req.Handle) != nil {
+			return ByteRangeResult{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The payload reference is invalid.", scopeID.ID(), consolecore.Details{}, err)
+		}
+		if contentRef.Kind == contentKindFailureDiagnostic {
+			return service.readFailureDiagnosticReferenceRange(ctx, scopeID, req, contentRef)
+		}
 	}
 	maxBytes, domain := validateRangeSize(scopeID, req.MaxBytes)
 	if domain != nil {
@@ -38,6 +47,13 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID evidence.R
 	}
 	success := false
 	defer func() { _ = lease.Close(success) }()
+	if req.PayloadRef != "" {
+		contentRef, err := decodeContentReference(req.PayloadRef)
+		if err != nil || validateContentReference(contentRef, scopeID, req.Handle) != nil || contentRef.Kind != contentKindPayload {
+			return ByteRangeResult{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The payload reference is invalid.", scopeID.ID(), consolecore.Details{}, err)
+		}
+		req.PayloadID = contentRef.PayloadID
+	}
 	if req.ContinueCursor != "" {
 		cur, _, domain = prepareCursor(req.ContinueCursor, ownerCursorKey(lease.Owner()), scopeID.ID(), cursorOpPayloadRange)
 		if domain != nil {
@@ -84,6 +100,74 @@ func (service *Service) ReadPayloadRange(ctx context.Context, scopeID evidence.R
 	}
 	success = true
 	return result, nil
+}
+
+func (service *Service) readFailureDiagnosticReferenceRange(ctx context.Context, ref evidence.Reference, req RangeRequest, contentRef contentReference) (ByteRangeResult, *consolecore.Error) {
+	maxBytes, domain := validateRangeSize(ref, req.MaxBytes)
+	if domain != nil {
+		return ByteRangeResult{}, domain
+	}
+	req.MaxBytes = maxBytes
+	fingerprint, err := canonicalizeRequest(struct {
+		PayloadRef string `json:"payloadRef"`
+		MaxBytes   int    `json:"maxBytes"`
+	}{req.PayloadRef, maxBytes})
+	if err != nil {
+		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeConsoleError, "The diagnostic range could not be canonicalized.", ref.ID(), consolecore.Details{}, err)
+	}
+	var cur cursor
+	if req.ContinueCursor != "" {
+		var d *consolecore.Error
+		cur, _, d = prepareCursor(req.ContinueCursor, referenceCursorKey(ref), ref.ID(), cursorOpDiagnosticRange)
+		if d != nil {
+			return ByteRangeResult{}, d
+		}
+		req.Start = cur.Position
+	}
+	lease, domain := service.leaseForHandle(ref, req.Handle)
+	if domain != nil {
+		return ByteRangeResult{}, domain
+	}
+	success := false
+	defer func() { _ = lease.Close(success) }()
+	ownerKey := ownerCursorKey(lease.Owner())
+	if req.ContinueCursor != "" {
+		if d := validateCursorFingerprint(cur, fingerprint, ownerKey, ref.ID(), req.Handle); d != nil {
+			return ByteRangeResult{}, d
+		}
+	}
+	diagnostic, domain := service.getFailureDiagnosticWithLease(ctx, lease, ref, FailureDiagnosticRequest{Handle: req.Handle, FailureID: contentRef.FailureID, Ordinal: *contentRef.Ordinal})
+	if domain != nil {
+		return ByteRangeResult{}, domain
+	}
+	raw := []byte(diagnostic.Text)
+	if req.Start > int64(len(raw)) {
+		return ByteRangeResult{}, consolecore.NewError(consolecore.CodeInvalidArgument,
+			"The range start exceeds the diagnostic length.", ref.ID(), consolecore.Details{}, nil)
+	}
+	start, count, domain := resolveRangeBounds(ref, req, int64(len(raw)))
+	if domain != nil {
+		return ByteRangeResult{}, domain
+	}
+	end := start + int64(count)
+	encoding, content, actualStart, actualEnd := encodeRangeContent(raw[start:end], diagnostic.Descriptor.ContentType, start, end, int64(len(raw)))
+	hasMore := end < int64(len(raw))
+	next := ""
+	if hasMore {
+		next, err = encodeRangeCursor(cursorOpDiagnosticRange, ownerKey, req.Handle, fingerprint, end)
+		if err != nil {
+			return ByteRangeResult{}, cursorError(ref.ID(), err)
+		}
+	}
+	success = true
+	return ByteRangeResult{Context: diagnostic.Context, Source: RangeSourcePayload, ActualStart: actualStart, ActualEnd: actualEnd, TotalLength: int64(len(raw)), ContentType: diagnostic.Descriptor.ContentType, Encoding: encoding, Content: content, HasMore: hasMore, NextCursor: next}, nil
+}
+
+func referenceCursorKey(ref evidence.Reference) string {
+	if ref.Source == evidence.SourceImported {
+		return string(evidence.SourceImported)
+	}
+	return string(evidence.SourceTarget) + ":" + string(ref.TargetScope)
 }
 
 // ReadRawRecordRange reads a bounded byte range from one physical record's

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
@@ -14,13 +15,68 @@ import (
 // published because the processor returns an error and the service removes the
 // staged bundle.
 type indexWriter struct {
-	sink         artifact.ComponentSink
-	ctx          context.Context
-	scopeID      string
-	components   map[component]int64
-	recordWriter artifact.ComponentWriter
-	recordCount  int64
-	recordSize   int64
+	sink            artifact.ComponentSink
+	ctx             context.Context
+	scopeID         string
+	components      map[component]int64
+	recordWriter    artifact.ComponentWriter
+	recordCount     int64
+	recordSize      int64
+	recordSequences []int64
+}
+
+// writeRecordFacts writes one fixed-width address row per canonical record and
+// stores only non-empty fact bodies. The address table is aligned with
+// records.idx, making page enrichment proportional to returned records.
+func (w *indexWriter) writeRecordFacts(facts map[int64]persistedRecordFacts) *consolecore.Error {
+	store, domain := w.create(ComponentRecordFacts)
+	if domain != nil {
+		return domain
+	}
+	index, domain := w.create(ComponentRecordFactIdx)
+	if domain != nil {
+		_ = store.Close()
+		return domain
+	}
+	var storeSize, indexSize int64
+	for _, sequence := range w.recordSequences {
+		row := recordFactIndexRow{Offset: storeSize}
+		if value, ok := facts[sequence]; ok && !value.empty() {
+			body, err := json.Marshal(value)
+			if err != nil {
+				_ = index.Close()
+				return w.failClose(store, err)
+			}
+			if len(body) > maxFactRowBytes {
+				_ = index.Close()
+				return w.failClose(store, fmt.Errorf("record fact row length %d exceeds maximum %d", len(body), maxFactRowBytes))
+			}
+			if n, err := store.Write(body); err != nil || n != len(body) {
+				_ = index.Close()
+				if err == nil {
+					err = errShortWrite
+				}
+				return w.failClose(store, err)
+			}
+			row.Length = int64(len(body))
+			storeSize += row.Length
+		}
+		if err := writeRecordFactIndexRow(index, row); err != nil {
+			_ = store.Close()
+			return w.failClose(index, err)
+		}
+		indexSize += recordFactIndexRowWidth
+	}
+	if err := w.syncClose(store); err != nil {
+		_ = index.Close()
+		return err
+	}
+	if err := w.syncClose(index); err != nil {
+		return err
+	}
+	w.components[ComponentRecordFacts] = storeSize
+	w.components[ComponentRecordFactIdx] = indexSize
+	return nil
 }
 
 // newIndexWriter creates an index writer bound to a sink and processing context.
@@ -64,6 +120,7 @@ func (w *indexWriter) appendRecordRow(row recordIndexRow) *consolecore.Error {
 	}
 	w.recordCount++
 	w.recordSize += recordIndexRowWidth
+	w.recordSequences = append(w.recordSequences, row.Sequence)
 	return nil
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/observability"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 )
 
 // fakeArtifactService is a test double for ArtifactService that records calls
@@ -139,13 +140,18 @@ func artifactTestRouterWithCSRF(t *testing.T, artifacts ArtifactService) (*Route
 		t.Fatal(domain)
 	}
 
+	var inventory *traceinventory.Service
+	if artifacts != nil {
+		inventory = traceinventory.New(artifacts, nil, targetContext, time.Now)
+	}
 	router, _ := New(Options{
-		Policy:     policy,
-		Pairing:    pairing,
-		Sessions:   registry,
-		PairingURL: func(value string) string { return value },
-		Target:     targetContext,
-		Artifacts:  artifacts,
+		Policy:         policy,
+		Pairing:        pairing,
+		Sessions:       registry,
+		PairingURL:     func(value string) string { return value },
+		Target:         targetContext,
+		Artifacts:      artifacts,
+		TraceInventory: inventory,
 	})
 	bootstrapResult, _ := registry.Bootstrap(sessionID, "")
 	return router, bootstrapResult.TabID, bootstrapResult.CSRF, browserauth.SessionCookie(sessionID)
@@ -652,6 +658,13 @@ func TestEnrichTracePageAddsArtifactAvailability(t *testing.T) {
 		if item.ApplicationAvailability != "AVAILABLE" {
 			t.Fatalf("item %d: expected availability, got %q", i, item.ApplicationAvailability)
 		}
+	}
+}
+
+func TestRouterDoesNotConstructCompatibilityTraceInventory(t *testing.T) {
+	router, _, _ := artifactTestRouter(t, nil)
+	if router.options.TraceInventory != nil {
+		t.Fatal("router constructed a compatibility trace inventory")
 	}
 }
 

@@ -18,6 +18,8 @@ import (
 // reader; an unknown schema is rejected as INVALID_CURSOR.
 const cursorSchemaV1 = "v1"
 
+const maxEncodedTokenLength = 8192
+
 // cursorOp identifies which query operation a cursor continues.
 type cursorOp string
 
@@ -34,6 +36,7 @@ const (
 	cursorOpUncertainty      cursorOp = "UNCERTAINTY"
 	cursorOpSearch           cursorOp = "SEARCH"
 	cursorOpPayloadRange     cursorOp = "PAYLOAD_RANGE"
+	cursorOpDiagnosticRange  cursorOp = "DIAGNOSTIC_RANGE"
 	cursorOpRawRecordRange   cursorOp = "RAW_RECORD_RANGE"
 	cursorOpRawArtifactRange cursorOp = "RAW_ARTIFACT_RANGE"
 )
@@ -111,8 +114,8 @@ func encodeCursor(c cursor) (string, error) {
 // lifetime; that is the caller's responsibility and follows the
 // TARGET_CHANGED -> ARTIFACT_EXPIRED -> INVALID_CURSOR precedence.
 func decodeCursor(token string) (cursor, error) {
-	if token == "" {
-		return cursor{}, errors.New("cursor is empty")
+	if token == "" || len(token) > maxEncodedTokenLength {
+		return cursor{}, errors.New("cursor is empty or oversized")
 	}
 	body, err := base64URLDecode(token)
 	if err != nil {
@@ -260,5 +263,8 @@ func encodeRangeCursor(op cursorOp, ownerKey string, handle artifact.Handle, fin
 }
 
 func ownerCursorKey(owner evidence.Owner) string {
+	if owner.Source() == evidence.SourceImported {
+		return string(evidence.SourceImported)
+	}
 	return string(owner.Source()) + ":" + owner.ID()
 }

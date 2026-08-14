@@ -331,6 +331,25 @@ func (w *faultComponentWriter) Close() error {
 	return nil
 }
 
+func TestRecordFactAddressIndexUsesActualGappedSequences(t *testing.T) {
+	sink := &fakeSink{components: map[artifact.ComponentName][]byte{}}
+	writer := newIndexWriter(sink, context.Background(), "trace")
+	writer.recordSequences = []int64{10, 20}
+	facts := map[int64]persistedRecordFacts{20: {Attempts: []attemptResult{{AttemptID: "attempt-20"}}}}
+	if domain := writer.writeRecordFacts(facts); domain != nil {
+		t.Fatal(domain)
+	}
+	index := sink.components[artifact.ComponentName(ComponentRecordFactIdx)]
+	if len(index) != 2*recordFactIndexRowWidth {
+		t.Fatalf("index length=%d", len(index))
+	}
+	first := readRecordFactIndexRow(index[:recordFactIndexRowWidth])
+	second := readRecordFactIndexRow(index[recordFactIndexRowWidth:])
+	if first.Length != 0 || second.Length == 0 {
+		t.Fatalf("first=%#v second=%#v", first, second)
+	}
+}
+
 // TestIndexWriterRejectsShortWriteSyncCloseAndSizeMismatch proves the index
 // writer maps short writes, sync failures, and close failures to a
 // LOCAL_STORAGE_UNAVAILABLE domain error rather than publishing a partial

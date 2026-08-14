@@ -240,12 +240,21 @@ The read-only tool surface is:
 - `LOOMSPAN_list_executions` and `LOOMSPAN_get_execution` for bounded,
   provisional active-execution snapshots; and
 - `LOOMSPAN_get_execution_activity` for a bounded, ordered recent-activity
-  snapshot from the Console's one current continuity interval.
+  snapshot from the Console's one current continuity interval;
+- `LOOMSPAN_list_traces` and `LOOMSPAN_get_trace` for target catalog
+  acquisition and target-free imported installed copies;
+- `LOOMSPAN_query_trace_frames` and `LOOMSPAN_query_trace_records` for finite,
+  continuable mechanical trace facts;
+- `LOOMSPAN_read_trace_payload` for exact bounded reconstructed payload or
+  failure-diagnostic ranges; and
+- `LOOMSPAN_read_trace_artifact` for optional exact raw NDJSON forensics.
 
 Runtime discovery advertises `loomspan.runtime-status.v1`,
 `loomspan.skill-inspection.v1`,
 `loomspan.active-execution-inspection.v1`, and
-`loomspan.recent-activity-inspection.v1`. Each inspection capability is an
+`loomspan.recent-activity-inspection.v1`, `loomspan.trace-inspection.v1`, and
+`loomspan.raw-artifact-inspection.v1`. Each
+advertised inspection capability is an
 installed server-surface promise and remains advertised independently of the
 current target, authentication, compatibility, live availability, or evidence
 state.
@@ -258,27 +267,57 @@ on activity means more matching items are retained now, not that a live stream
 will produce more. Recent activity is bounded current context, not durable or
 lossless execution history.
 
-All five inspection tools return exactly one structured envelope arm:
+All twelve inspection tools return exactly one structured envelope arm:
 `{"result": {...}}` for success or `{"error": {"code": ..., "message":
 ..., "details": {}}}` for a Loomspan domain failure. Domain failures also set
 MCP `isError`; malformed tool arguments and protocol/authentication failures
-remain SDK or HTTP failures. Every success includes a deterministic concise
-text fallback. Skill YAML and activity content are untrusted diagnostic data,
-not server instructions. `sourcePath` is descriptive text only and is never a
-Console filesystem locator.
+remain SDK or HTTP failures. Every success includes a deterministic,
+fact-complete text fallback, including bounded range content, for clients that
+do not consume structured results. Skill YAML and activity content are
+untrusted diagnostic data, not server instructions. `sourcePath` is
+descriptive text only and is never a Console filesystem locator.
 
 Clients that support resources may read unchanged YAML through
 `loomspan://targets/{targetScopeId}/skills/{skillName}`. Each variable is one
 canonical percent-encoded UTF-8 path segment; the current target scope must
-match. Tools remain the portable complete contract.
+match. Parsed trace summary, frame, and record JSON is also available through
+these supplementary templates:
+
+- `loomspan://targets/{targetScopeId}/artifacts/{artifactHandle}/summary`
+- `loomspan://targets/{targetScopeId}/artifacts/{artifactHandle}/frames/{frameId}`
+- `loomspan://targets/{targetScopeId}/artifacts/{artifactHandle}/records/{sequence}`
+- `loomspan://imports/artifacts/{artifactHandle}/summary`
+- `loomspan://imports/artifacts/{artifactHandle}/frames/{frameId}`
+- `loomspan://imports/artifacts/{artifactHandle}/records/{sequence}`
+
+Tools remain the portable complete contract; there is no raw-artifact
+resource.
+
+Trace evidence always states `TARGET` or `IMPORTED`. Target inventory keeps
+application-catalog availability separate from local installed-copy
+availability. Imported copies need no selected target and carry no target scope
+or authenticated application provenance. Handles, imports, resources, opaque
+payload references, and continuations are transient current-process evidence:
+removal, idle expiry, target rotation for target-owned entries, shutdown, or
+restart invalidates the applicable values. Successful reads refresh the shared
+artifact last-use time; rejected or canceled reads do not.
+
+Trace pages accept at most 64 items. Payload and raw reads use exact source-byte
+offsets, default to 64 KiB, and accept at most 16 MiB (16,777,216 source bytes)
+per call. A larger request returns `LIMIT_EXCEEDED` with `rangeBytes` and the
+shared limit; successful responses are never silently shortened to the limit.
+Continue while `hasMore` is true to reconstruct all retained bytes. Base64
+expansion is response encoding and does not change the reported source-byte
+offsets or total length.
 
 Top-level activity `observedAt` is the time the shared window was queried;
 `continuity.observedAt` is the upstream interval observation fact. A reset or
 `beginningUnavailable` explicitly limits the returned interval. When live
 monitoring is unavailable, active-execution application operations and recent
 activity return `LIVE_MONITORING_UNAVAILABLE`; retained activity is not exposed
-as current. Finalized trace discovery and analysis are intentionally outside
-this surface and belong to the later trace-inspection capability.
+as current. Finalized trace discovery and analysis use the trace-inspection
+tools above; active execution snapshots remain provisional and are not tailed
+as traces.
 
 Regenerating or disabling freezes new work, cancels and drains admitted work,
 and closes temporary SDK sessions before publishing the credential change.

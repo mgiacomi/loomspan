@@ -113,6 +113,10 @@ func TestExpiryDefersRemovalWhileLeased(t *testing.T) {
 	if snapshot.AcquiredCount != 1 {
 		t.Fatalf("expected 1 pinned entry after TTL, got %d", snapshot.AcquiredCount)
 	}
+	lookup, domain := svc.Lookup(targetRef(scope.ID), "trace-1")
+	if domain != nil || lookup.LocalAvailable {
+		t.Fatalf("expired pinned entry remained inventory-visible: lookup=%#v domain=%v", lookup, domain)
+	}
 
 	// Close the lease; the deferred removal should trigger.
 	_ = lease.Close(true)

@@ -14,9 +14,9 @@ import (
 // number of trailing CR/LF bytes. Logical records (chunk envelopes) carry an
 // additional reconstructed payload reference.
 type RawAddress struct {
-	Offset           int64
-	Length           int64
-	TerminatorLength int64
+	Offset           int64 `json:"offset"`
+	Length           int64 `json:"length"`
+	TerminatorLength int64 `json:"terminatorLength"`
 }
 
 // Record is one parsed physical NDJSON record. It carries the canonical
@@ -160,6 +160,7 @@ type attemptResult struct {
 	PayloadID             string `json:"payloadId,omitempty"`
 	Usage                 Usage  `json:"usage"`
 	UsageComplete         bool   `json:"usageComplete"`
+	ownerSequence         int64
 }
 
 // retryResult is one retry sequence's aggregated neutral result.
@@ -175,6 +176,13 @@ type validationLink struct {
 	RetrySequenceID string `json:"retrySequenceId"`
 	AttemptID       string `json:"attemptId"`
 	AttemptNumber   int64  `json:"attemptNumber"`
+	sequence        int64
+}
+
+type persistedFrameResult struct {
+	frameResult
+	GapKinds         []string `json:"gapKinds,omitempty"`
+	UncertaintyKinds []string `json:"uncertaintyKinds,omitempty"`
 }
 
 // frameResult is one frame's neutral hierarchy, timing, and usage result.
@@ -228,6 +236,7 @@ type DiagnosticDescriptor struct {
 	Truncated         bool   `json:"truncated"`
 	CaptureLimitBytes int    `json:"captureLimitBytes"`
 	DecodedBytes      int    `json:"decodedBytes"`
+	PayloadRef        string `json:"payloadRef,omitempty"`
 }
 
 // gapResult records one structural gap (for example an open frame never closed).

@@ -174,21 +174,10 @@ func (router *Router) artifactClearAllUnused(response http.ResponseWriter, reque
 // enrichTracePage enriches each trace in a page with local artifact
 // availability and opaque handle from the artifact service.
 func (router *Router) enrichTracePage(scope target.ScopeID, page observability.Page[observability.Trace]) observability.Page[observability.Trace] {
-	if router.options.Artifacts == nil {
+	if router.options.TraceInventory == nil {
 		return page
 	}
-	for i := range page.Items {
-		lookup, domain := router.options.Artifacts.Lookup(evidence.ForTarget(scope), page.Items[i].TraceID)
-		if domain != nil {
-			continue
-		}
-		if lookup.LocalAvailable {
-			page.Items[i].LocalAvailable = true
-			page.Items[i].ArtifactHandle = string(lookup.Handle)
-			page.Items[i].ApplicationAvailability = string(lookup.ApplicationAvailability)
-		}
-	}
-	return page
+	return router.options.TraceInventory.EnrichTargetCatalogPage(scope, page)
 }
 
 // enrichTrace enriches a single trace with local artifact availability.

@@ -1,13 +1,118 @@
 package traceanalysis
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"errors"
+	"fmt"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 )
+
+func TestRangeCandidateExactnessAtOneFourSixteenAndThirtyTwoMiB(t *testing.T) {
+	for _, size := range []int{1 << 20, 4 << 20, 16 << 20, 32 << 20} {
+		t.Run(fmt.Sprintf("%dMiB", size>>20), func(t *testing.T) {
+			textSource := bytes.Repeat([]byte("loomspan"), size/8)
+			encoding, content, start, end := encodeRangeContent(textSource, "text/plain", 0, int64(len(textSource)), int64(len(textSource)))
+			if encoding != RangeEncodingText || start != 0 || end != int64(len(textSource)) || sha256.Sum256(content) != sha256.Sum256(textSource) {
+				t.Fatal("UTF-8 candidate range was not exact")
+			}
+			binarySource := bytes.Repeat([]byte{0xff, 0x00, 0x80, 0x7f}, size/4)
+			encoding, content, start, end = encodeRangeContent(binarySource, "application/octet-stream", 0, int64(len(binarySource)), int64(len(binarySource)))
+			decoded, err := base64.StdEncoding.DecodeString(string(content))
+			if err != nil || encoding != RangeEncodingBase64 || start != 0 || end != int64(len(binarySource)) || sha256.Sum256(decoded) != sha256.Sum256(binarySource) {
+				t.Fatalf("base64 candidate range was not exact: %v", err)
+			}
+		})
+	}
+}
+
+func TestSixteenMiBPayloadRangeExactConcurrentCancellableAndDeadlineBound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("large framing gate")
+	}
+	const size = 16 << 20
+	h := newServiceTestHarness(t, "t", chunkedPayloadTrace(size, 64))
+	read := func(ctx context.Context) ([]byte, *consolecore.Error) {
+		result, domain := h.service.ReadPayloadRange(ctx, targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, Source: RangeSourcePayload, PayloadID: "payload-1", Start: 0, MaxBytes: size})
+		return result.Content, domain
+	}
+	want := sha256.Sum256(bytes.Repeat([]byte("x"), size))
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			content, domain := read(context.Background())
+			if domain != nil || len(content) != size || sha256.Sum256(content) != want {
+				errs <- fmt.Errorf("content=%d domain=%v", len(content), domain)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, domain := read(cancelled); domain == nil {
+		t.Fatal("canceled range succeeded")
+	}
+	deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
+	defer cancelDeadline()
+	if _, domain := read(deadline); domain == nil || !errors.Is(domain, context.DeadlineExceeded) {
+		t.Fatalf("expired deadline domain=%v", domain)
+	}
+}
+
+func TestRangeReadObservesCancellationAfterIOStarts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := newBlockingReadCloser()
+	completed := make(chan error, 1)
+	go func() {
+		_, err := readRangeBytes(ctx, reader, make([]byte, 1))
+		completed <- err
+	}()
+	<-reader.started
+	cancel()
+	select {
+	case err := <-completed:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("range read did not stop after cancellation")
+	}
+}
+
+func TestSixteenMiBBase64FramingHasBoundedAllocationEnvelope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("large framing gate")
+	}
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	source := bytes.Repeat([]byte{0xff, 0x00, 0x80, 0x7f}, (16<<20)/4)
+	encoding, content, _, _ := encodeRangeContent(source, "application/octet-stream", 0, int64(len(source)), int64(len(source)))
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(content)
+	if encoding != RangeEncodingBase64 || len(content) != base64.StdEncoding.EncodedLen(len(source)) {
+		t.Fatalf("encoding=%s content=%d", encoding, len(content))
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 96<<20 {
+		t.Fatalf("16 MiB base64 framing allocated %d bytes; envelope is %d", allocated, 96<<20)
+	}
+}
 
 func TestServiceReadRawArtifactRange(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)

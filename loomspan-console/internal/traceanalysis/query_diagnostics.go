@@ -23,6 +23,18 @@ func (service *Service) GetFailureDiagnostic(ctx context.Context, scopeID eviden
 	}
 	success := false
 	defer func() { _ = lease.Close(success) }()
+	diagnostic, domain := service.getFailureDiagnosticWithLease(ctx, lease, scopeID, req)
+	if domain != nil {
+		return FailureDiagnostic{}, domain
+	}
+	success = true
+	return diagnostic, nil
+}
+
+// getFailureDiagnosticWithLease performs the diagnostic read without owning
+// or refreshing the lease. Composite operations mark their one shared lease
+// successful only after all validation and materialization completes.
+func (service *Service) getFailureDiagnosticWithLease(ctx context.Context, lease *artifact.Lease, scopeID evidence.Reference, req FailureDiagnosticRequest) (FailureDiagnostic, *consolecore.Error) {
 	if err := ctx.Err(); err != nil {
 		return FailureDiagnostic{}, canceledError(err)
 	}
@@ -91,7 +103,6 @@ func (service *Service) GetFailureDiagnostic(ctx context.Context, scopeID eviden
 	if err := ctx.Err(); err != nil {
 		return FailureDiagnostic{}, canceledError(err)
 	}
-	success = true
 	return FailureDiagnostic{Context: traceCtx, FailureID: fact.FailureID, Descriptor: desc, Text: *selected.Text}, nil
 }
 

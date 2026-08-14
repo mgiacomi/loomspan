@@ -73,7 +73,7 @@ func TestRuntimeOutputSucceedsForEveryTargetStatusFactAndRejectsInvalidInvariant
 	for name, status := range statuses {
 		t.Run(name, func(t *testing.T) {
 			output, err := buildRuntimeOutput(context.Background(), func() consolecore.StatusSnapshot { return status }, credentials)
-			if err != nil || len(output.Capabilities) != 4 || output.Capabilities[0] != RuntimeStatusCapability || output.Status != status {
+			if err != nil || len(output.Capabilities) != 6 || output.Capabilities[0] != RuntimeStatusCapability || output.Status != status {
 				t.Fatalf("output=%+v err=%v", output, err)
 			}
 		})

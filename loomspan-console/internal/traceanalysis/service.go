@@ -130,11 +130,19 @@ func readManifest(lease *artifact.Lease) (manifest, error) {
 // offset of the next length-prefixed row. Continuations therefore seek
 // directly to their next row instead of rereading every earlier page.
 func scanFactRows[T any](lease *artifact.Lease, name component, start int64, visit func(row T, next int64) bool) error {
+	return scanFactRowsContext(context.Background(), lease, name, start, visit)
+}
+
+// scanFactRowsContext is the cancellable form used by page enrichment and
+// other request work that may traverse a fact component.
+func scanFactRowsContext[T any](ctx context.Context, lease *artifact.Lease, name component, start int64, visit func(row T, next int64) bool) error {
 	reader, err := lease.OpenComponent(artifact.ComponentName(name))
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
+	stopCancellationClose := closeReaderOnCancellation(ctx, reader)
+	defer stopCancellationClose()
 	if start < 0 {
 		return fmt.Errorf("negative fact index offset %d", start)
 	}
@@ -143,6 +151,9 @@ func scanFactRows[T any](lease *artifact.Lease, name component, start int64, vis
 	}
 	position := start
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		row, err := readLengthPrefixed(reader)
 		if err == io.EOF {
 			return nil

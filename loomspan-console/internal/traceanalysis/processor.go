@@ -341,22 +341,27 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 			gaps = append(gaps, gapResult{Kind: "MODEL_ATTEMPT_RESPONSE_MISSING", AttemptID: attemptID})
 		}
 	}
+	failureResults := failureResultsInOrder(failures)
+	payloadResults := payloadIndexRows(assembler)
+	recordFacts := buildPersistedRecordFacts(attemptResults, retryResults, validationLinks, failureResults, payloadResults)
 
 	// Write immutable indexes.
 	if d := writer.flushRecordIndex(); d != nil {
 		return artifact.ProcessResult{}, d
 	}
-	if d := writer.writeFactRows(ComponentFrameIndex, toAnySlice(frameResults)); d != nil {
+	limitations := indexFrameLimitations(gaps, uncertainties)
+	canonicalFrames := persistFrameLimitations(frameResults, limitations)
+	if d := writer.writeFactRows(ComponentFrameIndex, toAnySlice(canonicalFrames)); d != nil {
 		return artifact.ProcessResult{}, d
 	}
 	durationFrames := append([]frameResult(nil), frameResults...)
 	sortFrameResults(durationFrames, FrameOrderDurationDesc)
-	if d := writer.writeFactRows(ComponentFrameDuration, toAnySlice(durationFrames)); d != nil {
+	if d := writer.writeFactRows(ComponentFrameDuration, toAnySlice(persistFrameLimitations(durationFrames, limitations))); d != nil {
 		return artifact.ProcessResult{}, d
 	}
 	usageFrames := append([]frameResult(nil), frameResults...)
 	sortFrameResults(usageFrames, FrameOrderUsageDesc)
-	if d := writer.writeFactRows(ComponentFrameUsage, toAnySlice(usageFrames)); d != nil {
+	if d := writer.writeFactRows(ComponentFrameUsage, toAnySlice(persistFrameLimitations(usageFrames, limitations))); d != nil {
 		return artifact.ProcessResult{}, d
 	}
 	if d := writer.writeFactRows(ComponentAttemptIndex, toAnySlice(attemptResults)); d != nil {
@@ -368,7 +373,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	if d := writer.writeFactRows(ComponentValidationIdx, toAnySlice(validationLinks)); d != nil {
 		return artifact.ProcessResult{}, d
 	}
-	if d := writer.writeFactRows(ComponentFailureIndex, failureFacts(failures)); d != nil {
+	if d := writer.writeFactRows(ComponentFailureIndex, toAnySlice(failureResults)); d != nil {
 		return artifact.ProcessResult{}, d
 	}
 	usageFacts := buildUsageFacts(usage, unattributed)
@@ -381,7 +386,10 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	if d := writer.writeFactRows(ComponentUncertainty, toAnySlice(uncertainties)); d != nil {
 		return artifact.ProcessResult{}, d
 	}
-	if d := writer.writeFactRows(ComponentPayloadIndex, payloadFacts(assembler)); d != nil {
+	if d := writer.writeFactRows(ComponentPayloadIndex, toAnySlice(payloadResults)); d != nil {
+		return artifact.ProcessResult{}, d
+	}
+	if d := writer.writeRecordFacts(recordFacts); d != nil {
 		return artifact.ProcessResult{}, d
 	}
 
@@ -516,6 +524,7 @@ func buildAttemptResults(g *attemptGraph, completion *Record) ([]attemptResult, 
 			PayloadID:             a.payloadID,
 			Usage:                 a.usage,
 			UsageComplete:         a.usageComplete,
+			ownerSequence:         a.ownerSequence,
 		})
 		if _, seen := retryUsage[a.retrySequenceID]; !seen {
 			retryOrder = append(retryOrder, a.retrySequenceID)
@@ -571,11 +580,52 @@ func buildUsageFacts(c *usageCalculator, unattributed Usage) []any {
 	}
 }
 
-// failureFacts produces the neutral failure facts written to the failure index.
-func failureFacts(g *failureGraph) []any {
-	out := make([]any, 0, len(g.order))
+func failureResultsInOrder(g *failureGraph) []failureResult {
+	out := make([]failureResult, 0, len(g.order))
 	for _, id := range g.order {
 		out = append(out, g.failures[id])
+	}
+	return out
+}
+
+type frameLimitationIndex struct {
+	gapKindsByFrameID    map[string][]string
+	gapKindsByAttemptID  map[string][]string
+	uncertaintyKindsByID map[string][]string
+}
+
+func indexFrameLimitations(gaps []gapResult, uncertainties []uncertaintyResult) frameLimitationIndex {
+	index := frameLimitationIndex{
+		gapKindsByFrameID:    make(map[string][]string),
+		gapKindsByAttemptID:  make(map[string][]string),
+		uncertaintyKindsByID: make(map[string][]string),
+	}
+	for _, gap := range gaps {
+		if gap.FrameID != "" {
+			index.gapKindsByFrameID[gap.FrameID] = appendUnique(index.gapKindsByFrameID[gap.FrameID], gap.Kind)
+		}
+		if gap.AttemptID != "" {
+			index.gapKindsByAttemptID[gap.AttemptID] = appendUnique(index.gapKindsByAttemptID[gap.AttemptID], gap.Kind)
+		}
+	}
+	for _, uncertainty := range uncertainties {
+		if uncertainty.FrameID != "" {
+			index.uncertaintyKindsByID[uncertainty.FrameID] = appendUnique(index.uncertaintyKindsByID[uncertainty.FrameID], uncertainty.Kind)
+		}
+	}
+	return index
+}
+
+func persistFrameLimitations(frames []frameResult, limitations frameLimitationIndex) []persistedFrameResult {
+	out := make([]persistedFrameResult, 0, len(frames))
+	for _, frame := range frames {
+		gapKinds := append([]string{}, limitations.gapKindsByFrameID[frame.FrameID]...)
+		for _, attemptID := range frame.AttemptIDs {
+			for _, kind := range limitations.gapKindsByAttemptID[attemptID] {
+				gapKinds = appendUnique(gapKinds, kind)
+			}
+		}
+		out = append(out, persistedFrameResult{frameResult: frame, GapKinds: gapKinds, UncertaintyKinds: limitations.uncertaintyKindsByID[frame.FrameID]})
 	}
 	return out
 }
@@ -659,11 +709,9 @@ func decodeUniqueObject(raw json.RawMessage) (map[string]json.RawMessage, bool) 
 	return fields, true
 }
 
-// payloadFacts produces the neutral payload descriptor facts written to the
-// payload index.
-func payloadFacts(a *payloadAssembler) []any {
+func payloadIndexRows(a *payloadAssembler) []payloadIndexRow {
 	descs := a.descriptorsInOrder()
-	out := make([]any, 0, len(descs))
+	out := make([]payloadIndexRow, 0, len(descs))
 	for _, d := range descs {
 		out = append(out, payloadIndexRow{
 			PayloadID:   d.PayloadID,

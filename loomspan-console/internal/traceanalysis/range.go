@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
+	"mime"
 	"unicode/utf8"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
@@ -25,6 +26,9 @@ type RangeRequest struct {
 	Source RangeSource
 	// PayloadID is required when Source == RangeSourcePayload.
 	PayloadID string
+	// PayloadRef is the adapter-safe opaque selector used by MCP. Browser
+	// compatibility requests are translated from PayloadID at their adapter.
+	PayloadRef string
 	// RecordSequence is required when Source == RangeSourceRawRecord.
 	RecordSequence int64
 }
@@ -68,8 +72,11 @@ func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Le
 		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf := make([]byte, maxBytes)
-	n, err := io.ReadFull(reader, buf)
+	n, err := readRangeBytes(ctx, reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		if ctx.Err() != nil {
+			return ByteRangeResult{}, canceledError(ctx.Err())
+		}
 		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf = buf[:n]
@@ -137,8 +144,11 @@ func (service *Service) readRawRecordRange(ctx context.Context, lease *artifact.
 		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf := make([]byte, maxBytes)
-	n, err := io.ReadFull(reader, buf)
+	n, err := readRangeBytes(ctx, reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		if ctx.Err() != nil {
+			return ByteRangeResult{}, canceledError(ctx.Err())
+		}
 		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf = buf[:n]
@@ -206,8 +216,11 @@ func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifac
 		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf := make([]byte, maxBytes)
-	n, err := io.ReadFull(reader, buf)
+	n, err := readRangeBytes(ctx, reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		if ctx.Err() != nil {
+			return ByteRangeResult{}, canceledError(ctx.Err())
+		}
 		return ByteRangeResult{}, storageError(scopeID.ID(), err)
 	}
 	buf = buf[:n]
@@ -236,6 +249,16 @@ func (service *Service) readRawArtifactRange(ctx context.Context, lease *artifac
 		NextCursor:  nextCursor,
 		HasMore:     hasMore,
 	}, nil
+}
+
+func readRangeBytes(ctx context.Context, reader io.ReadCloser, buf []byte) (int, error) {
+	stopCancellationClose := closeReaderOnCancellation(ctx, reader)
+	defer stopCancellationClose()
+	n, err := io.ReadFull(&contextChunkReader{ctx: ctx, reader: reader}, buf)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return n, contextErr
+	}
+	return n, err
 }
 
 // resolveRangeBounds resolves the start offset and max bytes for a range
@@ -287,7 +310,11 @@ func encodeRangeContent(buf []byte, contentType string, start, end, total int64)
 // isTextContentType reports whether a content type should be treated as text
 // for UTF-8 boundary adjustment.
 func isTextContentType(contentType string) bool {
-	switch contentType {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = contentType
+	}
+	switch mediaType {
 	case "text/plain", "application/json", "application/x-ndjson":
 		return true
 	default:

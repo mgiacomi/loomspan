@@ -1,0 +1,38 @@
+[
+  {
+    "id": "loomspan.trace-inspection.v1",
+    "requiredTools": [
+      "LOOMSPAN_list_traces",
+      "LOOMSPAN_get_trace",
+      "LOOMSPAN_query_trace_frames",
+      "LOOMSPAN_query_trace_records",
+      "LOOMSPAN_read_trace_payload"
+    ],
+    "requiredSemanticFixtures": [
+      "trace.target-acquisition",
+      "trace.target-free-import",
+      "trace.source-binding",
+      "trace.availability",
+      "trace.parity",
+      "trace.fact-projection",
+      "trace.continuation",
+      "trace.lifecycle",
+      "trace.cancellation",
+      "trace.expiration",
+      "trace.concurrent-clients",
+      "trace.joined-adapters",
+      "trace.schema-errors"
+    ]
+  },
+  {
+    "id": "loomspan.raw-artifact-inspection.v1",
+    "requiredTools": ["LOOMSPAN_read_trace_artifact"],
+    "requiredSemanticFixtures": [
+      "raw.exact-range",
+      "raw.sources-continuation",
+      "raw.lifecycle-errors",
+      "raw.no-acquisition",
+      "raw.inert-content"
+    ]
+  }
+]

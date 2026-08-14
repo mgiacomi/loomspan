@@ -78,14 +78,14 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	}
 	listed := post(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
 	tools := listed["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 6 || !rawToolNamesContain(tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName) {
+	if len(tools) != 12 || !rawToolNamesContain(tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName, ReadTraceArtifactToolName) {
 		t.Fatalf("tools = %+v", tools)
 	}
 	called := post(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"LOOMSPAN_get_runtime","arguments":{}}}`)
 	callResult := called["result"].(map[string]any)
 	structured := callResult["structuredContent"].(map[string]any)
 	capabilities := structured["capabilities"].([]any)
-	if len(capabilities) != 4 || capabilities[0] != RuntimeStatusCapability || callResult["isError"] == true {
+	if len(capabilities) != 6 || capabilities[0] != RuntimeStatusCapability || callResult["isError"] == true {
 		t.Fatalf("runtime result = %+v", callResult)
 	}
 	skillCall := post(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"LOOMSPAN_list_skills","arguments":{"pageSize":1}}}`)
@@ -94,7 +94,7 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	}
 	templateList := post(`{"jsonrpc":"2.0","id":5,"method":"resources/templates/list","params":{}}`)
 	templates := templateList["result"].(map[string]any)["resourceTemplates"].([]any)
-	if len(templates) != 1 || templates[0].(map[string]any)["uriTemplate"] != SkillResourceTemplate {
+	if len(templates) != 7 || !rawTemplateNamesContain(templates, SkillResourceTemplate, TargetTraceSummaryResourceTemplate, TargetTraceFrameResourceTemplate, TargetTraceRecordResourceTemplate, ImportedTraceSummaryResourceTemplate, ImportedTraceFrameResourceTemplate, ImportedTraceRecordResourceTemplate) {
 		t.Fatalf("resource templates = %+v", templates)
 	}
 	resourceURI := skillResourceURI("scope-1", "skill-☃")
@@ -161,7 +161,7 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 6 || !toolNamesContain(tools.Tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName) {
+	if len(tools.Tools) != 12 || !toolNamesContain(tools.Tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName, ReadTraceArtifactToolName) {
 		t.Fatalf("tools = %+v", tools.Tools)
 	}
 	for _, tool := range tools.Tools {
@@ -172,7 +172,7 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 		}
 	}
 	templates, err := session.ListResourceTemplates(context.Background(), nil)
-	if err != nil || len(templates.ResourceTemplates) != 1 || templates.ResourceTemplates[0].URITemplate != SkillResourceTemplate {
+	if err != nil || len(templates.ResourceTemplates) != 7 || !templateNamesContain(templates.ResourceTemplates, SkillResourceTemplate, TargetTraceSummaryResourceTemplate, TargetTraceFrameResourceTemplate, TargetTraceRecordResourceTemplate, ImportedTraceSummaryResourceTemplate, ImportedTraceFrameResourceTemplate, ImportedTraceRecordResourceTemplate) {
 		t.Fatalf("resource templates=%#v err=%v", templates, err)
 	}
 	var runtimeTool *mcp.Tool
@@ -349,6 +349,32 @@ func toolNamesContain(tools []*mcp.Tool, names ...string) bool {
 	found := make(map[string]bool)
 	for _, tool := range tools {
 		found[tool.Name] = true
+	}
+	for _, name := range names {
+		if !found[name] {
+			return false
+		}
+	}
+	return true
+}
+
+func rawTemplateNamesContain(templates []any, names ...string) bool {
+	found := make(map[string]bool)
+	for _, template := range templates {
+		found[template.(map[string]any)["uriTemplate"].(string)] = true
+	}
+	for _, name := range names {
+		if !found[name] {
+			return false
+		}
+	}
+	return true
+}
+
+func templateNamesContain(templates []*mcp.ResourceTemplate, names ...string) bool {
+	found := make(map[string]bool)
+	for _, template := range templates {
+		found[template.URITemplate] = true
 	}
 	for _, name := range names {
 		if !found[name] {

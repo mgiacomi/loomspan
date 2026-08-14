@@ -156,11 +156,12 @@ func collectFactPage[T, U any](
 	name component,
 	start int,
 	pageSize int,
-	project func(T) U,
+	project func(T) (U, error),
 ) ([]U, int64, bool, *consolecore.Error) {
 	items := make([]U, 0, pageSize)
 	var nextPosition int64
 	var canceled *consolecore.Error
+	var projectionErr error
 	hasMore := false
 	err := scanFactRows[T](lease, name, int64(start), func(row T, next int64) bool {
 		if e := ctx.Err(); e != nil {
@@ -171,12 +172,20 @@ func collectFactPage[T, U any](
 			hasMore = true
 			return true
 		}
-		items = append(items, project(row))
+		item, err := project(row)
+		if err != nil {
+			projectionErr = err
+			return true
+		}
+		items = append(items, item)
 		nextPosition = next
 		return false
 	})
 	if canceled != nil {
 		return nil, 0, false, canceled
+	}
+	if projectionErr != nil {
+		return nil, 0, false, invalidityErrorWithCause(CategoryUnsupportedValue, scopeID.ID(), projectionErr)
 	}
 	if err != nil {
 		return nil, 0, false, storageError(scopeID.ID(), err)
@@ -215,7 +224,15 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID evidence.Refe
 	if err != nil {
 		return Page[AttemptSummary]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[attemptResult, AttemptSummary](ctx, lease, scopeID, ComponentAttemptIndex, startIdx, pageSize, func(a attemptResult) AttemptSummary {
+	items, nextPosition, hasMore, domain := collectFactPage[attemptResult, AttemptSummary](ctx, lease, scopeID, ComponentAttemptIndex, startIdx, pageSize, func(a attemptResult) (AttemptSummary, error) {
+		payloadRef := ""
+		if a.PayloadID != "" {
+			var err error
+			payloadRef, err = encodeContentReference(scopeID, query.Handle, contentKindPayload, a.PayloadID, nil)
+			if err != nil {
+				return AttemptSummary{}, err
+			}
+		}
 		return AttemptSummary{
 			Context:               traceCtx,
 			RetrySequenceID:       a.RetrySequenceID,
@@ -233,9 +250,10 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID evidence.Refe
 			ProviderErrorType:     a.ProviderErrorType,
 			ProviderErrorCode:     a.ProviderErrorCode,
 			PayloadID:             a.PayloadID,
+			PayloadRef:            payloadRef,
 			Usage:                 a.Usage,
 			UsageComplete:         a.UsageComplete,
-		}
+		}, nil
 	})
 	if domain != nil {
 		return Page[AttemptSummary]{}, domain
@@ -289,13 +307,13 @@ func (service *Service) QueryRetries(ctx context.Context, scopeID evidence.Refer
 	if err != nil {
 		return Page[RetrySummary]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[retryResult, RetrySummary](ctx, lease, scopeID, ComponentRetryIndex, startIdx, pageSize, func(r retryResult) RetrySummary {
+	items, nextPosition, hasMore, domain := collectFactPage[retryResult, RetrySummary](ctx, lease, scopeID, ComponentRetryIndex, startIdx, pageSize, func(r retryResult) (RetrySummary, error) {
 		return RetrySummary{
 			Context:         traceCtx,
 			RetrySequenceID: r.RetrySequenceID,
 			Usage:           r.Usage,
 			UsageComplete:   r.UsageComplete,
-		}
+		}, nil
 	})
 	if domain != nil {
 		return Page[RetrySummary]{}, domain
@@ -349,14 +367,14 @@ func (service *Service) QueryValidationLinks(ctx context.Context, scopeID eviden
 	if err != nil {
 		return Page[ValidationSummary]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[validationLink, ValidationSummary](ctx, lease, scopeID, ComponentValidationIdx, startIdx, pageSize, func(v validationLink) ValidationSummary {
+	items, nextPosition, hasMore, domain := collectFactPage[validationLink, ValidationSummary](ctx, lease, scopeID, ComponentValidationIdx, startIdx, pageSize, func(v validationLink) (ValidationSummary, error) {
 		return ValidationSummary{
 			Context:         traceCtx,
 			Status:          v.Status,
 			RetrySequenceID: v.RetrySequenceID,
 			AttemptID:       v.AttemptID,
 			AttemptNumber:   v.AttemptNumber,
-		}
+		}, nil
 	})
 	if domain != nil {
 		return Page[ValidationSummary]{}, domain
@@ -410,14 +428,23 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID evidence.Refe
 	if err != nil {
 		return Page[FailureSummary]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[failureSummary, FailureSummary](ctx, lease, scopeID, ComponentFailureIndex, startIdx, pageSize, func(f failureSummary) FailureSummary {
+	items, nextPosition, hasMore, domain := collectFactPage[failureSummary, FailureSummary](ctx, lease, scopeID, ComponentFailureIndex, startIdx, pageSize, func(f failureSummary) (FailureSummary, error) {
+		diagnostics := append([]DiagnosticDescriptor(nil), f.Diagnostics...)
+		for index := range diagnostics {
+			ordinal := diagnostics[index].Ordinal
+			var err error
+			diagnostics[index].PayloadRef, err = encodeContentReference(scopeID, query.Handle, contentKindFailureDiagnostic, f.FailureID, &ordinal)
+			if err != nil {
+				return FailureSummary{}, err
+			}
+		}
 		return FailureSummary{
 			Context: traceCtx, FailureID: f.FailureID, Terminal: f.Terminal,
 			Sequence: f.Sequence, TimestampMillis: f.TimestampMillis, RecordType: f.RecordType,
 			FrameID: f.FrameID, Route: f.Route, AttemptID: f.AttemptID,
 			RetrySequenceID: f.RetrySequenceID, ValidationStatus: f.ValidationStatus,
-			ExceptionType: f.ExceptionType, ContextSummary: f.ContextSummary, Diagnostics: f.Diagnostics,
-		}
+			ExceptionType: f.ExceptionType, ContextSummary: f.ContextSummary, Diagnostics: diagnostics,
+		}, nil
 	})
 	if domain != nil {
 		return Page[FailureSummary]{}, domain
@@ -489,16 +516,21 @@ func (service *Service) QueryPayloads(ctx context.Context, scopeID evidence.Refe
 	if err != nil {
 		return Page[PayloadDescriptor]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[payloadIndexRow, PayloadDescriptor](ctx, lease, scopeID, ComponentPayloadIndex, startIdx, pageSize, func(r payloadIndexRow) PayloadDescriptor {
+	items, nextPosition, hasMore, domain := collectFactPage[payloadIndexRow, PayloadDescriptor](ctx, lease, scopeID, ComponentPayloadIndex, startIdx, pageSize, func(r payloadIndexRow) (PayloadDescriptor, error) {
+		payloadRef, err := encodeContentReference(scopeID, query.Handle, contentKindPayload, r.PayloadID, nil)
+		if err != nil {
+			return PayloadDescriptor{}, err
+		}
 		return PayloadDescriptor{
 			Context:     traceCtx,
 			PayloadID:   r.PayloadID,
+			PayloadRef:  payloadRef,
 			Sequence:    r.Sequence,
 			ContentType: r.ContentType,
 			ChunkCount:  r.ChunkCount,
 			StoreOffset: r.StoreOffset,
 			StoreLength: r.StoreLength,
-		}
+		}, nil
 	})
 	if domain != nil {
 		return Page[PayloadDescriptor]{}, domain
@@ -552,8 +584,8 @@ func (service *Service) QueryGaps(ctx context.Context, scopeID evidence.Referenc
 	if err != nil {
 		return Page[Gap]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[gapResult, Gap](ctx, lease, scopeID, ComponentGapIndex, startIdx, pageSize, func(g gapResult) Gap {
-		return Gap{Context: traceCtx, Kind: g.Kind, FrameID: g.FrameID, AttemptID: g.AttemptID}
+	items, nextPosition, hasMore, domain := collectFactPage[gapResult, Gap](ctx, lease, scopeID, ComponentGapIndex, startIdx, pageSize, func(g gapResult) (Gap, error) {
+		return Gap{Context: traceCtx, Kind: g.Kind, FrameID: g.FrameID, AttemptID: g.AttemptID}, nil
 	})
 	if domain != nil {
 		return Page[Gap]{}, domain
@@ -605,8 +637,8 @@ func (service *Service) QueryUncertainties(ctx context.Context, scopeID evidence
 	if err != nil {
 		return Page[Uncertainty]{}, storageError(scopeID.ID(), err)
 	}
-	items, nextPosition, hasMore, domain := collectFactPage[uncertaintyResult, Uncertainty](ctx, lease, scopeID, ComponentUncertainty, startPosition, pageSize, func(u uncertaintyResult) Uncertainty {
-		return Uncertainty{Context: traceCtx, Kind: u.Kind, FrameID: u.FrameID}
+	items, nextPosition, hasMore, domain := collectFactPage[uncertaintyResult, Uncertainty](ctx, lease, scopeID, ComponentUncertainty, startPosition, pageSize, func(u uncertaintyResult) (Uncertainty, error) {
+		return Uncertainty{Context: traceCtx, Kind: u.Kind, FrameID: u.FrameID}, nil
 	})
 	if domain != nil {
 		return Page[Uncertainty]{}, domain

@@ -17,6 +17,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 )
 
 const csrfHeader = "X-loomspan-Console-CSRF"
@@ -66,6 +67,7 @@ type Options struct {
 	Live                  *live.Service
 	Artifacts             ArtifactService
 	TraceAnalysis         TraceAnalysisService
+	TraceInventory        *traceinventory.Service
 	TargetAddressDefault  string
 	ApplicationKeyDefault string
 	MCP                   MCPManager

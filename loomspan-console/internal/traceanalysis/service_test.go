@@ -2,6 +2,7 @@ package traceanalysis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -107,7 +108,7 @@ func newServiceTestHarness(t *testing.T, traceID, ndjson string) *serviceTestHar
 
 	traceAnalysisService := NewService(nil)
 	artifactSvc, err := artifact.New(artifact.Config{
-		MaxBytes: 10 << 20,
+		MaxBytes: 128 << 20,
 		IdleTTL:  time.Hour,
 	}, artifact.Dependencies{
 		Lifetime:  context.Background(),
@@ -559,6 +560,22 @@ func TestServiceGetFailureDiagnostic(t *testing.T) {
 	if domain != nil || len(page.Items) != 1 || len(page.Items[0].Diagnostics) != 1 {
 		t.Fatalf("failure descriptors: page=%+v domain=%v", page, domain)
 	}
+	ref := page.Items[0].Diagnostics[0].PayloadRef
+	if ref == "" {
+		t.Fatal("diagnostic payload reference is empty")
+	}
+	first, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, Start: 0, MaxBytes: 2})
+	if domain != nil || string(first.Content) != "st" || !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("first diagnostic range=%#v domain=%v", first, domain)
+	}
+	second, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, ContinueCursor: first.NextCursor, MaxBytes: 2})
+	if domain != nil || string(second.Content) != "ac" || !second.HasMore {
+		t.Fatalf("second diagnostic range=%#v domain=%v", second, domain)
+	}
+	third, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, ContinueCursor: second.NextCursor, MaxBytes: 2})
+	if domain != nil || string(third.Content) != "k" || third.HasMore {
+		t.Fatalf("third diagnostic range=%#v domain=%v", third, domain)
+	}
 	result, domain := h.service.GetFailureDiagnostic(context.Background(), targetEvidence(h.scopeID), FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0})
 	if domain != nil {
 		t.Fatalf("GetFailureDiagnostic: %v", domain)
@@ -588,6 +605,32 @@ func TestServiceGetFailureDiagnostic(t *testing.T) {
 	cancel()
 	if _, domain := h.service.GetFailureDiagnostic(cancelled, targetEvidence(h.scopeID), FailureDiagnosticRequest{Handle: h.handle, FailureID: "failure-diagnostic", Ordinal: 0}); domain == nil {
 		t.Fatal("expected cancellation error")
+	}
+}
+
+func TestDiagnosticRangeFailureDoesNotRefreshArtifactLastUse(t *testing.T) {
+	raw := startedRecord(1) + "\n" + errorRecord(2, "failure-diagnostic", false) + "\n" + completionRecord(3, "SUCCEEDED", 0, 0, 0, "") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	failures, domain := h.service.QueryFailures(context.Background(), targetEvidence(h.scopeID), FailureQuery{Handle: h.handle, PageSize: 10})
+	if domain != nil || len(failures.Items) == 0 || len(failures.Items[0].Diagnostics) == 0 {
+		t.Fatalf("failures=%#v domain=%v", failures, domain)
+	}
+	ref := failures.Items[0].Diagnostics[0].PayloadRef
+	before, snapshotDomain := h.artifacts.StorageSnapshot()
+	if snapshotDomain != nil || len(before.Entries) != 1 {
+		t.Fatalf("before=%#v domain=%v", before, snapshotDomain)
+	}
+	time.Sleep(time.Millisecond)
+	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, Start: 1 << 20, MaxBytes: 1})
+	if domain == nil || domain.Code != consolecore.CodeInvalidArgument {
+		t.Fatalf("out-of-bounds diagnostic range domain=%v", domain)
+	}
+	after, snapshotDomain := h.artifacts.StorageSnapshot()
+	if snapshotDomain != nil || len(after.Entries) != 1 {
+		t.Fatalf("after=%#v domain=%v", after, snapshotDomain)
+	}
+	if !after.Entries[0].LastUsedAt.Equal(before.Entries[0].LastUsedAt) {
+		t.Fatalf("rejected range refreshed last use: before=%s after=%s", before.Entries[0].LastUsedAt, after.Entries[0].LastUsedAt)
 	}
 }
 
@@ -678,6 +721,154 @@ func TestServiceQueryRecordsLogicalSkipsChunks(t *testing.T) {
 		if r.IsChunk {
 			t.Fatal("expected no chunk records in logical representation")
 		}
+	}
+}
+
+func TestEnrichedRecordsAttachOnlyOwnedFactsAndKeepArraysNonNil(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationPhysical, PageSize: 100})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	var response *RecordSummary
+	for index := range page.Items {
+		record := &page.Items[index]
+		if record.Facts.Attempts == nil || record.Facts.Retries == nil || record.Facts.Validations == nil || record.Facts.Failures == nil || record.Facts.Payloads == nil || record.Facts.SearchMatches == nil {
+			t.Fatalf("nil facts on sequence %d: %#v", record.Sequence, record.Facts)
+		}
+		if record.Type == string(RecordModelResponseReceived) {
+			response = record
+		}
+		if record.Type == string(RecordTraceStarted) && (len(record.Facts.Attempts)+len(record.Facts.Retries)+len(record.Facts.Validations)+len(record.Facts.Failures)+len(record.Facts.Payloads)) != 0 {
+			t.Fatalf("unowned facts on trace start: %#v", record.Facts)
+		}
+	}
+	if response == nil || len(response.Facts.Attempts) != 1 || len(response.Facts.Retries) != 1 || response.Facts.Attempts[0].AttemptID == "" {
+		t.Fatalf("response facts=%#v", response)
+	}
+}
+
+func TestEnrichedRecordTraversalEmitsRetryAggregateOnce(t *testing.T) {
+	framed := func(record string) string { return strings.Replace(record, `"frameId":null`, `"frameId":"frame"`, 1) }
+	raw := strings.Join([]string{
+		startedRecord(1), frameRecord(2, "frame", "", false, "ROOT_MISSION", true),
+		framed(requestRecord(3, "retry-1", "attempt-1", 1, true)),
+		framed(requestRecord(4, "retry-1", "attempt-1", 1, false)),
+		responseRecord(5, "frame", "retry-1", "attempt-1", 1, 1, 1, 2, "EXACT"),
+		framed(requestRecord(6, "retry-1", "attempt-2", 2, true)),
+		framed(requestRecord(7, "retry-1", "attempt-2", 2, false)),
+		responseRecord(8, "frame", "retry-1", "attempt-2", 2, 1, 1, 2, "EXACT"),
+		frameRecord(9, "frame", "", false, "ROOT_MISSION", false), completionRecord(10, "SUCCEEDED", 2, 2, 4, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationPhysical, PageSize: 100})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	attempts, retries := 0, 0
+	var retryOwner int64
+	for _, record := range page.Items {
+		attempts += len(record.Facts.Attempts)
+		if len(record.Facts.Retries) > 0 {
+			retries += len(record.Facts.Retries)
+			retryOwner = record.Sequence
+		}
+	}
+	if attempts != 2 || retries != 1 || retryOwner != 8 {
+		t.Fatalf("attempts=%d retries=%d retryOwner=%d", attempts, retries, retryOwner)
+	}
+}
+
+func TestFramesAttachAttemptAttributedMissingResponseGap(t *testing.T) {
+	framed := func(record string) string { return strings.Replace(record, `"frameId":null`, `"frameId":"frame"`, 1) }
+	raw := strings.Join([]string{
+		startedRecord(1), frameRecord(2, "frame", "", false, "ROOT_MISSION", true),
+		framed(requestRecord(3, "retry-1", "attempt-1", 1, true)),
+		framed(requestRecord(4, "retry-1", "attempt-1", 1, false)),
+		frameRecord(5, "frame", "", false, "ROOT_MISSION", false), completionRecord(6, "SUCCEEDED", 0, 0, 0, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 10})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	if len(page.Items) != 1 || !containsString(page.Items[0].GapKinds, "MODEL_ATTEMPT_RESPONSE_MISSING") {
+		t.Fatalf("frames=%#v", page.Items)
+	}
+}
+
+func TestRecordFactAddressIndexSupportsPageSizeOneTraversal(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
+	continuation := ""
+	foundAttempt := false
+	visited := 0
+	for {
+		page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationPhysical, PageSize: 1, Cursor: continuation})
+		if domain != nil {
+			t.Fatal(domain)
+		}
+		if len(page.Items) != 1 {
+			t.Fatalf("page=%#v", page)
+		}
+		visited++
+		if len(page.Items[0].Facts.Attempts) > 0 {
+			foundAttempt = true
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.NextCursor
+	}
+	lease, domain := h.artifacts.Use(targetEvidence(h.scopeID), h.handle)
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	defer lease.Close(false)
+	recordIndexSize, err := lease.ComponentSize(artifact.ComponentName(ComponentRecordIndex))
+	if err != nil {
+		t.Fatal(err)
+	}
+	factIndexSize, err := lease.ComponentSize(artifact.ComponentName(ComponentRecordFactIdx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordCount := recordIndexSize / recordIndexRowWidth
+	if !foundAttempt || int64(visited) != recordCount || factIndexSize != recordCount*recordFactIndexRowWidth {
+		t.Fatalf("visited=%d records=%d factIndexSize=%d foundAttempt=%v", visited, recordCount, factIndexSize, foundAttempt)
+	}
+}
+
+func TestFactRowScanObservesCancellationBetweenRows(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
+	lease, domain := h.artifacts.Use(targetEvidence(h.scopeID), h.handle)
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	defer lease.Close(false)
+	ctx, cancel := context.WithCancel(context.Background())
+	visits := 0
+	err := scanFactRowsContext[attemptResult](ctx, lease, ComponentAttemptIndex, 0, func(attemptResult, int64) bool {
+		visits++
+		cancel()
+		return false
+	})
+	if !errors.Is(err, context.Canceled) || visits != 1 {
+		t.Fatalf("err=%v visits=%d", err, visits)
+	}
+}
+
+func TestFramesAttachDirectGapKindsWithoutPropagation(t *testing.T) {
+	raw := startedRecord(1) + "\n" + frameRecord(2, "open", "", false, "ROOT_MISSION", true) + "\n" + completionRecord(3, "SUCCEEDED", 0, 0, 0, "") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 10})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	if len(page.Items) != 1 || page.Items[0].FrameID != "open" || len(page.Items[0].GapKinds) == 0 {
+		t.Fatalf("frames=%#v", page.Items)
+	}
+	if page.Items[0].UncertaintyKinds == nil {
+		t.Fatalf("uncertainty kinds are nil: %#v", page.Items[0])
 	}
 }
 

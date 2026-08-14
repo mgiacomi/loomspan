@@ -22,6 +22,8 @@ const (
 	ComponentUncertainty   component = "uncertainties.idx"
 	ComponentPayloadStore  component = "payloads.store"
 	ComponentPayloadIndex  component = "payloads.idx"
+	ComponentRecordFacts   component = "record-facts.store"
+	ComponentRecordFactIdx component = "record-facts.idx"
 )
 
 // component is the logical name of one derived index/store component.
@@ -31,6 +33,37 @@ type component string
 // canonical sequence and the raw byte offset/length for O(1)/binary-search
 // lookup. Width is fixed so any row can be read by offset without scanning.
 const recordIndexRowWidth = 32 // 8 (sequence) + 8 (offset) + 8 (length) + 8 (terminator)
+
+// recordFactIndexRowWidth is one offset/length pair into record-facts.store.
+// Rows align one-for-one with records.idx, so a selected record page resolves
+// its facts with one fixed-width seek instead of rescanning every fact family.
+const recordFactIndexRowWidth = 16
+
+type recordFactIndexRow struct {
+	Offset int64
+	Length int64
+}
+
+func writeRecordFactIndexRow(w io.Writer, row recordFactIndexRow) error {
+	var buf [recordFactIndexRowWidth]byte
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(row.Offset))
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(row.Length))
+	n, err := w.Write(buf[:])
+	if err != nil {
+		return err
+	}
+	if n != len(buf) {
+		return errShortWrite
+	}
+	return nil
+}
+
+func readRecordFactIndexRow(buf []byte) recordFactIndexRow {
+	return recordFactIndexRow{
+		Offset: int64(binary.LittleEndian.Uint64(buf[0:8])),
+		Length: int64(binary.LittleEndian.Uint64(buf[8:16])),
+	}
+}
 
 // writeRecordIndexRow writes one fixed-width record-address row. It rejects a
 // short write (fewer bytes written than requested) so a partial row is never

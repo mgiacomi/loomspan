@@ -77,6 +77,8 @@ type FrameSummary struct {
 	RetrySequenceIDs        []string
 	ValidationStatuses      []string
 	FailureIDs              []string
+	GapKinds                []string
+	UncertaintyKinds        []string
 }
 
 // RecordSummary is one physical or logical record's neutral descriptor. It
@@ -107,6 +109,18 @@ type RecordSummary struct {
 	// InlinePayload is present only when the caller explicitly requested an
 	// inline payload and the payload is at most maxInlinePayloadBytes.
 	InlinePayload *InlinePayload
+	Facts         RecordFacts
+}
+
+// RecordFacts contains typed facts whose recorded identifiers belong to this
+// canonical record. Arrays are always non-nil so absence remains explicit.
+type RecordFacts struct {
+	Attempts      []AttemptSummary
+	Retries       []RetrySummary
+	Validations   []ValidationSummary
+	Failures      []FailureSummary
+	Payloads      []PayloadDescriptor
+	SearchMatches []SearchResult
 }
 
 // InlinePayload is a small reconstructed logical payload inlined into a record
@@ -138,6 +152,7 @@ type AttemptSummary struct {
 	ProviderErrorType     string
 	ProviderErrorCode     string
 	PayloadID             string
+	PayloadRef            string
 	Usage                 Usage
 	UsageComplete         bool
 }
@@ -218,6 +233,7 @@ type Uncertainty struct {
 type PayloadDescriptor struct {
 	Context     TraceContext
 	PayloadID   string
+	PayloadRef  string
 	Sequence    int64
 	ContentType string
 	ChunkCount  int
@@ -239,6 +255,7 @@ type RawRecordDescriptor struct {
 // non-nil (possibly empty). NextCursor is empty when the page is the final
 // one for this query.
 type Page[T any] struct {
+	Context    TraceContext
 	Items      []T
 	NextCursor string
 	HasMore    bool
