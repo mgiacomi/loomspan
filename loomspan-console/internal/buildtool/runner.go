@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/agentskills"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/webassets"
 )
 
@@ -30,6 +31,8 @@ func (realRunner) run(current phase, context pipelineContext) error {
 		return validateToolchainVersions(goVersion, nodeVersion, npmVersion)
 	case phaseNPMCI:
 		return runCommand(context.paths.web, nil, "npm", "ci", "--allow-remote=all")
+	case phaseAgentSkill:
+		return agentskills.ValidateRuntimeDebugging(filepath.Join(context.paths.agentSkills, agentskills.RuntimeDebuggingSkillName))
 	case phaseFrontendTypecheck:
 		return runCommand(context.paths.web, nil, "npm", "run", "typecheck")
 	case phaseFrontendCoverage:

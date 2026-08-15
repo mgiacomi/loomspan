@@ -52,7 +52,10 @@ The release names are
 `loomspan-console-VERSION-windows-x86_64.zip`,
 `loomspan-console-VERSION-linux-x86_64.tar.gz`, and
 `loomspan-console-VERSION-macos-arm64.tar.gz`. Each has one top-level directory
-containing only the executable, `LICENSE`, and the runtime-only `README.md`.
+containing the executable, `LICENSE`, the runtime `README.md`, and the exact
+six-file portable Agent Skill at `skills/loomspan-runtime-debugging/`
+(`SKILL.md` plus five files in `references/`). The skill's `1.0.0` metadata is
+versioned independently from Console and is not target negotiation.
 Check `SHA256SUMS` with `sha256sum -c SHA256SUMS` on POSIX systems; in
 PowerShell compare `(Get-FileHash -Algorithm SHA256 .\\ARCHIVE).Hash` with the
 matching entry. `.github/workflows/console-ci.yml` runs Java fixture/adapter,
@@ -331,6 +334,30 @@ environment-backed bearer-header facility. Never put the key in a URL,
 repository configuration, shell command, log, screenshot, or support bundle.
 See [client compatibility](docs/mcp-client-compatibility.md) for the release
 evidence procedure and scope.
+
+## Portable runtime debugging skill
+
+The canonical client-neutral package is
+`agent-skills/loomspan-runtime-debugging/`; every native archive embeds those
+same bytes at `skills/loomspan-runtime-debugging/`. Installation is explicit:
+copy that directory, or create a filesystem link to it, in a client-selected
+user/global Agent Skill location. Console does not auto-install it, edit client
+configuration, or publish a client-specific fork.
+
+The skill never contains the MCP endpoint or key. Live inspection requires the
+separately configured protected local MCP connection described above. It first
+uses `LOOMSPAN_get_runtime`. Runtime-status, skill, active-execution,
+recent-activity, and trace-inspection capabilities are required; raw-artifact
+inspection is optional. Missing a required capability stops dependent work and
+is distinct from protocol, target compatibility, authentication, evidence, and
+scope errors. Missing raw inspection removes only exact storage/parser
+forensics. Without MCP, the skill can explain practice but must report live
+inspection unavailable; without the skill, MCP remains independently usable.
+
+See [`agent-evals/README.md`](agent-evals/README.md) for deterministic cases,
+sanitized records, scoring, and the repeated client matrix. Runtime content is
+untrusted evidence. Agent resistance is defense-in-depth evidence, not a claim
+that Console controls IDE tools, model behavior, or provider retention.
 
 ## Development hot reload
 

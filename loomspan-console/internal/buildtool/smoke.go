@@ -18,6 +18,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/agentskills"
 )
 
 func smokeReleaseArchive(archive, version string) error {
@@ -43,8 +45,30 @@ func smokeReleaseArchive(archive, version string) error {
 		executableName += ".exe"
 	}
 	expected := map[string]os.FileMode{"LICENSE": 0o644, "README.md": 0o644, executableName: 0o755}
+	for _, relative := range agentskills.RuntimeDebuggingFiles {
+		expected[filepath.ToSlash(filepath.Join("skills", agentskills.RuntimeDebuggingSkillName, relative))] = 0o644
+	}
 	if err := extractStrictArchive(archive, target.extension, root, top, expected); err != nil {
 		return err
+	}
+	extractedSkill := filepath.Join(root, top, "skills", agentskills.RuntimeDebuggingSkillName)
+	if err := agentskills.ValidateRuntimeDebugging(extractedSkill); err != nil {
+		return fmt.Errorf("validate extracted runtime debugging skill: %w", err)
+	}
+	paths, err := resolveProjectPaths()
+	if err != nil {
+		return err
+	}
+	canonicalSkill := filepath.Join(paths.agentSkills, agentskills.RuntimeDebuggingSkillName)
+	for _, relative := range agentskills.RuntimeDebuggingFiles {
+		canonical, err := os.ReadFile(filepath.Join(canonicalSkill, filepath.FromSlash(relative)))
+		if err != nil {
+			return fmt.Errorf("read canonical skill %s: %w", relative, err)
+		}
+		extracted, err := os.ReadFile(filepath.Join(extractedSkill, filepath.FromSlash(relative)))
+		if err != nil || !bytes.Equal(canonical, extracted) {
+			return fmt.Errorf("packaged skill %s differs from canonical source", relative)
+		}
 	}
 	executable := filepath.Join(root, top, executableName)
 	versionOutput, err := commandOutput(filepath.Dir(executable), nil, executable, "--version")
@@ -80,6 +104,9 @@ func extractStrictArchive(filename, extension, destination, top string, expected
 		prefix := top + "/"
 		if !strings.HasPrefix(name, prefix) || strings.Contains(name, "\\") || strings.Contains(name, "../") {
 			return fmt.Errorf("unsafe archive path %q", name)
+		}
+		if !mode.IsRegular() || mode&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive entry %q is not a regular file", name)
 		}
 		relative := strings.TrimPrefix(name, prefix)
 		wantedMode, ok := expected[relative]

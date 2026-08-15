@@ -977,6 +977,25 @@ Completion also requires proving that MCP remains usable without the skill, that
 
 The Phase 3 product and architecture decisions required before implementation planning are settled. The existing developer-workflow catalog is canonical; implementation links representative fixtures, tests, and evaluations to its workflow and requirement IDs without adding another scenario system.
 
+### PR 19 implementation evidence
+
+The canonical portable package now lives at
+`loomspan-console/agent-skills/loomspan-runtime-debugging/`; repository-native
+validation, the exactly locked official reference validator, deterministic
+archive inclusion, and strict extracted-byte validation are automated. The
+versioned cases, record schema, production-adapter evaluation entrypoint,
+deterministic scorer, human rubric, and exact 28-run aggregation policy live
+under `loomspan-console/agent-evals/` and `internal/agenteval/`.
+
+Existing MCP conformance, Java/Go fixture coherence, server-side inert-content,
+browser parity, continuation/range, lifecycle, and public-surface suites remain
+the automated runtime evidence. Actual Codex CLI and Claude Code repetitions
+and local GUI-client observations are execution-time evidence: they are linked
+from `docs/mcp-client-compatibility.md` only when performed, and unavailable
+rows remain explicitly `Not run`. Hosted loopback reachability, automatic
+installation, model guarantees, and server control of IDE tools remain out of
+scope rather than unexecuted conformance claims.
+
 ## Handoff to future implementation planning
 
 A future Phase 3 implementation-planning context should begin by:

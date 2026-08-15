@@ -27,6 +27,7 @@ func TestRunPipelineStopsWhenFrontendTestsFail(t *testing.T) {
 	want := []phase{
 		phaseToolchains,
 		phaseNPMCI,
+		phaseAgentSkill,
 		phaseFrontendTypecheck,
 		phaseFrontendCoverage,
 	}
@@ -45,7 +46,7 @@ func TestRunPipelineExecutesRequiredOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []phase{
-		phaseToolchains, phaseNPMCI, phaseFrontendTypecheck, phaseFrontendCoverage,
+		phaseToolchains, phaseNPMCI, phaseAgentSkill, phaseFrontendTypecheck, phaseFrontendCoverage,
 		phaseCleanAssets, phaseViteBuild, phaseGenerateManifest, phaseVerifyManifest,
 		phaseGoTests, phaseGoBuild,
 	}
@@ -56,7 +57,7 @@ func TestRunPipelineExecutesRequiredOrder(t *testing.T) {
 
 func TestRunPipelineStopsAtEveryFailedPhase(t *testing.T) {
 	all := []phase{
-		phaseToolchains, phaseNPMCI, phaseFrontendTypecheck, phaseFrontendCoverage,
+		phaseToolchains, phaseNPMCI, phaseAgentSkill, phaseFrontendTypecheck, phaseFrontendCoverage,
 		phaseCleanAssets, phaseViteBuild, phaseGenerateManifest, phaseVerifyManifest,
 		phaseGoTests, phaseGoBuild,
 	}

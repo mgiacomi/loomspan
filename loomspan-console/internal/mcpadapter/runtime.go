@@ -22,13 +22,13 @@ type RuntimeOutput struct {
 	Status       consolecore.StatusSnapshot `json:"status" jsonschema:"Current side-effect-free Loomspan Console target status"`
 }
 
-func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator) {
+func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator, evaluationCapabilities *[]string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: RuntimeToolName, Description: "Return current Loomspan Console runtime and target status without contacting the target.",
 		Annotations: readOnlyAnnotations,
 	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, RuntimeOutput, error) {
-			output, err := buildRuntimeOutput(ctx, provider, credentials)
+			output, err := buildRuntimeOutputWithCapabilities(ctx, provider, credentials, evaluationCapabilities)
 			if err != nil {
 				return nil, RuntimeOutput{}, err
 			}
@@ -37,6 +37,10 @@ func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials aut
 }
 
 func buildRuntimeOutput(ctx context.Context, provider StatusProvider, credentials authenticator) (RuntimeOutput, error) {
+	return buildRuntimeOutputWithCapabilities(ctx, provider, credentials, nil)
+}
+
+func buildRuntimeOutputWithCapabilities(ctx context.Context, provider StatusProvider, credentials authenticator, evaluationCapabilities *[]string) (RuntimeOutput, error) {
 	status := provider()
 	if err := status.Validate(); err != nil {
 		return RuntimeOutput{}, fmt.Errorf("INTERNAL: runtime status is unavailable")
@@ -44,7 +48,11 @@ func buildRuntimeOutput(ctx context.Context, provider StatusProvider, credential
 	if generation, ok := admittedGeneration(ctx); ok && credentials.Snapshot().Generation != generation {
 		return RuntimeOutput{}, fmt.Errorf("INTERNAL: MCP authentication generation changed")
 	}
-	return RuntimeOutput{Capabilities: installedCapabilities(), Status: status}, nil
+	capabilities := installedCapabilities()
+	if evaluationCapabilities != nil {
+		capabilities = append([]string{}, (*evaluationCapabilities)...)
+	}
+	return RuntimeOutput{Capabilities: capabilities, Status: status}, nil
 }
 
 func runtimeText(output RuntimeOutput) string {

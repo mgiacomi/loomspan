@@ -84,6 +84,26 @@ func TestRuntimeOutputSucceedsForEveryTargetStatusFactAndRejectsInvalidInvariant
 	}
 }
 
+func TestRuntimeOutputUsesEvaluatorCapabilityFixtureWithoutChangingProductionDefault(t *testing.T) {
+	status := consolecore.NoTargetStatus(time.Unix(3, 0).UTC())
+	credentials := fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 1}, key: "secret"}
+	fixture := []string{RuntimeStatusCapability, SkillInspectionCapability}
+
+	output, err := buildRuntimeOutputWithCapabilities(
+		context.Background(),
+		func() consolecore.StatusSnapshot { return status },
+		credentials,
+		&fixture,
+	)
+	if err != nil || len(output.Capabilities) != len(fixture) || output.Capabilities[0] != fixture[0] || output.Capabilities[1] != fixture[1] {
+		t.Fatalf("evaluation output=%+v err=%v", output, err)
+	}
+	production, err := buildRuntimeOutput(context.Background(), func() consolecore.StatusSnapshot { return status }, credentials)
+	if err != nil || len(production.Capabilities) != len(installedCapabilities()) {
+		t.Fatalf("production output=%+v err=%v", production, err)
+	}
+}
+
 func containsLine(text, line string) bool {
 	for _, candidate := range splitLines(text) {
 		if candidate == line {

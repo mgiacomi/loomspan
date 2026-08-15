@@ -13,6 +13,16 @@ framing at 1, 4, and 16 MiB, concurrent clients, and explicit rejection of the
 32 and 64 MiB candidates; representative-client checks are post-implementation
 compatibility observations.
 
+The release also carries the byte-identical, client-neutral
+`skills/loomspan-runtime-debugging/` package. Installation is a user-selected
+copy or filesystem link into a local client's user/global skill location; it
+does not auto-install or contain an endpoint or key. Skill package version
+1.0.0 is independent of the Console version. Live use requires the existing
+protected MCP configuration. Five named capabilities are required and raw
+artifact inspection is optional. Skill-only, MCP-only, missing-required, and
+missing-optional behavior is evaluated separately so protocol, capability,
+target, authentication, evidence, and target-scope failures are not collapsed.
+
 Automated release evidence consists of pinned official conformance scenarios
 for initialization, tool listing, caching, and DNS-rebinding protection across
 both protocol revisions; SDK black-box discovery, strict schema rejection,
@@ -33,17 +43,18 @@ Validation date for this change: **2026-08-14**. Platform for unexecuted rows:
 Windows x86_64 development workstation. Replace “not run” entries when the
 corresponding client becomes available, recording product/build version,
 protocol observed, configuration mechanism, and concise results. Incomplete
-rows do not block implementation completion, merge, or release.
+GUI rows are not failures. The required headless agent matrix is tracked by the
+evaluation summary and is not inferred from an unexecuted row.
 
-| Client family | Suggested PR 18 observation | Result for this change |
+| Client family | Skill/configuration and selected evidence | Result for this change |
 | --- | --- | --- |
-| Codex CLI | Twelve-tool/schema discovery; structured/text and domain errors; target and target-free import flows; resource reads when exposed; 64-item continuation; exact UTF-8/base64 traversal at the configured range ceiling | Not run; post-implementation observation |
-| Codex desktop and IDE extension | Same contract through native MCP configuration and resource surfaces | Not run; post-implementation observation |
-| Claude Code | Complete PR 18 contract plus key regeneration/reconnect lifecycle | Not run; post-implementation observation |
-| Antigravity local app, IDE, or CLI | User/global endpoint and header; complete PR 18 discovery/call/resource/continuation/range checks | Not run; client build/version not recorded; record when available |
-| Cursor | Global endpoint/header; complete PR 18 discovery/call/resource/continuation/range checks | Not run; client build/version not recorded; record when available |
-| Devin Desktop / Windsurf / Cascade | Global endpoint/header or protected file interpolation; complete PR 18 checks | Not run; post-implementation observation |
-| Local Devin CLI | Protected file or environment interpolation; complete PR 18 checks | Not run; post-implementation observation |
+| Codex CLI | User/global skill plus protected authenticated Streamable HTTP; repeated cases, continuations, and resources | Not run; date/OS/product/model build, protocol, case IDs, and result links not yet recorded |
+| Codex desktop and IDE extension | User/global skill discovery/activation plus native MCP configuration and resources | Not run; executable local build observation unavailable |
+| Claude Code | User/global skill plus protected MCP; failed, slow, unfamiliar-path, and adversarial repeated cases | Not run; date/OS/product/model build, protocol, case IDs, and result links not yet recorded |
+| Antigravity local app, IDE, or CLI | User/global endpoint/header and skill; one workflow, resource, and continuation observation | Not run; client build/version not recorded; record when available |
+| Cursor | Global endpoint/header and skill; one workflow, resource, and continuation observation | Not run; client build/version not recorded; record when available |
+| Devin Desktop / Windsurf / Cascade | Global endpoint/header or protected file interpolation and skill; one representative workflow | Not run; executable local build observation unavailable |
+| Local Devin CLI | Protected file or environment interpolation and skill; one representative workflow | Not run; executable local build observation unavailable |
 | Hosted Codex or hosted Devin | Loopback reachability | Out of scope; hosted clients cannot reach the local listener |
 
 The table intentionally separates the completed automated contract from later

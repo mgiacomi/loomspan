@@ -76,6 +76,27 @@ func TestMCPDependenciesAndSDKBoundaryArePinned(t *testing.T) {
 	}
 }
 
+func TestOfficialAgentSkillValidatorIsPinnedAndRequired(t *testing.T) {
+	paths, err := resolveProjectPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const revision = "69ef37e9424c0a7ea9dd2293b559e43ec8176379"
+	manifest := readTestFile(t, filepath.Join(paths.module, "skills-ref-validation", "pyproject.toml"))
+	lock := readTestFile(t, filepath.Join(paths.module, "skills-ref-validation", "uv.lock"))
+	if !strings.Contains(manifest, revision) || !strings.Contains(lock, revision) || !strings.Contains(lock, "skills-ref") {
+		t.Fatal("official skills-ref validator must be locked to the reviewed revision")
+	}
+	for _, workflow := range []string{"console-ci.yml", "console-release.yml"} {
+		contents := readTestFile(t, filepath.Join(paths.repository, ".github", "workflows", workflow))
+		for _, required := range []string{"uv==0.11.7", "uv run --frozen --project skills-ref-validation skills-ref validate ./agent-skills/loomspan-runtime-debugging"} {
+			if !strings.Contains(contents, required) {
+				t.Errorf("%s does not require pinned Agent Skill validation %q", workflow, required)
+			}
+		}
+	}
+}
+
 func TestReleaseLicenseAndRuntimeDocumentExist(t *testing.T) {
 	paths, err := resolveProjectPaths()
 	if err != nil {
@@ -95,6 +116,43 @@ func TestReleaseLicenseAndRuntimeDocumentExist(t *testing.T) {
 	for _, required := range []string{"--version", "--no-open-browser", "SHA256SUMS", "no JVM", "Target keys"} {
 		if !strings.Contains(string(readme), required) {
 			t.Errorf("release README does not contain %q", required)
+		}
+	}
+}
+
+func TestReleaseAndAuthoringDocumentationReferenceCanonicalSkillContract(t *testing.T) {
+	paths, err := resolveProjectPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	documents := map[string]string{
+		"Console README":  readTestFile(t, filepath.Join(paths.module, "README.md")),
+		"release README":  readTestFile(t, filepath.Join(paths.release, "README.md")),
+		"client evidence": readTestFile(t, filepath.Join(paths.module, "docs", "mcp-client-compatibility.md")),
+	}
+	for name, contents := range documents {
+		for _, required := range []string{"skills/loomspan-runtime-debugging/", "copy", "link", "1.0.0", "MCP"} {
+			if !strings.Contains(contents, required) {
+				t.Errorf("%s does not contain %q", name, required)
+			}
+		}
+	}
+	client := documents["client evidence"]
+	for _, required := range []string{"Codex CLI", "Codex desktop", "Claude Code", "Antigravity", "Cursor", "Devin Desktop", "Local Devin CLI", "Hosted Codex", "Not run"} {
+		if !strings.Contains(client, required) {
+			t.Errorf("client evidence does not retain %q", required)
+		}
+	}
+	authoringREADME := readTestFile(t, filepath.Join(paths.repository, "ai", "skill-authoring", "README.md"))
+	authoringTopic := readTestFile(t, filepath.Join(paths.repository, "ai", "skill-authoring", "traces-and-debugging.md"))
+	for _, required := range []string{"traces-and-debugging.md", "packaged Agent Skill"} {
+		if !strings.Contains(authoringREADME, required) {
+			t.Errorf("authoring README does not contain %q", required)
+		}
+	}
+	for _, required := range []string{"loomspan-runtime-debugging", "loomspan.trace-inspection.v1", "loomspan.raw-artifact-inspection.v1", "defense in depth"} {
+		if !strings.Contains(authoringTopic, required) {
+			t.Errorf("authoring debugging topic does not contain %q", required)
 		}
 	}
 }

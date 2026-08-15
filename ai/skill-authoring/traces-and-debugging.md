@@ -7,6 +7,31 @@ coverage: source-verified
 
 # Traces and Debugging
 
+## Portable Console debugging skill
+
+For current runtime status, failed/slow/expensive executions, retries, or an
+unfamiliar nested skill path, install the canonical
+[`loomspan-runtime-debugging` Agent Skill](../../loomspan-console/agent-skills/loomspan-runtime-debugging/SKILL.md)
+by an explicit user-selected copy or filesystem link. It is packaged unchanged
+in native Console archives; installation and MCP configuration remain manual
+and client-owned.
+
+Live use requires an already configured local Console MCP connection plus
+`loomspan.runtime-status.v1`, `loomspan.skill-inspection.v1`,
+`loomspan.active-execution-inspection.v1`,
+`loomspan.recent-activity-inspection.v1`, and
+`loomspan.trace-inspection.v1`. `loomspan.raw-artifact-inspection.v1` is
+optional: parsed debugging continues without it, but exact storage/parser
+forensics does not. Without a required capability, the skill names and stops
+dependent work; without MCP it can explain practice but cannot claim live
+inspection. MCP remains usable without the skill.
+
+The package references are the maintained operation/playbook authority; do not
+duplicate them here. Their untrusted-content instructions are defense in depth
+for an agent, not runtime enforcement over client tools, model behavior, or
+provider retention. The source-verification, sensitivity, stable-identity, and
+uncertainty rules below continue to govern author-facing conclusions.
+
 ## Applicability
 
 Use execution traces to explain what Loomspan and the model provider did during one run: prompt mutation, physical provider attempts, validation retries, tools, evidence, failures, and final usage. Traces are diagnostics for the current checkout and current run. They are not a durable cross-version API, and authors MUST NOT build application behavior on their serialized shape.

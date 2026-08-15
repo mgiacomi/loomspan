@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/agentskills"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/release"
 )
 
@@ -29,8 +30,8 @@ type releaseTarget struct {
 }
 
 type packageRequest struct {
-	version, executable, license, readme, outputDirectory string
-	target                                                releaseTarget
+	version, executable, license, readme, skill, outputDirectory string
+	target                                                       releaseTarget
 }
 
 type packageResult struct {
@@ -48,6 +49,7 @@ func packageCurrentTarget(context pipelineContext) (packageResult, error) {
 		executable:      filepath.Join(context.paths.build, executableName()),
 		license:         filepath.Join(context.paths.repository, "LICENSE"),
 		readme:          filepath.Join(context.paths.release, "README.md"),
+		skill:           filepath.Join(context.paths.agentSkills, agentskills.RuntimeDebuggingSkillName),
 		outputDirectory: context.paths.dist,
 	})
 }
@@ -77,6 +79,9 @@ func writeReleasePackage(request packageRequest) (packageResult, error) {
 	if path.Base(top) != top || strings.ContainsAny(top, `/\\`) {
 		return packageResult{}, fmt.Errorf("unsafe archive directory %q", top)
 	}
+	if err := agentskills.ValidateRuntimeDebugging(request.skill); err != nil {
+		return packageResult{}, fmt.Errorf("validate runtime debugging skill: %w", err)
+	}
 	executableName := "loomspan-console"
 	if request.target.goos == "windows" {
 		executableName += ".exe"
@@ -85,6 +90,13 @@ func writeReleasePackage(request packageRequest) (packageResult, error) {
 		{name: "LICENSE", source: request.license, mode: 0o644},
 		{name: "README.md", source: request.readme, mode: 0o644},
 		{name: executableName, source: request.executable, mode: 0o755},
+	}
+	for _, relative := range agentskills.RuntimeDebuggingFiles {
+		archiveName := path.Join("skills", agentskills.RuntimeDebuggingSkillName, relative)
+		if path.Clean(archiveName) != archiveName || strings.HasPrefix(archiveName, "../") {
+			return packageResult{}, fmt.Errorf("unsafe skill archive path %q", archiveName)
+		}
+		files = append(files, packageFile{name: archiveName, source: filepath.Join(request.skill, filepath.FromSlash(relative)), mode: 0o644})
 	}
 	for index := range files {
 		if err := files[index].load(); err != nil {

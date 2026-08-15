@@ -7,13 +7,14 @@ import (
 )
 
 type projectPaths struct {
-	repository string
-	module     string
-	web        string
-	generated  string
-	build      string
-	dist       string
-	release    string
+	repository  string
+	module      string
+	web         string
+	generated   string
+	build       string
+	dist        string
+	release     string
+	agentSkills string
 }
 
 func resolveProjectPaths() (projectPaths, error) {
@@ -26,12 +27,13 @@ func resolveProjectPaths() (projectPaths, error) {
 		return projectPaths{}, err
 	}
 	return projectPaths{
-		repository: filepath.Dir(module),
-		module:     module,
-		web:        filepath.Join(module, "web"),
-		generated:  filepath.Join(module, "internal", "webassets", "generated"),
-		build:      filepath.Join(module, "build"),
-		dist:       filepath.Join(module, "dist"),
-		release:    filepath.Join(module, "release"),
+		repository:  filepath.Dir(module),
+		module:      module,
+		web:         filepath.Join(module, "web"),
+		generated:   filepath.Join(module, "internal", "webassets", "generated"),
+		build:       filepath.Join(module, "build"),
+		dist:        filepath.Join(module, "dist"),
+		release:     filepath.Join(module, "release"),
+		agentSkills: filepath.Join(module, "agent-skills"),
 	}, nil
 }

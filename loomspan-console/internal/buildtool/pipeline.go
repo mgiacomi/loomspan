@@ -16,6 +16,7 @@ type phase string
 const (
 	phaseToolchains        phase = "verify toolchains"
 	phaseNPMCI             phase = "install locked frontend dependencies"
+	phaseAgentSkill        phase = "validate runtime debugging Agent Skill"
 	phaseFrontendTypecheck phase = "type-check frontend"
 	phaseFrontendCoverage  phase = "test frontend with coverage"
 	phaseCleanAssets       phase = "clean generated assets"
@@ -39,6 +40,7 @@ func runPipeline(mode buildMode, context pipelineContext, dependencies pipelineD
 	phases := []phase{
 		phaseToolchains,
 		phaseNPMCI,
+		phaseAgentSkill,
 		phaseFrontendTypecheck,
 		phaseFrontendCoverage,
 		phaseCleanAssets,

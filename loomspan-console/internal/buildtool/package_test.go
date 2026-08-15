@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/agentskills"
 )
 
 func TestSupportedReleaseTargetsAreExact(t *testing.T) {
@@ -37,7 +39,12 @@ func TestSupportedReleaseTargetsAreExact(t *testing.T) {
 	}
 }
 
-func TestReleasePackagesAreDeterministicAndContainOnlyRuntimeFiles(t *testing.T) {
+func TestReleasePackagesAreDeterministicAndContainRuntimeDebuggingSkill(t *testing.T) {
+	paths, err := resolveProjectPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := filepath.Join(paths.agentSkills, agentskills.RuntimeDebuggingSkillName)
 	for _, coordinates := range [][2]string{{"windows", "amd64"}, {"linux", "amd64"}, {"darwin", "arm64"}} {
 		t.Run(coordinates[0]+"-"+coordinates[1], func(t *testing.T) {
 			target, _ := supportedReleaseTarget(coordinates[0], coordinates[1])
@@ -46,7 +53,7 @@ func TestReleasePackagesAreDeterministicAndContainOnlyRuntimeFiles(t *testing.T)
 			license := writePackageInput(t, root, "license", "license text")
 			readme := writePackageInput(t, root, "readme", "runtime instructions")
 			request := packageRequest{version: "1.2.3-rc.1", target: target, executable: executable,
-				license: license, readme: readme, outputDirectory: filepath.Join(root, "dist")}
+				license: license, readme: readme, skill: skill, outputDirectory: filepath.Join(root, "dist")}
 			first, err := writeReleasePackage(request)
 			if err != nil {
 				t.Fatal(err)
@@ -80,9 +87,23 @@ func TestReleasePackagesAreDeterministicAndContainOnlyRuntimeFiles(t *testing.T)
 			want := map[string]os.FileMode{
 				top + "/LICENSE": 0o644, top + "/README.md": 0o644, top + "/" + executableName: 0o755,
 			}
+			for _, relative := range agentskills.RuntimeDebuggingFiles {
+				want[pathJoin(top, "skills", agentskills.RuntimeDebuggingSkillName, relative)] = 0o644
+			}
 			got := archiveEntries(t, first.archive, target.extension)
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("archive entries = %#v, want %#v", got, want)
+			}
+			contents := archiveContents(t, first.archive, target.extension)
+			for _, relative := range agentskills.RuntimeDebuggingFiles {
+				canonical, err := os.ReadFile(filepath.Join(skill, filepath.FromSlash(relative)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				name := pathJoin(top, "skills", agentskills.RuntimeDebuggingSkillName, relative)
+				if !bytes.Equal(contents[name], canonical) {
+					t.Errorf("archive skill %s differs from canonical source", relative)
+				}
 			}
 		})
 	}
@@ -92,7 +113,9 @@ func TestReleasePackageRejectsUnsafeVersionsAndNonRegularInputs(t *testing.T) {
 	target, _ := supportedReleaseTarget("linux", "amd64")
 	root := t.TempDir()
 	regular := writePackageInput(t, root, "regular", "x")
-	request := packageRequest{version: "../escape", target: target, executable: regular, license: regular, readme: regular, outputDirectory: root}
+	paths, _ := resolveProjectPaths()
+	request := packageRequest{version: "../escape", target: target, executable: regular, license: regular, readme: regular,
+		skill: filepath.Join(paths.agentSkills, agentskills.RuntimeDebuggingSkillName), outputDirectory: root}
 	if _, err := writeReleasePackage(request); err == nil {
 		t.Fatal("unsafe version was accepted")
 	}
@@ -102,6 +125,8 @@ func TestReleasePackageRejectsUnsafeVersionsAndNonRegularInputs(t *testing.T) {
 		t.Fatalf("directory input error = %v", err)
 	}
 }
+
+func pathJoin(parts ...string) string { return strings.Join(parts, "/") }
 
 func writePackageInput(t *testing.T, root, name, contents string) string {
 	t.Helper()
@@ -151,6 +176,54 @@ func archiveEntries(t *testing.T, filename, extension string) map[string]os.File
 			t.Fatalf("unsafe TAR entry %+v", header)
 		}
 		result[header.Name] = os.FileMode(header.Mode)
+	}
+	return result
+}
+
+func archiveContents(t *testing.T, filename, extension string) map[string][]byte {
+	t.Helper()
+	result := make(map[string][]byte)
+	if extension == ".zip" {
+		reader, err := zip.OpenReader(filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		for _, entry := range reader.File {
+			opened, err := entry.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			result[entry.Name], err = io.ReadAll(opened)
+			opened.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	gz, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := tar.NewReader(gz)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		result[header.Name], err = io.ReadAll(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	return result
 }

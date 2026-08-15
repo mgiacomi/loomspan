@@ -21,6 +21,14 @@ jobs:
       publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install pinned uv
+        run: python -m pip install uv==0.11.7
+      - name: Validate canonical Agent Skill with pinned official reference
+        working-directory: loomspan-console
+        run: uv run --frozen --project skills-ref-validation skills-ref validate ./agent-skills/loomspan-runtime-debugging
       - id: version
         shell: bash
         run: |

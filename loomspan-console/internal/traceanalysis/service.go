@@ -41,6 +41,13 @@ func NewService(artifacts *artifact.Service) *Service {
 	}
 }
 
+// NewServiceForCompatibilityVersion is restricted to repository evaluation
+// tooling that consumes the checkout's version-aligned Java fixture corpus.
+// Production composition must use NewService and the injected product version.
+func NewServiceForCompatibilityVersion(artifacts *artifact.Service, compatibilityVersion string) *Service {
+	return &Service{processor: newProcessorForVersion(compatibilityVersion), artifacts: artifacts}
+}
+
 // SetArtifactService wires the artifact service after construction. This is
 // used by the console composition root, which creates the trace-analysis
 // service first (to use as the artifact processor), then creates the artifact
