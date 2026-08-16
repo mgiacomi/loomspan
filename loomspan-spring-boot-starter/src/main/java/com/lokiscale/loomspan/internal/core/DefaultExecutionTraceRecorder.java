@@ -70,10 +70,13 @@ public final class DefaultExecutionTraceRecorder implements ExecutionTraceRecord
     }
 
     @Override
-    public void recordPlanCreated(LoomspanSession session, ExecutionPlan plan)
+    public void recordPlanCreated(LoomspanSession session, ExecutionPlan plan, Map<String, Object> acceptedAttempt)
     {
         Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("planId", plan.planId());
+        metadata.put("planId", requireNonBlank(plan.planId(), "planId"));
+        Map<String, Object> safeAttempt = Objects.requireNonNull(acceptedAttempt, "acceptedAttempt must not be null");
+        metadata.put("attemptId", requireNonBlank((String) safeAttempt.get("attemptId"), "attemptId"));
+        metadata.put("retrySequenceId", requireNonBlank((String) safeAttempt.get("retrySequenceId"), "retrySequenceId"));
         recordOnPlanFrame(session, TraceRecordType.PLAN_CREATED, metadata, plan);
     }
 

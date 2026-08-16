@@ -284,7 +284,12 @@ class ExecutionCoordinatorTest {
         assertThat(chatClient.toolNamesSeen).containsExactly("allowedVisibleSkill");
         assertThat(chatClient.toolNamesByCall).containsExactly(List.of(), List.of("allowedVisibleSkill"));
         assertThat(chatClient.systemMessagesSeen).hasSize(2);
-        assertThat(chatClient.systemMessagesSeen.get(1)).contains("plan-1", "VALID", "task-1", "Use allowedVisibleSkill");
+        assertThat(chatClient.systemMessagesSeen.get(1)).contains(
+                session.getExecutionPlan().orElseThrow().planId(),
+                "VALID",
+                "task-1",
+                "Use allowedVisibleSkill");
+        assertThat(chatClient.systemMessagesSeen.get(1)).doesNotContain("plan-1");
         assertThat(chatClient.lastToolResult).isEqualTo("child:resolved-content");
         assertThat(session.getJournalSnapshot().stream()
                 .filter(entry -> entry.type() == JournalEntryType.TOOL_CALL)
@@ -1069,7 +1074,7 @@ class ExecutionCoordinatorTest {
                 .containsExactly(rootExecutionConfiguration, childExecutionConfiguration);
         assertThat(rootChatClient.lastToolResult).isEqualTo("child mission complete");
         assertThat(session.getExecutionPlan()).isPresent();
-        assertThat(session.getExecutionPlan().orElseThrow().planId()).isEqualTo("plan-root");
+        assertThat(session.getExecutionPlan().orElseThrow().planId()).isNotBlank().isNotEqualTo("plan-root");
         assertThat(session.getExecutionPlan().orElseThrow().tasks()).extracting(PlanTask::status)
                 .containsExactly(PlanTaskStatus.COMPLETED);
         assertThat(session.getJournalSnapshot()).extracting(JournalEntry::type)

@@ -60,7 +60,10 @@ class ExecutionJournalProjectionContractTest {
                         TraceRecordType.PLAN_CREATED,
                         "mission-frame",
                         "rootVisibleSkill",
-                        Map.of("planId", "plan-1"),
+                        Map.of(
+                                "planId", "plan-1",
+                                "attemptId", "attempt-accepted",
+                                "retrySequenceId", "retry-planning"),
                         plan),
                 record(
                         2,

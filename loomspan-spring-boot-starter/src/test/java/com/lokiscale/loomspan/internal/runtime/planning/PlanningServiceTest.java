@@ -9,6 +9,7 @@ import com.lokiscale.loomspan.internal.core.DefaultPlanTaskLinker;
 import com.lokiscale.loomspan.internal.core.ExecutionPlan;
 import com.lokiscale.loomspan.internal.core.JournalEntry;
 import com.lokiscale.loomspan.internal.core.JournalEntryType;
+import com.lokiscale.loomspan.internal.core.ModelTraceContext;
 import com.lokiscale.loomspan.internal.core.PlanStatus;
 import com.lokiscale.loomspan.internal.core.PlanTask;
 import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
@@ -17,8 +18,11 @@ import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
 import com.lokiscale.loomspan.internal.runtime.SimpleChatClient;
+import com.lokiscale.loomspan.internal.model.ModelInteractionResult;
 import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
+import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceCoverageValidator;
+import com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
 import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot;
@@ -38,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,9 +82,241 @@ class PlanningServiceTest {
         ExecutionPlan plan = plan("plan-1", PlanTaskStatus.PENDING);
 
         assertThat(session.getExecutionPlan()).isEmpty();
-        assertThat(planningService.initializePlan(session, "hello", null, rootDefinition(), new SimpleChatClient(plan, "done"), List.<BoundCapability>of()))
-                .contains(plan);
-        assertThat(session.getExecutionPlan()).contains(plan);
+        ExecutionPlan accepted = planningService.initializePlan(
+                session, "hello", null, rootDefinition(), new SimpleChatClient(plan, "done"), List.<BoundCapability>of())
+                .orElseThrow();
+        assertThat(accepted.planId()).isNotEqualTo(plan.planId());
+        assertThat(session.getExecutionPlan()).contains(accepted);
+    }
+
+    @Test
+    void acceptsPlanningResponseWithoutPlanIdAndGeneratesFrameworkIdentity() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-framework-plan-id", "test.entry", 3);
+        String response = planJson("model-plan-id", PlanTaskStatus.PENDING)
+                .replaceFirst("\\s*\"planId\"\\s*:\\s*\"[^\"]+\"\\s*,", "");
+
+        ExecutionPlan accepted = planningService.initializePlan(
+                session,
+                "hello",
+                null,
+                rootDefinition(),
+                request -> new ModelInteractionResult(response, Map.of(
+                        ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY,
+                        request.traceContext().nextAttempt())),
+                List.of())
+                .orElseThrow();
+
+        TraceRecord created = readRecords(session).stream()
+                .filter(record -> record.recordType() == TraceRecordType.PLAN_CREATED)
+                .findFirst()
+                .orElseThrow();
+        assertThat(accepted.planId()).isNotBlank();
+        assertThat(session.getExecutionPlan()).contains(accepted);
+        assertThat(created.metadata().get("planId")).isEqualTo(accepted.planId());
+    }
+
+    @Test
+    void planCreatedLinksToTheAcceptingAttemptAndRetrySequence() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-plan-lineage", "test.entry", 3);
+        Map<String, Object> attempt = Map.of(
+                "retrySequenceId", "retry-sequence-accepted",
+                "attemptId", "attempt-accepted",
+                "attemptNumber", 2,
+                "attemptReason", "SEMANTIC_RETRY",
+                "providerAttemptNumber", 1);
+
+        planningService.initializePlan(
+                session,
+                "hello",
+                null,
+                rootDefinition(),
+                request -> new ModelInteractionResult(planJson("legacy-model-plan-id", PlanTaskStatus.PENDING), Map.of(
+                        ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY, attempt)),
+                List.of());
+
+        TraceRecord created = readRecords(session).stream()
+                .filter(record -> record.recordType() == TraceRecordType.PLAN_CREATED)
+                .findFirst()
+                .orElseThrow();
+        assertThat(created.metadata())
+                .containsEntry("attemptId", "attempt-accepted")
+                .containsEntry("retrySequenceId", "retry-sequence-accepted")
+                .containsEntry("planId", created.data().get("planId").asText());
+    }
+
+    @Test
+    void planningPromptDoesNotAskTheModelForPlanId() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        DefaultPlanningService planningService = new DefaultPlanningService(new DefaultPlanTaskLinker(), stateService);
+        SimpleChatClient chatClient = new SimpleChatClient(plan("untrusted-plan", PlanTaskStatus.PENDING), "done");
+
+        planningService.initializePlan(
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-prompt-identity", "test.entry", 3),
+                "hello", null, rootDefinition(), chatClient, List.of());
+
+        assertThat(chatClient.getSystemMessagesSeen().getFirst())
+                .contains("\"taskId\": \"<unique string>\"")
+                .doesNotContain("\"planId\"");
+    }
+
+    @Test
+    void acceptsJsonAndYamlPlansWithoutPlanId() {
+        List<String> payloads = List.of(
+                planJson("remove-me", PlanTaskStatus.PENDING)
+                        .replaceFirst("\\s*\"planId\"\\s*:\\s*\"[^\"]+\"\\s*,", ""),
+                YAML_PLAN_WITH_LLM_STATUSES.replaceFirst("(?m)^planId:.*\\R", ""));
+
+        for (int index = 0; index < payloads.size(); index++) {
+            DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+            String expectedId = "framework-plan-" + index;
+            DefaultPlanningService planningService = planningService(stateService, () -> expectedId);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                    "session-no-model-id-" + index, "test.entry", 3);
+
+            ExecutionPlan accepted = planningService.initializePlan(
+                    session,
+                    "hello",
+                    null,
+                    rootDefinition(index == 0 ? "rootVisibleSkill" : "invoiceParser"),
+                    new SimpleChatClient(null, payloads.get(index)),
+                    List.of())
+                    .orElseThrow();
+
+            assertThat(accepted.planId()).isEqualTo(expectedId);
+        }
+    }
+
+    @Test
+    void overwritesUnsolicitedJsonAndYamlPlanId() {
+        List<String> payloads = List.of(
+                planJson("adversarial", PlanTaskStatus.PENDING),
+                planJson("adversarial", PlanTaskStatus.PENDING).replace("\"adversarial\"", "12345"),
+                planJson("adversarial", PlanTaskStatus.PENDING).replace("\"adversarial\"", "\"   \""),
+                YAML_PLAN_WITH_LLM_STATUSES,
+                YAML_PLAN_WITH_LLM_STATUSES.replace("planId: 12345", "planId: adversarial"),
+                YAML_PLAN_WITH_LLM_STATUSES.replace("planId: 12345", "planId: '   '"));
+
+        for (int index = 0; index < payloads.size(); index++) {
+            DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+            String expectedId = "trusted-plan-" + index;
+            ExecutionPlan accepted = planningService(stateService, () -> expectedId).initializePlan(
+                    com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                            "session-unsolicited-id-" + index, "test.entry", 3),
+                    "hello",
+                    null,
+                    rootDefinition(index < 3 ? "rootVisibleSkill" : "invoiceParser"),
+                    new SimpleChatClient(null, payloads.get(index)),
+                    List.of())
+                    .orElseThrow();
+
+            assertThat(accepted.planId()).isEqualTo(expectedId);
+        }
+    }
+
+    @Test
+    void rejectsNullOrBlankFrameworkPlanId() {
+        List<Supplier<String>> invalidSuppliers = List.of(() -> null, () -> "", () -> "   ");
+
+        for (int index = 0; index < invalidSuppliers.size(); index++) {
+            DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+            Supplier<String> invalidSupplier = invalidSuppliers.get(index);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                    "session-invalid-framework-id-" + index, "test.entry", 3);
+
+            assertThatThrownBy(() -> planningService(stateService, invalidSupplier).initializePlan(
+                    session,
+                    "hello",
+                    null,
+                    rootDefinition(),
+                    new SimpleChatClient(plan("untrusted", PlanTaskStatus.PENDING), "done"),
+                    List.of()))
+                    .isInstanceOfAny(NullPointerException.class, IllegalArgumentException.class);
+            assertThat(session.getExecutionPlan()).isEmpty();
+            assertThat(readRecords(session)).noneMatch(record -> record.recordType() == TraceRecordType.PLAN_CREATED);
+        }
+    }
+
+    @Test
+    void identicalAcceptedResponsesReceiveDistinctFrameworkPlanIds() {
+        Deque<String> ids = new ArrayDeque<>(List.of("framework-plan-1", "framework-plan-2"));
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        DefaultPlanningService planningService = planningService(stateService, ids::removeFirst);
+        String response = planJson("same-untrusted-id", PlanTaskStatus.PENDING);
+
+        ExecutionPlan first = planningService.initializePlan(
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-distinct-1", "test.entry", 3),
+                "hello", null, rootDefinition(), new SimpleChatClient(null, response), List.of()).orElseThrow();
+        ExecutionPlan second = planningService.initializePlan(
+                com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-distinct-2", "test.entry", 3),
+                "hello", null, rootDefinition(), new SimpleChatClient(null, response), List.of()).orElseThrow();
+
+        assertThat(first.planId()).isEqualTo("framework-plan-1");
+        assertThat(second.planId()).isEqualTo("framework-plan-2");
+    }
+
+    @Test
+    void missingAcceptedAttemptContextFailsBeforePlanStorage() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-missing-attempt", "test.entry", 3);
+
+        assertThatThrownBy(() -> planningService(stateService, () -> "candidate-plan").initializePlan(
+                session,
+                "hello",
+                null,
+                rootDefinition(),
+                request -> ModelInteractionResult.content(planJson("untrusted", PlanTaskStatus.PENDING)),
+                List.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("model attempt context");
+        assertThat(session.getExecutionPlan()).isEmpty();
+        assertThat(readRecords(session)).noneMatch(record -> record.recordType() == TraceRecordType.PLAN_CREATED);
+    }
+
+    @Test
+    void invalidAcceptedAttemptContextFailsBeforePlanStorage() {
+        List<Map<String, Object>> invalidContexts = List.of(
+                Map.of(ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY, "not-a-map"),
+                Map.of(ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY, Map.of(
+                        "retrySequenceId", "retry-invalid",
+                        "attemptNumber", 1,
+                        "attemptReason", "INITIAL",
+                        "providerAttemptNumber", 1)),
+                Map.of(ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY, Map.of(
+                        "attemptId", "attempt-invalid",
+                        "attemptNumber", 1,
+                        "attemptReason", "INITIAL",
+                        "providerAttemptNumber", 1)),
+                Map.of(ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY, Map.of(
+                        "retrySequenceId", "retry-invalid",
+                        "attemptId", " ",
+                        "attemptNumber", 1,
+                        "attemptReason", "INITIAL",
+                        "providerAttemptNumber", 1)));
+
+        for (int index = 0; index < invalidContexts.size(); index++) {
+            DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+            LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                    "session-invalid-attempt-" + index, "test.entry", 3);
+            Map<String, Object> invalidContext = invalidContexts.get(index);
+
+            assertThatThrownBy(() -> planningService(stateService, () -> "candidate-plan").initializePlan(
+                    session,
+                    "hello",
+                    null,
+                    rootDefinition(),
+                    request -> new ModelInteractionResult(planJson("untrusted", PlanTaskStatus.PENDING), invalidContext),
+                    List.of()))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(session.getExecutionPlan()).isEmpty();
+            assertThat(readRecords(session)).noneMatch(record -> record.recordType() == TraceRecordType.PLAN_CREATED);
+        }
     }
 
     @Test
@@ -117,7 +354,7 @@ class PlanningServiceTest {
         ExecutionPlan plan = plan("plan-usage", PlanTaskStatus.PENDING);
 
         assertThat(planningService.initializePlan(session, "hello", null, rootDefinition(), new SimpleChatClient(plan, "done"), List.of()))
-                .contains(plan);
+                .isPresent();
         assertThat(usageService.lastSkillName).isNull();
         assertThat(usageService.snapshot(session).modelCalls()).isZero();
     }
@@ -137,7 +374,7 @@ class PlanningServiceTest {
                         List.<BoundCapability>of())
                 .orElseThrow();
 
-        assertThat(plan.planId()).isEqualTo("12345");
+        assertThat(plan.planId()).isNotBlank().isNotEqualTo("12345");
         assertThat(plan.status()).isEqualTo(PlanStatus.VALID);
         assertThat(plan.findTask("67890")).isPresent();
         assertThat(plan.findTask("67890").orElseThrow().status()).isEqualTo(PlanTaskStatus.COMPLETED);
@@ -220,6 +457,11 @@ class PlanningServiceTest {
                 .orElseThrow();
 
         assertThat(modelFrame.parentFrameId()).isEqualTo(planningFrame.frameId());
+        TraceRecord created = records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.PLAN_CREATED)
+                .findFirst()
+                .orElseThrow();
+        assertThat(created.metadata()).containsKeys("planId", "attemptId", "retrySequenceId");
         assertThat(records).noneMatch(record ->
                 record.recordType() == TraceRecordType.MODEL_REQUEST_SENT);
     }
@@ -666,6 +908,7 @@ class PlanningServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Evidence coverage validation failed");
         assertThat(session.getExecutionPlan()).isEmpty();
+        assertThat(readRecords(session)).noneMatch(record -> record.recordType() == TraceRecordType.PLAN_CREATED);
     }
 
     @Test
@@ -916,6 +1159,20 @@ class PlanningServiceTest {
                         "allowedVisibleSkill", "Use tool", List.of(), List.of(), false, null)));
     }
 
+    private static DefaultPlanningService planningService(
+            DefaultExecutionStateService stateService,
+            Supplier<String> planIdSupplier) {
+        LoomspanJacksonCodecs codecs = LoomspanJacksonCodecs.defaults();
+        return new DefaultPlanningService(
+                new DefaultPlanTaskLinker(),
+                stateService,
+                codecs.planningJson(),
+                codecs.planningYaml(),
+                new PlanQualityValidator(),
+                new EvidenceCoverageValidator(),
+                planIdSupplier);
+    }
+
     private static String planJson(String id, PlanTaskStatus status) {
         return """
                 {
@@ -1023,7 +1280,9 @@ class PlanningServiceTest {
             if (next == null) {
                 throw new IllegalStateException("No more queued chat responses");
             }
-            return com.lokiscale.loomspan.internal.model.ModelInteractionResult.content(next);
+            return new com.lokiscale.loomspan.internal.model.ModelInteractionResult(next, Map.of(
+                    ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY,
+                    request.traceContext().nextAttempt()));
         }
     }
 }

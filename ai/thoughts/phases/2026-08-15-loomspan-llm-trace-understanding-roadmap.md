@@ -204,12 +204,20 @@ layers. Missing capability, unsupported MCP protocol, target authentication,
 `INCOMPATIBLE_TARGET`, evidence expiry, and operation failure must not be
 collapsed into one health or compatibility state.
 
-Capabilities evolve additively under the same generation where possible. An
-incompatible semantic change requires a new generation. A server must not
-advertise a capability unless its complete required operation family and
-semantics are present. This roadmap may add an operation to restore or clarify
-the promised parsed trace semantics, but ticket planning must decide the
-compatible capability-governance treatment explicitly.
+Loomspan has not released an alpha version of this surface. Until the first
+release, capability identifiers describe a development contract and may be
+corrected, expanded, renamed, or replaced without a compatibility shim or new
+generation. The repository must still remain internally coherent: the skill,
+server, tests, and documentation move together, and an advertised development
+capability must match the operations and semantics present in that revision.
+
+The first released version establishes the compatibility-governance baseline.
+Before that release, record the rules for additive evolution, incompatible
+semantic changes, generation changes, required operation membership, and
+skill/server compatibility. Do not spend the pre-release design on preserving
+an incomplete development-only contract, and do not claim compatibility with
+an earlier unreleased revision. After the baseline release, capability changes
+must follow those recorded rules deliberately.
 
 Tools remain the complete portable investigation path. MCP resources may
 provide stable, relatively small materialized views and useful links, but are
@@ -309,8 +317,20 @@ authorization model, explicit confirmation behavior, and threat assessment.
 
 ## Progressive discovery model
 
-Progressive discovery has five layers. A normal investigation should load only
+Progressive discovery has a skill-activation layer followed by five navigation
+and evidence layers. A normal investigation should load only
 the layers it needs.
+
+### Layer 0 — Skill activation
+
+The portable skill's name, frontmatter description, and trigger language must
+cover general run understanding, plan evolution, model exchanges, tool data,
+structured output, and the diagnostic workflows. A developer should not need to
+name the skill explicitly for an ordinary question that clearly falls within
+its scope.
+
+Activation quality is part of evaluation. A perfect routing table provides no
+value when the client never selects the skill.
 
 ### Layer 1 — Question routing
 
@@ -398,34 +418,87 @@ goals before selecting tool changes. Cover general understanding as well as
 failure-oriented diagnosis. Link eventual fixtures, prompts, evaluations, and
 tickets to the applicable workflow or requirement ID.
 
+Treat trace identification as part of each workflow rather than free setup.
+Establish bounded paths from the identifiers developers actually possess—such
+as session ID, trace ID, skill name plus recency, approximate completion time,
+or “the run I just performed”—to the selected trace. Measure inventory paging
+and scanning as investigation cost. Decide from evidence whether documented
+recent-first traversal is sufficient or server-side inventory filters are
+required.
+
 ### 2. Semantic content addressability
 
-Design one general bounded mechanism for material record content. It should
-cover model responses and plans immediately and be extensible to requests,
-tool exchanges, thoughts, structured output, validation content, and future
-record types.
+Extend the existing typed, opaque, scope-and-artifact-bound content-reference
+mechanism to material content stored in ordinary record `data`. The current
+reader already returns bounded reconstructed logical content for
+envelope-backed payloads and failure diagnostics; the missing behavior is
+coverage, not a new low-level range model. Ordinary record data includes some
+model requests as well as model responses, plans, tool activity, advisor
+mutations, structured output, validation content, and future record types.
 
-Prefer a coherent content-reference abstraction over one convenience tool per
-record type or workflow. Determine whether existing payload references can be
-generalized compatibly, whether a general content-read operation is required,
-and how small explicit inlining behaves.
+Rename the outward pre-release contract around its general meaning:
+`contentRef`, `LOOMSPAN_read_trace_content`, and `inlineContent` replace the
+payload-only vocabulary. Prefer one coherent content abstraction over one
+convenience tool per record type or workflow. Return the complete logical
+record `data` JSON value neutrally rather than teaching the server to extract a
+different semantic leaf for every record type. The LLM interprets model-authored
+JSON or text inside that value; raw operations preserve the exact NDJSON
+representation. Preserve the evidence distinction between an explicitly
+recorded JSON `null` and an absent `data` member. Because physical representation
+can vary per record instance even within one record type, expose content
+availability on each returned record rather than teaching type-based location
+rules.
+
+Implementation research still determines whether record-data ranges re-decode
+the bounded physical record, add a data-offset index, or materialize another
+logical store representation. It must define stable length, content type,
+continuation, JSON scalar/object/array/null behavior, UTF-8 boundaries, and the
+cost of repeated reads before choosing the storage technique.
 
 Required outcomes:
 
-- ordinary semantic content is available under
-  `loomspan.trace-inspection.v1`;
+- ordinary semantic content is available under the development trace-inspection
+  capability that will become part of the first release baseline;
 - `loomspan.raw-artifact-inspection.v1` is genuinely optional for ordinary
   trace understanding;
 - an inline-content request behaves consistently across qualifying record
-  types or is replaced by a more accurately named contract;
+  types or is replaced by a more accurately named contract, with both
+  per-value and aggregate per-response bounds;
 - decoded content type, encoding, length, range, and completeness are explicit;
   and
 - raw addresses remain available without becoming the primary semantic route.
 
+Plan evolution must be correlatable across frames. Representative evidence
+places `PLAN_CREATED` on a planning frame and later `PLAN_UPDATED` records on
+the corresponding root-mission frame. Fix identity at the producer before
+building MCP or skill behavior around this topology. The existing `planId`
+becomes a framework-generated identity for an accepted plan and all of its
+updates; the model no longer supplies or controls it. `PLAN_CREATED` also
+records the accepting `attemptId` and planning `retrySequenceId`. Do not add a
+second `planInstanceId` or plan-chain identity.
+
+Mission and frame lineage selects which `PLAN_CREATED` belongs to the primary
+mission. After that selection, framework-owned `planId` establishes chain
+membership across frame transitions, and the accepting attempt/retry fields
+join the plan to validation history. Frame attachment remains structural
+evidence rather than identity. The skill must teach that `ROOT_MISSION` recurs
+for nested invocations and that the primary root comes from recorded trace roots
+and parent relationships, not frame-type uniqueness or route-name matching.
+
+The current representative trace predates this producer contract: its
+`planId` is model-authored and its `PLAN_CREATED` lacks accepting-attempt fields.
+Mission lineage plus that old value is only a degraded heuristic for such
+artifacts and must preserve ambiguity. The framework prerequisite is specified
+in
+[`loomspan-framework-pr-27-plan-identity-and-lineage.md`](../tickets/loomspan-framework-pr-27-plan-identity-and-lineage.md).
+
 ### 3. Skill navigation and tool discovery
 
-Revise the portable package around the five discovery layers. Add:
+Revise the portable package around skill activation and the five progressive
+discovery layers. Add:
 
+- frontmatter name and description language that triggers for general trace
+  understanding and semantic-content questions;
 - a question-routing table near the top of `SKILL.md`;
 - workflow-specific capability checks rather than a uniform five-capability
   ceremony;
@@ -436,6 +509,10 @@ Revise the portable package around the five discovery layers. Add:
 - explicit content-location guidance; and
 - deterministic links from each question family to the appropriate reference
   section.
+
+Measure the top-level skill body and the references loaded before the first
+evidence call. The entry layer must remain small enough that using the skill is
+cheaper than rediscovering the interface through schemas and failed calls.
 
 Runtime discovery remains the normal start of a fresh live investigation, but
 the skill checks only the capability families needed by the selected workflow.
@@ -463,10 +540,19 @@ small resource that clients can reach without loading the full catalog.
 ### 5. Search, vocabulary, and projection clarity
 
 Make structured filters the reliable route for structural questions. Expose
-record-type values through the schema and skill guide. For literal search,
-state at result level which fields were searched, whether matching is
-case-sensitive, and which match mode was used so “not searched” cannot be
-mistaken for “not present.”
+record-type values as the schema item enum for `filter.types` and in the skill
+guide, derived from or checked against the authoritative parser vocabulary. For literal search,
+state the query semantics once at page/result-envelope level: which fields were
+searched, whether matching is case-sensitive, which match mode was used, and
+whether referenced content participated. This metadata is mandatory on an
+empty result so “not searched” cannot be mistaken for “not present.” Individual
+matches may retain their field and offset without repeating the query contract.
+
+The current record filter searches case-sensitive JSON-encoded metadata/data
+bytes rather than decoded semantic content and excludes reconstructed payloads.
+Research whether to preserve that behavior as an explicitly named encoded mode
+or add decoded semantic-content search; do not leave the representation
+implicit.
 
 Consider a compact frame tree or summary projection containing only identity,
 parent, type, route, outcome, duration, and other deliberately selected
@@ -481,22 +567,11 @@ them.
 ### 6. Cross-model evaluation
 
 Evaluate interface complexity rather than attempting to certify model
-intelligence. The primary representative matrix emphasizes the clients'
-expected frontier models, initially:
-
-- Opus;
-- Sol;
-- Gemini Pro; and
-- Kimi K3.
-
-Use additional models such as GLM 5.2, Kimi 2.7, GPT Terra, and DeepSeek as
-interface-complexity canaries when available. They need not all be hard release
-gates or run every workflow. Repeated canary failure should trigger an interface
-review when simplifying the path would not degrade correctness, composability,
-or frontier-model performance.
-
-Do not create model-specific skill forks, alternate tool surfaces, or weaker
-evidence semantics.
+intelligence. Use the model roles, correctness dimensions,
+interaction-complexity measures, repeat expectations, and initial acceptance
+scenario defined by the companion workflow catalog. Do not create
+model-specific skill forks, alternate tool surfaces, or weaker evidence
+semantics.
 
 ### 7. Contract coherence and regression prevention
 
@@ -529,50 +604,20 @@ behavior aligned. Candidate checked facts include:
 | Single-line truncated JSON is difficult to recover | Client and fallback-format interoperability gap | Evaluate concise/line-oriented fallback and structured-result behavior |
 | Range `hasMore` was read as logical incompleteness | Confirmed semantics/documentation gap | Make selected-content versus backing-artifact completeness explicit |
 | Runtime text differs from other structured results | Minor interoperability inconsistency | Normalize or document concise text fallback behavior |
+| The current skill description may not trigger for plans or model/tool content | Confirmed activation gap | Add Layer 0 skill scope and activation evaluation |
+| “I just ran this skill” has no bounded trace-identification contract | Confirmed workflow gap | Measure identification cost and evaluate inventory filters |
+| Per-value inline bounds can accumulate across a record page | Confirmed response-bound and exposure risk | Add an aggregate per-response inline budget |
+| Some prepared/sent model requests use ordinary `data` rather than chunked payloads | Confirmed semantic-content gap | Apply the general record-data contract to both physical representations |
+| Plan identity is model-authored, plan records rely on frame-placement behavior, and `PLAN_CREATED` omits its accepting attempt | Confirmed producer relationship gap | Make `planId` framework-owned and record accepting `attemptId`/`retrySequenceId` before MCP/skill work |
 
-## Interaction-complexity measures
+## Evaluation authority
 
-Record at least these values for representative evaluations:
-
-- tool-discovery bytes or estimated tokens before the first evidence call;
-- number of tool calls and failed calls;
-- number of required identifier handoffs;
-- largest individual result and total result bytes;
-- whether raw-artifact capability was required;
-- whether manual NDJSON or nested JSON decoding was required;
-- whether the answer found all material matching records;
-- factual grounding and stable identifier citation;
-- correct evidence/calculation/context/inference separation;
-- correct degraded-capability and evidence-availability behavior; and
-- consistency across the selected repeat policy.
-
-These are diagnostic measurements, not incentives to omit necessary evidence.
-A correct broad investigation may legitimately cost more than a direct content
-lookup.
-
-## Initial benchmark
-
-Use the prompt that exposed the current gap as the first end-to-end benchmark:
-
-> I ran `handleIncident`. Pull up the trace and show me what plan the model
-> ended up coming up with for the primary mission. Use the
-> `loomspan-runtime-debugging` skill.
-
-For a trace that is available and compatible, the intended steady-state path
-has:
-
-- no bulk tool-catalog inspection;
-- no predictable argument-recovery call;
-- no raw-artifact capability or raw NDJSON decoding;
-- no invented record types or search behavior;
-- at most one runtime/discovery call for a fresh investigation;
-- no more than three evidence calls after the trace is identified for the
-  ordinary small-content case;
-- complete relevant plan state or evolution within explicit bounds; and
-- stable evidence identifiers and appropriate uncertainty in the answer.
-
-The call-count target is a design signal, not a rule that permits skipped
-evidence or an incorrect answer.
+The companion workflow catalog is the single authority for evaluation
+dimensions, model roles, call accounting, and the initial `handleIncident`
+acceptance scenario. Roadmap stages and completion decisions consume those
+definitions rather than duplicating them. Evaluation measurements are
+diagnostic signals, not incentives to omit necessary evidence; a correct broad
+investigation may legitimately cost more than a direct content lookup.
 
 ## Delivery sequence
 
@@ -584,13 +629,33 @@ evidence or an incorrect answer.
 - Record current interaction-complexity measurements.
 - Identify the exact design/implementation divergences that block ordinary
   workflows.
+- Derive a sanitized synthetic fixture preserving the observed nested primary
+  and child plan topology, validation/retry cycle, cross-frame plan updates, and
+  mixed envelope/ordinary request representations without copying sensitive
+  trace content. Add an adversarial same-skill recursion case, identical or
+  adversarial model proposal content that still yields distinct framework plan
+  IDs, an unrecorded rejected proposal, and enough plan versions to force
+  deterministic inline omission.
 
 ### Stage 2 — Semantic content path
 
-- Settle the general bounded record-content contract.
+- Land the framework-owned plan identity and accepted-attempt relationship
+  ticket before implementing plan correlation in MCP or the skill.
+- Extend and rename the existing bounded content-reference contract for
+  ordinary record data.
 - Implement it through shared trace-analysis services and MCP.
 - Preserve browser/MCP fact parity where they share the same service.
 - Prove ordinary plan and model-output retrieval without raw capability.
+- Expose sufficient `planId` facts or relationships to reconstruct complete
+  plan evolution across planning and root-mission frames using the
+  framework-owned producer identity.
+- Expose the accepting `attemptId` and planning `retrySequenceId` recorded on
+  `PLAN_CREATED` so validation history does not require frame/order inference.
+- Make descriptor-first followed by targeted content reads an explicit bounded
+  success path when aggregate limits prevent the final or material value from
+  being inlined.
+- Distinguish no recorded plan from a rejected proposal found only in model
+  response content.
 
 ### Stage 3 — Progressive skill discovery
 
@@ -625,22 +690,33 @@ This roadmap is complete when:
 2. each ordinary workflow has a discoverable canonical path, required
    capability family, evidence-location map, degraded behavior, and stopping
    condition;
-3. material semantic record content is bounded and addressable through parsed
+3. the skill activates for general trace-understanding and semantic-content
+   questions without requiring the developer to name it explicitly where the
+   client supports automatic skill selection;
+4. trace identification from common developer-supplied context is bounded,
+   documented, and included in interaction measurements;
+5. material semantic record content is bounded and addressable through parsed
    trace inspection;
-4. raw artifact access is not required for ordinary plan, model, tool,
+6. the first-release outward contract uses general content vocabulary rather
+   than retaining payload-only names for record data and diagnostics;
+7. raw artifact access is not required for ordinary plan, model, tool,
    structured-output, or validation questions;
-5. record vocabulary, search scope, identifier handoffs, encoding, and
+8. record vocabulary, search scope, identifier handoffs, encoding, and
    completeness are explicit;
-6. the skill progressively reveals mechanics without duplicating the full MCP
+9. inline content has deterministic per-value and aggregate response bounds;
+10. the skill progressively reveals mechanics without duplicating the full MCP
    schemas or drifting from them;
-7. MCP remains independently usable and neutral;
-8. representative evaluations show materially fewer discovery bytes, failed
+11. MCP remains independently usable and neutral;
+12. representative evaluations show materially fewer discovery bytes, failed
    calls, raw reads, and manual decoding steps without reducing correctness;
-9. primary frontier models succeed consistently on representative workflows;
-10. available canary models have a reasonable path to success when no product
+13. primary frontier models succeed consistently on representative workflows;
+14. available canary models have a reasonable path to success when no product
     principle or evidence guarantee must be weakened; and
-11. retained strengths in identity, evidence boundaries, lifecycle, security,
+15. retained strengths in identity, evidence boundaries, lifecycle, security,
     bounded reads, and uncertainty remain covered by regression tests.
+
+Capability compatibility governance is a gate for the first release, not for
+pre-alpha design iterations under this roadmap.
 
 ## Non-goals
 
@@ -660,14 +736,14 @@ This roadmap is complete when:
 Before creating implementation tickets:
 
 1. review and approve the workflow boundaries in the companion catalog;
-2. research the current trace record and payload storage model to select the
-   smallest coherent semantic-content abstraction;
+2. research the smallest correct storage/index implementation for record-data
+   ranges under the selected general content-reference abstraction;
 3. capture actual MCP `tools/list`, structured result, text fallback, and
    validation-error behavior in representative clients;
 4. decide which skill reference facts are generated and which are checked by
    conformance tests;
 5. choose initial projection and search changes based on workflow evidence;
-6. define the evaluation matrix, repeat policy, and release-gate versus canary
-   distinction; and
+6. confirm the workflow catalog's evaluation matrix, repeat policy, and
+   release-gate versus canary distinction against available clients; and
 7. split tickets by independently reviewable outcomes rather than by document
    section or individual model complaint.

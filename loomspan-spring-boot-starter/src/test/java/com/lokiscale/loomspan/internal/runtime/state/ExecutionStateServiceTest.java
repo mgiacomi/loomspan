@@ -9,6 +9,7 @@ import com.lokiscale.loomspan.internal.core.JournalEntryType;
 import com.lokiscale.loomspan.internal.core.ModelTraceContext;
 import com.lokiscale.loomspan.internal.core.PlanTask;
 import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
+import com.lokiscale.loomspan.internal.core.PlanStatus;
 import com.lokiscale.loomspan.internal.core.TaskExecutionEvent;
 import com.lokiscale.loomspan.internal.core.TraceFrameType;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
@@ -71,7 +72,9 @@ class ExecutionStateServiceTest {
 
         ExecutionFrame frame = stateService.openMissionFrame(session, "rootVisibleSkill", Map.of("objective", "hello"));
         stateService.storePlan(session, plan);
-        stateService.logPlanCreated(session, plan);
+        stateService.logPlanCreated(session, plan, Map.of(
+                "attemptId", "attempt-plan-created",
+                "retrySequenceId", "retry-plan-created"));
         stateService.logToolCall(session, TaskExecutionEvent.linked("allowedVisibleSkill", "task-1", Map.of("arguments", Map.of("value", "hello")), null));
         stateService.logToolResult(session, TaskExecutionEvent.linked("allowedVisibleSkill", "task-1", Map.of("result", "done"), null));
         stateService.recordLinterOutcome(session, outcome);
@@ -104,16 +107,57 @@ class ExecutionStateServiceTest {
         ExecutionPlan parentPlan = plan("parent-plan");
         stateService.storePlan(sessionWithParent, parentPlan);
         PlanSnapshot snapshot = stateService.snapshotPlan(sessionWithParent);
-        stateService.storePlan(sessionWithParent, plan("child-plan"));
+        ExecutionPlan childPlan = plan("child-plan");
+        stateService.storePlan(sessionWithParent, childPlan);
+        assertThat(sessionWithParent.getExecutionPlan()).get().extracting(ExecutionPlan::planId).isEqualTo("child-plan");
         stateService.restorePlan(sessionWithParent, snapshot);
+        ExecutionPlan updatedParent = sessionWithParent.getExecutionPlan().orElseThrow().withStatus(PlanStatus.STALE);
+        stateService.storePlan(sessionWithParent, updatedParent);
 
         LoomspanSession sessionWithoutParent = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("session-empty", "test.entry", 3);
         PlanSnapshot emptySnapshot = stateService.snapshotPlan(sessionWithoutParent);
         stateService.storePlan(sessionWithoutParent, plan("child-plan"));
         stateService.restorePlan(sessionWithoutParent, emptySnapshot);
 
-        assertThat(sessionWithParent.getExecutionPlan()).contains(parentPlan);
+        assertThat(sessionWithParent.getExecutionPlan()).contains(updatedParent);
+        assertThat(updatedParent.planId()).isEqualTo(parentPlan.planId()).isNotEqualTo(childPlan.planId());
         assertThat(sessionWithoutParent.getExecutionPlan()).isEmpty();
+    }
+
+    @Test
+    void recordsAcceptedAttemptOnPlanCreationButNotPlanUpdates() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-plan-record-contract", "test.entry", 3);
+        ExecutionPlan plan = plan("framework-plan-id");
+        stateService.openMissionFrame(session, "rootVisibleSkill", Map.of());
+
+        stateService.logPlanCreated(session, plan, Map.of(
+                "attemptId", "attempt-accepted",
+                "retrySequenceId", "retry-sequence",
+                "attemptNumber", 7,
+                "untrustedExtra", "must-not-copy"));
+        ExecutionPlan updated = plan.withStatus(PlanStatus.STALE);
+        stateService.logPlanUpdated(session, updated);
+
+        List<TraceRecord> planRecords = readRecords(session).stream()
+                .filter(record -> record.recordType() == TraceRecordType.PLAN_CREATED
+                        || record.recordType() == TraceRecordType.PLAN_UPDATED)
+                .toList();
+        assertThat(planRecords).hasSize(2);
+        TraceRecord created = planRecords.get(0);
+        TraceRecord update = planRecords.get(1);
+        assertThat(created.metadata())
+                .containsEntry("planId", "framework-plan-id")
+                .containsEntry("attemptId", "attempt-accepted")
+                .containsEntry("retrySequenceId", "retry-sequence")
+                .containsEntry("recordedAt", "2026-03-15T12:00:00Z")
+                .doesNotContainKeys("attemptNumber", "untrustedExtra");
+        assertThat(created.data().path("planId").asText()).isEqualTo("framework-plan-id");
+        assertThat(update.metadata())
+                .containsEntry("planId", "framework-plan-id")
+                .doesNotContainKeys("attemptId", "retrySequenceId");
+        assertThat(update.data().path("planId").asText()).isEqualTo("framework-plan-id");
     }
 
     @Test
@@ -313,7 +357,7 @@ class ExecutionStateServiceTest {
             }
 
             @Override
-            public void recordPlanCreated(LoomspanSession session, ExecutionPlan plan) {
+            public void recordPlanCreated(LoomspanSession session, ExecutionPlan plan, Map<String, Object> acceptedAttempt) {
             }
 
             @Override

@@ -78,6 +78,33 @@ class LiveActivityProjectorTest
     }
 
     @Test
+    void projectsEnrichedPlanCreationMetadataAsBoundedNeutralFacts()
+    {
+        LiveActivityProjector projector = new LiveActivityProjector();
+        ExecutionProjectionState state = new ExecutionProjectionState("session", "route");
+
+        ExecutionActivity activity = projector.project(state, record(
+                TraceRecordType.PLAN_CREATED,
+                1,
+                TraceFrameType.PLANNING,
+                Map.of(
+                        "planId", "framework-plan",
+                        "attemptId", "attempt-accepted",
+                        "retrySequenceId", "retry-planning",
+                        "untrustedExtra", "must-not-project"),
+                StringNode.valueOf("secret normalized plan content"))).activity();
+
+        assertThat(activity.kind()).isEqualTo(ExecutionActivityKind.PLAN_CREATED);
+        assertThat(activity.summary()).isEqualTo("Plan created");
+        assertThat(activity.details())
+                .containsEntry("planId", "framework-plan")
+                .containsEntry("attemptId", "attempt-accepted")
+                .containsEntry("retrySequenceId", "retry-planning")
+                .doesNotContainKey("untrustedExtra");
+        assertThat(activity.toString()).doesNotContain("secret normalized plan content");
+    }
+
+    @Test
     void frameVisibilityIsLimitedToSkillExecutionButAllFramesUpdatePath()
     {
         LiveActivityProjector projector = new LiveActivityProjector();

@@ -24,7 +24,7 @@ public interface ExecutionTraceRecorder
     void recordModelAttemptFailed(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
             Map<String, Object> attempt, Map<String, Object> failureMetadata, Object payload);
 
-    void recordPlanCreated(LoomspanSession session, ExecutionPlan plan);
+    void recordPlanCreated(LoomspanSession session, ExecutionPlan plan, Map<String, Object> acceptedAttempt);
 
     void recordPlanUpdated(LoomspanSession session, ExecutionPlan plan);
 

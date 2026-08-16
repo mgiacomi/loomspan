@@ -12,6 +12,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+
+import com.lokiscale.loomspan.internal.core.ModelTraceContext;
 
 public class SimpleChatClient implements ModelInteraction {
 
@@ -50,13 +53,19 @@ public class SimpleChatClient implements ModelInteraction {
                 new CapturedMedia(MimeType.valueOf(attachment.contentType()), attachment.resource())));
         if (plan != null) {
             try {
-                return ModelInteractionResult.content(OBJECT_MAPPER.writeValueAsString(plan));
+                return withAttemptContext(request, OBJECT_MAPPER.writeValueAsString(plan));
             }
             catch (JacksonException ex) {
                 throw new IllegalStateException("Failed to serialize execution plan", ex);
             }
         }
-        return ModelInteractionResult.content(content);
+        return withAttemptContext(request, content);
+    }
+
+    private ModelInteractionResult withAttemptContext(ModelInteractionRequest request, String responseContent) {
+        return new ModelInteractionResult(responseContent, Map.of(
+                ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY,
+                request.traceContext().nextAttempt()));
     }
 
     public record CapturedMedia(MimeType mimeType, Resource resource) {

@@ -1389,7 +1389,9 @@ class StepLoopMissionExecutionEngineTest {
                                                       com.lokiscale.loomspan.internal.model.ModelInteraction chatClient,
                                                       List<BoundCapability> visibleTools) {
             stateService.storePlan(session, initialPlan);
-            stateService.logPlanCreated(session, initialPlan);
+            stateService.logPlanCreated(session, initialPlan, Map.of(
+                    "attemptId", "attempt-initial-plan",
+                    "retrySequenceId", "retry-initial-plan"));
             return Optional.of(initialPlan);
         }
 
@@ -1485,7 +1487,9 @@ class StepLoopMissionExecutionEngineTest {
             if (next == null) {
                 throw new IllegalStateException("No more queued chat responses");
             }
-            return com.lokiscale.loomspan.internal.model.ModelInteractionResult.content(next);
+            return new com.lokiscale.loomspan.internal.model.ModelInteractionResult(next, Map.of(
+                    com.lokiscale.loomspan.internal.core.ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY,
+                    request.traceContext().nextAttempt()));
         }
 
         private record CapturedMedia(MimeType mimeType, Resource resource) {

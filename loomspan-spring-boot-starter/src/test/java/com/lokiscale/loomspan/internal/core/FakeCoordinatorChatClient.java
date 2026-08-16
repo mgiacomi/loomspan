@@ -60,12 +60,18 @@ class FakeCoordinatorChatClient implements ModelInteraction {
         Object payload = firstCallReturnsPlan && current == 1 ? plan : content;
         if (payload instanceof ExecutionPlan executionPlan) {
             try {
-                return ModelInteractionResult.content(OBJECT_MAPPER.writeValueAsString(executionPlan));
+                return withAttemptContext(request, OBJECT_MAPPER.writeValueAsString(executionPlan));
             }
             catch (JacksonException ex) {
                 throw new IllegalStateException(ex);
             }
         }
-        return ModelInteractionResult.content(String.valueOf(payload));
+        return withAttemptContext(request, String.valueOf(payload));
+    }
+
+    private ModelInteractionResult withAttemptContext(ModelInteractionRequest request, String responseContent) {
+        return new ModelInteractionResult(responseContent, Map.of(
+                ModelTraceContext.RESPONSE_ATTEMPT_CONTEXT_KEY,
+                request.traceContext().nextAttempt()));
     }
 }

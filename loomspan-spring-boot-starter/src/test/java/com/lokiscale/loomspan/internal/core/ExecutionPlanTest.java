@@ -42,4 +42,21 @@ class ExecutionPlanTest {
                 .containsExactly(PlanTaskStatus.PENDING, PlanTaskStatus.COMPLETED);
         assertThat(updated.tasks().get(1).note()).isEqualTo("done");
     }
+
+    @Test
+    void allImmutablePlanCopiesPreservePlanId() {
+        ExecutionPlan plan = new ExecutionPlan(
+                "framework-plan-id",
+                "rootVisibleSkill",
+                Instant.parse("2026-03-15T12:00:00Z"),
+                List.of(
+                        new PlanTask("task-1", "Plan", PlanTaskStatus.PENDING, null),
+                        new PlanTask("task-2", "Execute", PlanTaskStatus.PENDING, null)));
+
+        assertThat(plan.updateTask("task-2", task -> task.withStatus(PlanTaskStatus.COMPLETED, "done")).planId())
+                .isEqualTo(plan.planId());
+        assertThat(plan.withActiveTask("task-1").planId()).isEqualTo(plan.planId());
+        assertThat(plan.withActiveTask("task-1").clearActiveTask().planId()).isEqualTo(plan.planId());
+        assertThat(plan.withStatus(PlanStatus.STALE).planId()).isEqualTo(plan.planId());
+    }
 }

@@ -204,10 +204,13 @@ public class DefaultExecutionStateService implements ExecutionStateService
     }
 
     @Override
-    public void logPlanCreated(LoomspanSession session, ExecutionPlan plan)
+    public void logPlanCreated(LoomspanSession session, ExecutionPlan plan, Map<String, Object> acceptedAttempt)
     {
         Objects.requireNonNull(session, "session must not be null");
-        traceRecorder.recordPlanCreated(session, Objects.requireNonNull(plan, "plan must not be null"));
+        traceRecorder.recordPlanCreated(
+                session,
+                Objects.requireNonNull(plan, "plan must not be null"),
+                Objects.requireNonNull(acceptedAttempt, "acceptedAttempt must not be null"));
     }
 
     @Override

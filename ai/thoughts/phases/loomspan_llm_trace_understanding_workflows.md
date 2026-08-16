@@ -51,7 +51,7 @@ importance, correctness, intent, or remediation.
 
 | ID | Requirement |
 | --- | --- |
-| `LLM-WF-X-R1` | Route a developer's question to the smallest relevant workflow and capability family without first loading the complete tool catalog. |
+| `LLM-WF-X-R1` | Route a developer's question to the smallest relevant workflow and capability family without requiring the model to inspect or reason over the complete tool catalog before its first evidence decision. A client may still fetch `tools/list` as protocol setup. |
 | `LLM-WF-X-R2` | Teach a canonical path while accepting any safe, correct, efficient alternative. |
 | `LLM-WF-X-R3` | Begin with the minimum sufficient structural evidence and retrieve semantic or raw detail only when the question requires it. |
 | `LLM-WF-X-R4` | Make every required identifier transition explicit, especially session or trace identification, trace acquisition, `artifactHandle`, frame selection, record sequence, and content reference. |
@@ -63,9 +63,11 @@ importance, correctness, intent, or remediation.
 | `LLM-WF-X-R10` | Keep protocol, installed capability, target selection, target authentication, Java/Go compatibility, live availability, trace availability, acquisition, and artifact expiry as independent facts. |
 | `LLM-WF-X-R11` | Ordinary semantic questions must not require raw-artifact capability or manual NDJSON decoding. |
 | `LLM-WF-X-R12` | Bounded content results state content type, encoding, selected range, total logical length, and logical completeness clearly. |
-| `LLM-WF-X-R13` | A negative search result states the searched fields, matching mode, and case behavior needed to interpret the absence safely. |
+| `LLM-WF-X-R13` | A search result envelope states the searched fields, matching mode, case behavior, and referenced-content coverage once per page; these facts are mandatory when no match is returned. |
 | `LLM-WF-X-R14` | Stop when the developer's question is answered with sufficient evidence; do not expand every payload or traverse the complete trace by default. |
 | `LLM-WF-X-R15` | MCP remains usable without the skill, and the skill explains applicable practice and limitations when MCP or a required capability is unavailable. |
+| `LLM-WF-X-R16` | Treat trace identification as part of the measured workflow and provide a bounded path from the identifiers a developer possesses to the selected `traceId`. |
+| `LLM-WF-X-R17` | Bound inline semantic content both per value and in aggregate per response; content not inlined because of either bound remains explicitly addressable. |
 
 ## Entry conditions and identification
 
@@ -93,6 +95,14 @@ scope-bound immutable `artifactHandle`. Downstream frame, record, and content
 queries use that handle so one investigation does not silently cross an
 acquisition or target-scope boundary. The skill must teach this transition
 before the first downstream call.
+
+Identification is not free setup outside the workflow. Inventory calls,
+pagination, filtering, scanning, and failed selection attempts count toward the
+interaction cost. The intended path should support the common combinations of
+skill name plus recency, approximate completion time, outcome, session ID, and
+trace ID. Design research must decide whether deterministic recent-first
+inventory traversal is sufficient or whether bounded server-side filters such
+as entry skill and time window are required.
 
 ## Progressive workflow routing
 
@@ -201,9 +211,15 @@ and distinguish model-provided plan content from inferred execution behavior.
 - “Show me the created plan and later updates.”
 - “Which steps were planned versus actually executed?”
 
+The target evidence path depends on the producer prerequisite in
+[`loomspan-framework-pr-27-plan-identity-and-lineage.md`](../tickets/loomspan-framework-pr-27-plan-identity-and-lineage.md).
+MCP and skill work must consume that recorded contract rather than recreate the
+relationship from frame placement or model content.
+
 ### Minimum useful answer
 
 - the relevant planning frame and primary mission relationship;
+- the selected `planId` and its relationship to the primary mission;
 - initial plan content when requested or relevant;
 - ordered plan updates and the final recorded plan state;
 - plan, frame, and record identifiers;
@@ -215,15 +231,21 @@ and distinguish model-provided plan content from inferred execution behavior.
 
 ```text
 identify and acquire trace
-  -> locate root mission and planning frame
-  -> query records with types [PLAN_CREATED, PLAN_UPDATED]
-     scoped to the planning frame when possible
-  -> read bounded semantic content references or explicit small inline content
-  -> order by canonical sequence and determine the final recorded plan state
+  -> locate the primary root through trace rootFrameIds and frame lineage
+  -> locate the planning frame parented by that primary root
+  -> query PLAN_CREATED and PLAN_UPDATED records with bounded inline content
+  -> select the PLAN_CREATED attached to the primary planning frame
+  -> correlate subsequent updates by framework-owned planId even when they
+     attach to the corresponding root-mission frame
+  -> order the selected chain by canonical sequence and determine its final state
 ```
 
 Structured type filtering is the normal route. Literal text search is not a
-substitute for discoverable record types.
+substitute for discoverable record types. A single planning-frame filter is not
+sufficient when creation and later updates belong to different related frames.
+`ROOT_MISSION` is a recurring frame type for nested skill invocations, not a
+unique primary marker. Route or skill-name matching is not a substitute for the
+trace's recorded roots, parent relationships, and mission lineage.
 
 ### Evidence location and representation
 
@@ -231,6 +253,14 @@ substitute for discoverable record types.
   mission.
 - `PLAN_CREATED` establishes initial recorded plan state.
 - `PLAN_UPDATED` establishes subsequent recorded versions or changes.
+- `planId` is a framework-generated identity minted for a recorded accepted
+  plan and preserved across frame transitions and every `PLAN_UPDATED`.
+- The accepting `attemptId` and planning `retrySequenceId` on `PLAN_CREATED`
+  join accepted plan state to model-attempt, validation, retry, and warning
+  evidence without making a causal claim.
+- Canonical ordering alone does not distinguish a primary plan from a nested
+  plan; within the selected chain, the highest-sequence member is the final
+  recorded state.
 - Plan material lives in bounded semantic record content, not only in raw NDJSON.
 - Plan validation and retry records provide explicit related facts when linked
   by recorded identifiers.
@@ -239,6 +269,18 @@ substitute for discoverable record types.
 
 - A plan describes intended actions; it does not prove those actions executed.
 - A sequence relationship establishes ordering, not necessarily causality.
+- A plan present only in model-response content is a proposal, not recorded plan
+  state. Validation failure does not mean that a later recorded plan is an
+  update of that rejected proposal.
+- The target producer contract does not ask the model for `planId`; a rejected
+  proposal is identified by its `attemptId` and receives no recorded plan
+  identity.
+- Ordinary plan-quality errors may be accepted with `PLAN_QUALITY_WARNING` after
+  retries are exhausted. Deterministic evidence-coverage failure remains a
+  rejection and produces no `PLAN_CREATED`.
+- In artifacts produced before the framework identity ticket, `planId` may be
+  model-authored and `PLAN_CREATED` may lack accepting-attempt fields. Mission
+  lineage plus the old value is a degraded heuristic, not equivalent evidence.
 - Model-supplied timestamps or fields remain model content unless separately
   established as Console evidence.
 - The LLM may compare the final plan with execution frames, but must label that
@@ -251,7 +293,9 @@ substitute for discoverable record types.
   within the caller-selected bound and state whether the logical value is
   complete.
 - If plan records are absent, state the exact structured query scope before
-  concluding that the trace contains no recorded plan.
+  concluding that the trace contains no recorded plan. If planning and
+  validation evidence exists, model-response content may be inspected for a
+  proposal, but it must be labeled as proposed and never recorded or accepted.
 - If only an unsupported raw field contains the plan, identify this as a
   contract gap rather than silently treating raw forensics as the normal path.
 
@@ -268,9 +312,19 @@ accounted for, or when the available parsed evidence cannot establish them.
   under a documented bound; larger content returns an opaque content reference.
 - `LLM-WF-PL-R3`: Record-type enums include the plan record vocabulary.
 - `LLM-WF-PL-R4`: The skill documents the primary mission to planning-frame to
-  plan-record path.
+  plan-record path and the transition of later updates to the related root
+  mission when present.
 - `LLM-WF-PL-R5`: Evaluation verifies the final plan and its evolution rather
   than accepting the first matching record as sufficient.
+- `LLM-WF-PL-R6`: Plan record summaries expose `planId` as a typed fact or
+  equivalent structured relationship so plan-chain selection does not depend
+  on raw bytes, literal search, or positional luck.
+- `LLM-WF-PL-R7`: The producer owns `planId`; the model cannot choose or
+  override it, and every update preserves the accepted plan's value.
+- `LLM-WF-PL-R8`: The absence of plan records is distinguishable from the
+  presence of an unaccepted plan proposal in model-response content.
+- `LLM-WF-PL-R9`: `PLAN_CREATED` exposes the accepting `attemptId` and planning
+  `retrySequenceId`; legacy artifacts without them retain explicit ambiguity.
 
 ## `LLM-WF-MODEL-EXCHANGE`: Explain what a model received and produced
 
@@ -311,6 +365,8 @@ identify and acquire trace
 
 - The model-call frame provides structure and aggregate calculations.
 - Request and response records provide ordered model-exchange facts.
+- Request records may use either reconstructed envelope payloads or ordinary
+  record `data`; both representations use the same outward content contract.
 - Attempt identifiers distinguish provider or semantic retries.
 - Semantic content references expose requests and responses consistently even
   when their physical trace representations differ.
@@ -319,8 +375,9 @@ identify and acquire trace
 
 ### Degraded paths
 
-- A response record with no material content reference must be reported as a
-  missing parsed-content capability, not as an empty response.
+- A request or response record with ordinary material `data` but no content
+  reference must be reported as a missing parsed-content capability, not as an
+  empty exchange.
 - Missing usage is unknown, not zero.
 - An attempt failure followed by a response is recovered attempt evidence, not
   necessarily terminal execution failure.
@@ -609,14 +666,32 @@ unrelated artifact bytes follow.
 - `LLM-WF-RA-R3`: Raw reads preserve exact byte offsets and lengths as the
   successful first implementation already does.
 
+## Deferred workflow: cross-run comparison
+
+Questions such as “why did this run differ from yesterday's?” are legitimate
+developer goals, but cross-run comparison is outside this increment. It needs a
+separate workflow design for run selection, evidence alignment, differing trace
+versions or availability, same-scope versus cross-scope evidence, and the
+boundary between mechanical comparison and causal inference.
+
+The rule permitting evidence from different scopes when the developer
+explicitly asks for comparison is a safety condition, not a promise that the
+current skill or MCP surface supports comparison ergonomically. Do not add an
+implicit comparison workflow while implementing the single-run catalog.
+
 ## Search and negative-evidence rules
 
 Structured fields are the preferred route for record type, frame, route,
 sequence, attempt, retry, validation, and failure selection. The schema and
 skill must expose the allowed structural vocabulary needed by common workflows.
+The closed record-type vocabulary must appear as the item enum for
+`filter.types`, derived from or checked against the authoritative parser enum,
+so an agent does not have to guess a value and learn only through validation
+failure.
 
-Literal search is for text within documented searchable fields. Every result or
-page using literal search must make these semantics discoverable:
+Literal search is for text within documented searchable fields. Every result
+page using literal search states these query semantics once at its envelope
+level, including on an empty page:
 
 - searched fields;
 - case sensitivity;
@@ -625,12 +700,39 @@ page using literal search must make these semantics discoverable:
 - whether large or referenced content was searched; and
 - whether pagination or evidence gaps limit the conclusion.
 
+The current record-filter implementation performs case-sensitive byte matching
+over the JSON-encoded `metadata` and `data` member values. It does not search
+`recordType` or reconstructed logical payloads; physical chunk content can be
+matched only within its individual encoded fragment. Quotes, newlines, escapes,
+and representation selection can therefore change whether logically similar
+text matches. Detailed design must either preserve and name this encoded search
+mode explicitly or introduce a decoded semantic-content mode. It must not
+describe the current behavior as an unrestricted search of record or payload
+content.
+
+An individual match may additionally identify its matched field and offset; it
+does not repeat the complete query contract.
+
 An LLM may conclude only that no match was found within the stated search scope.
 It must not generalize that result to the entire trace or to unsearched content.
 
 ## Content retrieval rules
 
 The desired semantic-content contract is general rather than model-specific.
+The implemented payload reader already provides bounded reconstructed logical
+content for envelope-backed payloads and failure diagnostics. Extend its typed,
+opaque, scope-and-artifact-bound reference mechanism with ordinary record-data
+content. Rename the outward pre-release vocabulary to `contentRef`,
+`LOOMSPAN_read_trace_content`, and `inlineContent`; it must not describe the
+logical reader as a physical NDJSON-range operation.
+
+Record-data content is the complete recorded `data` JSON value. It may be an
+object, array, scalar, string, or `null`. The neutral Console contract does not
+extract a different semantic leaf for each record type. Interpreting
+model-authored JSON text inside a correctly exposed value is LLM reasoning, not
+transport decoding. An explicitly recorded JSON `null` remains distinguishable
+from an absent `data` member.
+
 Every qualifying content descriptor should provide enough information to decide
 whether to inline or read it:
 
@@ -640,6 +742,21 @@ whether to inline or read it:
 - total logical byte length;
 - explicit inline eligibility or returned inline content; and
 - any recorded incompleteness or diagnostic facts.
+
+Inlining has two independent bounds:
+
+- a per-value bound prevents one record from dominating the response; and
+- an aggregate per-response bound prevents a page of individually small values
+  from producing an unexpectedly large result or untrusted-content burst.
+
+When either bound prevents inlining, the result identifies that fact and keeps
+the content reference available. Selection under the aggregate budget must be
+deterministic and documented; omission from the inline representation is never
+presented as missing trace content. A caller seeking a final state must inspect
+the complete returned descriptor set, select the highest-sequence member of the
+chosen chain, and follow that record's `contentRef` or issue a bounded tail query
+when its content was not inlined. The last inlined value is not necessarily the
+last recorded value.
 
 Bounded reads should report:
 
@@ -653,9 +770,26 @@ Bounded reads should report:
 The abstraction should cover ordinary material record data regardless of
 whether its physical trace representation used an envelope, chunks, or an
 ordinary `data` member. Physical representation remains observable through the
-raw workflow.
+raw workflow. Representation is selected per record instance and may vary
+within one record type, so neither skill guidance nor callers may infer content
+location from record type alone.
+
+A representative nested-plan trace contains twelve plan creation/update values
+totaling about 19 KiB, including a nine-version primary plan chain totaling
+about 17 KiB; every individual value is below 8 KiB. Aggregate inline behavior
+must be evaluated against this topology rather than assuming that a per-value
+limit also bounds the response. These observations guide fixture design and do
+not by themselves select the production aggregate limit.
 
 ## Skill structure implied by the workflows
+
+Skill activation is Layer 0 of progressive discovery. The package name,
+frontmatter description, and trigger language must cover general run
+understanding, plan creation and evolution, model request/response inspection,
+tool inputs and outputs, structured output, and the failure, latency, usage, and
+execution-path workflows. Evaluations include prompts that do not explicitly
+name the skill; otherwise they only test routing after activation has already
+been forced.
 
 The top-level skill should contain only:
 
@@ -694,13 +828,23 @@ descriptors.
 
 ### Interaction-complexity dimensions
 
-- discovery bytes before the first evidence call;
-- total calls and failed calls;
+- top-level `SKILL.md` bytes or estimated tokens loaded on activation;
+- reference bytes or estimated tokens loaded before the first evidence call;
+- tool metadata exposed to model attention before the first evidence decision;
+- total calls and failed calls from the developer prompt onward, including
+  runtime discovery, trace identification, pagination, acquisition, queries,
+  and content reads;
 - maximum and total result size;
+- total inline semantic-content bytes per result;
 - inferred versus documented identifier transitions;
 - schema or enum lookup steps;
 - raw reads for non-raw questions;
-- manual NDJSON or nested-content decoding; and
+- manual transport/storage decoding, including NDJSON envelope extraction,
+  JSON-escape removal needed only because content was not exposed logically, or
+  physical chunk reconstruction;
+- interpretation of model-authored JSON text, recorded separately and not
+  scored as an interface decoding failure when the surrounding logical content
+  was exposed correctly; and
 - unnecessary evidence expansion after the stopping condition was reached.
 
 ### Model matrix
@@ -718,19 +862,33 @@ problem from model variance.
 
 ## Initial end-to-end acceptance scenario
 
-Prompt:
+Explicit-skill prompt:
 
 > I ran `handleIncident`. Pull up the trace and show me what plan the model
 > ended up coming up with for the primary mission. Use the
 > `loomspan-runtime-debugging` skill.
+
+Activation variant:
+
+> I ran `handleIncident`. Pull up the trace and show me what plan the model
+> ended up coming up with for the primary mission.
+
+The explicit variant evaluates routing and evidence retrieval after the
+developer selects the skill. The activation variant additionally evaluates
+whether Layer 0 causes the client to select the skill from its name and
+frontmatter description. Record client behavior rather than claiming that the
+skill controls activation.
 
 For available compatible evidence, a successful system should:
 
 1. route directly to `LLM-WF-PLAN-EVOLUTION`;
 2. discover only runtime and trace-inspection mechanics needed by the workflow;
 3. identify the relevant trace and explicitly acquire or reopen its artifact;
-4. use structured planning-frame and plan-record vocabulary;
-5. retrieve the initial and updated plan content through parsed bounded content;
+4. use structural frame evidence to distinguish the primary mission's planning
+   frame from nested planning frames;
+5. retrieve plan creation and update content through parsed bounded content and
+   correlate the primary chain by framework-owned `planId` across planning and
+   root-mission frames;
 6. avoid raw-artifact capability and manual NDJSON decoding;
 7. avoid predictable schema-validation failures;
 8. identify the final recorded plan state rather than stopping at the first
@@ -738,10 +896,65 @@ For available compatible evidence, a successful system should:
 9. distinguish planned actions from frame-verified execution; and
 10. cite the trace, frame, and record identifiers supporting the answer.
 
-The steady-state design target is no bulk catalog inspection, no more than one
-fresh runtime-discovery call, and no more than three evidence calls after the
-trace is identified for ordinary small plan content. Correctness and complete
-material evidence take priority over the numerical target.
+Call accounting begins with the developer prompt; trace identification is not
+excluded. Acquisition or reopening counts as a call. Every content read counts,
+including separate reads for multiple plan records. Automatic client protocol
+setup such as an internal `tools/list` fetch is measured as discovery bytes
+exposed to the model but is not counted as a model-selected tool call.
+
+For the representative nested-plan topology when its plan records fit the
+aggregate inline budget, the steady-state design target is five successful
+model-selected calls:
+
+```text
+get_runtime
+  -> list_traces
+  -> get_trace
+  -> query_trace_frames(locate primary root and planning relationship)
+  -> query_trace_records(types=[PLAN_CREATED, PLAN_UPDATED], inlineContent=true)
+```
+
+The record query selects the primary creation through its planning-frame
+relationship, then follows its framework-owned `planId` through updates that
+may be attached to the root-mission frame. It must not apply one planning
+`frameId` filter to the entire evolution, substitute route or frame placement
+for plan identity, or accept the first canonical plan record by position.
+
+Inventory pagination, bounded content reads required by aggregate limits, and
+all failed calls remain visible in the measurement rather than being excluded
+from the target. Correctness and complete material evidence take priority over
+the numerical target, especially for content that legitimately exceeds
+response bounds. A two-phase path that first retrieves descriptors and then
+reads the selected final or otherwise material content is a successful bounded
+workflow, not a failure to meet the conditional five-call target.
+
+### Representative fixture requirement
+
+Create a deterministic synthetic trace fixture that preserves the behavior
+needed by this scenario without copying sensitive real trace content. It must
+contain:
+
+- a primary root mission with a planning frame;
+- a nested same-skill root mission with its own competing planning frame, so
+  route and skill-name matching cannot identify the primary mission;
+- distinct `PLAN_CREATED` records for both missions;
+- `PLAN_UPDATED` records attached to the corresponding root missions;
+- distinct framework-generated `planId` values and stable membership across
+  creation and updates even when model proposal content is identical or
+  contains the same unsolicited candidate ID;
+- a primary planning validation failure and retry before accepted creation;
+- accepting `attemptId` and planning `retrySequenceId` on `PLAN_CREATED`;
+- a rejected model-response proposal whose plan is never recorded;
+- both envelope-backed and ordinary-data model requests;
+- ordinary-data model responses; and
+- enough individually small plan versions to exercise the aggregate inline
+  budget.
+
+Evaluation must fail an answer that selects the correct primary plan only by
+first-match ordering or route or skill-name matching; that mistakes a rejected
+proposal for recorded plan state; that treats frame placement as plan-chain
+identity; that treats the last inlined value as final when later descriptors
+exist; or that omits later updates because it queried only the planning frame.
 
 ## Workflow review questions
 
@@ -751,8 +964,8 @@ Before implementation tickets are written, resolve:
    latency, usage, and exact evidence the right developer-goal boundaries?
 2. Which plan, model, tool, thought, structured-output, and validation data
    qualify as material semantic content in the first increment?
-3. Can existing payload references be generalized coherently, or is a new
-   content-reference/read contract clearer and safer?
+3. Should record-data range reads re-decode the bounded physical record, use a
+   persisted data-offset index, or materialize another logical representation?
 4. What compact frame projection is sufficient for overview, path, latency, and
    usage orientation without creating scenario-specific summaries?
 5. Which literal-search modes and fields are useful enough to support, and how
@@ -761,3 +974,5 @@ Before implementation tickets are written, resolve:
    require prose plus drift tests?
 7. What model/client runs are release gates, compatibility observations, and
    interface-complexity canaries?
+8. Is deterministic recent-first inventory traversal sufficient for common
+   trace identification, or are entry-skill and time-window filters required?

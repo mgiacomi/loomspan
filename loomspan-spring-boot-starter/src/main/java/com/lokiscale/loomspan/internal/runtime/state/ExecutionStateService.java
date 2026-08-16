@@ -43,7 +43,7 @@ public interface ExecutionStateService
 
     void restoreSuccessfulSkills(LoomspanSession session, SuccessfulSkillSnapshot snapshot);
 
-    void logPlanCreated(LoomspanSession session, ExecutionPlan plan);
+    void logPlanCreated(LoomspanSession session, ExecutionPlan plan, Map<String, Object> acceptedAttempt);
 
     void logPlanUpdated(LoomspanSession session, ExecutionPlan plan);
 

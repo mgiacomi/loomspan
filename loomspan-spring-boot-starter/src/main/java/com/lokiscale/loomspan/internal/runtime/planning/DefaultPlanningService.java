@@ -48,7 +48,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class DefaultPlanningService implements PlanningService
@@ -63,6 +65,7 @@ public class DefaultPlanningService implements PlanningService
     private final ObjectMapper yamlObjectMapper;
     private final PlanQualityValidator planQualityValidator;
     private final EvidenceCoverageValidator evidenceCoverageValidator;
+    private final Supplier<String> planIdSupplier;
 
     public DefaultPlanningService(PlanTaskLinker planTaskLinker, ExecutionStateService executionStateService)
     {
@@ -72,7 +75,8 @@ public class DefaultPlanningService implements PlanningService
                 defaultObjectMapper(),
                 defaultYamlObjectMapper(),
                 new PlanQualityValidator(),
-                new EvidenceCoverageValidator());
+                new EvidenceCoverageValidator(),
+                () -> UUID.randomUUID().toString());
     }
 
     public DefaultPlanningService(PlanTaskLinker planTaskLinker,
@@ -81,7 +85,8 @@ public class DefaultPlanningService implements PlanningService
             ObjectMapper planningYamlMapper)
     {
         this(planTaskLinker, executionStateService, planningJsonMapper, planningYamlMapper,
-                new PlanQualityValidator(), new EvidenceCoverageValidator());
+                new PlanQualityValidator(), new EvidenceCoverageValidator(),
+                () -> UUID.randomUUID().toString());
     }
 
     DefaultPlanningService(PlanTaskLinker planTaskLinker,
@@ -89,7 +94,8 @@ public class DefaultPlanningService implements PlanningService
             ObjectMapper objectMapper,
             ObjectMapper yamlObjectMapper,
             PlanQualityValidator planQualityValidator,
-            EvidenceCoverageValidator evidenceCoverageValidator)
+            EvidenceCoverageValidator evidenceCoverageValidator,
+            Supplier<String> planIdSupplier)
     {
         this.planTaskLinker = Objects.requireNonNull(planTaskLinker, "planTaskLinker must not be null");
         this.executionStateService = Objects.requireNonNull(executionStateService, "executionStateService must not be null");
@@ -97,6 +103,7 @@ public class DefaultPlanningService implements PlanningService
         this.yamlObjectMapper = Objects.requireNonNull(yamlObjectMapper, "yamlObjectMapper must not be null");
         this.planQualityValidator = Objects.requireNonNull(planQualityValidator, "planQualityValidator must not be null");
         this.evidenceCoverageValidator = Objects.requireNonNull(evidenceCoverageValidator, "evidenceCoverageValidator must not be null");
+        this.planIdSupplier = Objects.requireNonNull(planIdSupplier, "planIdSupplier must not be null");
     }
 
     @Override
@@ -346,8 +353,9 @@ public class DefaultPlanningService implements PlanningService
                         validation.errors(), retryCount, attemptResult.modelAttempt());
             }
 
+            Map<String, Object> acceptedAttempt = requireAcceptedAttempt(attemptResult.modelAttempt());
             executionStateService.storePlan(session, attemptResult.plan());
-            executionStateService.logPlanCreated(session, attemptResult.plan());
+            executionStateService.logPlanCreated(session, attemptResult.plan(), acceptedAttempt);
             return Optional.of(attemptResult.plan());
         }
     }
@@ -520,7 +528,6 @@ public class DefaultPlanningService implements PlanningService
                 Return ONLY valid JSON - no markdown, no explanation, no code fences.
                 The JSON must match this exact structure:
                 {
-                  "planId": "<unique string>",
                   "capabilityName": "%s",
                   "createdAt": "<ISO-8601 timestamp, e.g. 2024-01-01T00:00:00Z>",
                   "status": "VALID",
@@ -666,6 +673,29 @@ public class DefaultPlanningService implements PlanningService
 
         normalizePlanStatus(planNode);
         normalizeTaskStatuses(planNode.get("tasks"));
+        planNode.remove("planId");
+        planNode.put("planId", requireNonBlank(planIdSupplier.get(), "planId"));
+    }
+
+    private Map<String, Object> requireAcceptedAttempt(Map<String, Object> modelAttempt)
+    {
+        if (modelAttempt == null || modelAttempt.isEmpty())
+        {
+            throw new IllegalStateException("Accepted planning response must include model attempt context");
+        }
+        return Map.of(
+                "attemptId", requireNonBlank((String) modelAttempt.get("attemptId"), "attemptId"),
+                "retrySequenceId", requireNonBlank((String) modelAttempt.get("retrySequenceId"), "retrySequenceId"));
+    }
+
+    private String requireNonBlank(String value, String fieldName)
+    {
+        Objects.requireNonNull(value, fieldName + " must not be null");
+        if (value.isBlank())
+        {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        return value;
     }
 
     private void normalizePlanStatus(ObjectNode planNode)
