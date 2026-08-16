@@ -2,15 +2,22 @@
 
 ## Status
 
-Product workflow design companion to the Loomspan Console Phase 1–3 plans. This document records approved developer workflows and the product requirements they surface. It is not an implementation plan and does not supersede the phase architecture documents.
+Implemented-baseline workflow record for the Loomspan Console browser and first
+MCP runtime inspector. This document preserves the approved developer workflows
+and requirement IDs used by completed implementation and evaluation work. New
+LLM-mediated workflow design lives in
+[LLM Trace Understanding Workflows](./loomspan_llm_trace_understanding_workflows.md).
 
 ## Related designs
 
-- [loomspan Console — Phase 1 Observability Foundation](./LOOMSPAN_console_phase_1_observability_foundation.md)
-- [loomspan Console — Phase 2 Personal UI Console](./LOOMSPAN_console_phase_2_ui_console.md)
-- [loomspan Console — Phase 3 LLM Runtime Inspector](./LOOMSPAN_console_phase_3_llm_runtime_inspector.md)
+- [LLM Trace Understanding Roadmap](./2026-08-15-loomspan-llm-trace-understanding-roadmap.md)
+- [LLM Trace Understanding Workflows](./loomspan_llm_trace_understanding_workflows.md)
 
-The phase documents remain authoritative for architecture, ownership, contracts, security, resource bounds, and lifecycle. This document makes the intended developer experience concrete and collects requirements that later implementation planning must satisfy.
+The new roadmap incorporates the continuing architecture, ownership, contract,
+security, resource-bound, and lifecycle constraints from the completed phase
+designs. This file remains authoritative only for its implemented workflow
+definitions and stable requirement IDs until they are deliberately mapped or
+retired.
 
 ## Product north star
 
@@ -18,7 +25,10 @@ The console presents recorded facts, deterministic calculations, and explicit ev
 
 ## Settled-design guardrail
 
-Workflow design operates within the decisions recorded in the Phase 1–3 plans. It must not reopen those decisions merely because another design appears attractive. A settled decision is reconsidered only when a concrete workflow cannot be completed safely or usefully within it.
+New workflow design operates within the implemented baseline constraints
+recorded by the active roadmap. It must not reopen those decisions merely
+because another design appears attractive. A settled decision is reconsidered
+only when a concrete workflow cannot be completed safely or usefully within it.
 
 Any proposed reconsideration must:
 
@@ -38,11 +48,18 @@ Requirements discovered by a workflow should first be satisfied through the exis
 | `WF-EXPENSIVE-EXECUTION` | Explain unexpectedly high usage or cost | Approved |
 | `WF-UNFAMILIAR-SKILL-PATH` | Understand an unfamiliar nested skill path | Approved |
 
-The initial workflow set and its cross-workflow consequences have been reviewed together. No workflow requires reopening a settled Phase 1–3 foundation. The Phase 2 core-developer-workflows product decision is settled by this document. Phase 2 also settles the resulting information architecture, global navigation, live-execution presentation, and hierarchy-first trace-explorer organization; remaining choices identified below are implementation details within those decisions.
+The initial workflow set and its cross-workflow consequences were reviewed and
+implemented together. It records the resulting browser information
+architecture, global navigation, live-execution presentation, and
+hierarchy-first trace-explorer expectations. Future LLM workflow changes are
+governed by the new roadmap and companion catalog.
 
 ### Verification linkage
 
-This document is also the canonical investigation catalog used to verify the browser, MCP adapter, and portable debugging skill. Phase 3 does not maintain a duplicate scenario catalog or identifier namespace.
+This document was the canonical investigation catalog used to verify the first
+browser, MCP adapter, and portable debugging skill implementation. The new LLM
+workflow catalog extends rather than silently redefines these stable historical
+IDs.
 
 Representative fixtures, tests, and agent evaluations reference the applicable workflow ID or the most specific requirement ID already defined here. They live beside their owning Java, Go, browser, MCP, or evaluation code and may be linked from this document after project paths exist. This document does not copy fixture payloads, prescribe exact MCP calls or answer prose, or act as a machine-readable test manifest.
 
@@ -94,9 +111,17 @@ The Phase 2 information architecture uses Overview as the stable landing page an
 
 ### Cross-workflow review result
 
-The review found no conflict among the four workflows and no requirement that cannot be satisfied through the settled Phase 1–3 ownership and lifecycle boundaries. In particular, the workflow set does not require active-trace inspection, durable execution history, a second trace representation, provider health or pricing, console-side repository access, source provenance, automatic diagnosis, execution control, or broader evidence retention.
+The review found no conflict among the four workflows and no requirement that
+could not be satisfied through the implemented ownership and lifecycle
+boundaries. In particular, the workflow set does not require active-trace
+inspection, durable execution history, a second trace representation, provider
+health or pricing, console-side repository access, source provenance, automatic
+diagnosis, execution control, or broader evidence retention.
 
-The Phase 1–3 product and architecture decisions required before implementation planning are settled. Exact route and field spelling, fixture paths, test harnesses, response-framing constants, and representative one-response client interoperability values remain implementation work within those contracts.
+The product and architecture decisions used by the completed implementation are
+preserved as baseline constraints in the active roadmap. Future contract
+changes must cite a new workflow requirement and explicitly reconsider the
+affected baseline.
 
 ## `WF-FAILED-EXECUTION`: Diagnose a failed completed execution
 
@@ -120,7 +145,7 @@ The developer may enter this workflow from:
 - a live execution that reaches a terminal failure;
 - a finalized trace in the selected application's current-process catalog;
 - a current-scope browser deep link to an acquired trace, frame, record, or failure; or
-- the Phase 3 MCP runtime inspector.
+- the implemented MCP runtime inspector.
 
 When a finalized artifact is available, these paths converge on the same transport-neutral Go trace analysis and centralized artifact service. Browser and MCP adapters must not create different failure semantics or independent analysis copies.
 
@@ -216,9 +241,15 @@ This workflow establishes the required failure-focused behavior but does not yet
 - exact typography, animation, component library, or frontend framework;
 - exact recent-activity and interoperable one-response framing values.
 
-Those choices remain implementation work and should consume this workflow as a requirement rather than reopen its settled foundations. Shared duration calculations and flat failure and validation indexes are settled in Phase 3; the initial product intentionally has no aggregate evidence-completeness model.
+Those choices were implementation work that consumed this workflow as a
+requirement. Shared duration calculations and flat failure and validation
+indexes are part of the implemented runtime-inspector baseline; the product
+intentionally has no aggregate evidence-completeness model.
 
-The exact Phase 3 MCP resource and tool surface is settled. Implementation validates its general trace, frame, record, payload, execution, activity, and skill operations against this workflow without creating a scenario-specific failure tool.
+The implemented general trace, frame, record, payload, execution, activity, and
+skill operations were validated against this workflow without creating a
+scenario-specific failure tool. Their future evolution is governed by the
+active roadmap.
 
 ## `WF-SLOW-EXECUTION`: Diagnose a currently slow execution
 
@@ -242,7 +273,7 @@ The developer may enter this workflow from:
 - the active-execution list, commonly after noticing high elapsed time;
 - a live activity item;
 - direct current-scope navigation to an active `sessionId`; or
-- the Phase 3 MCP runtime inspector.
+- the implemented MCP runtime inspector.
 
 All entry paths use the Phase 1 active snapshot and Go's bounded, single-continuity recent-activity service. They do not read or tail an active trace file.
 
@@ -347,7 +378,11 @@ This workflow does not yet choose:
 
 Those choices remain implementation-level UI and DTO work. They should satisfy this workflow without adding active-trace tailing, historical baselines, provider probes, or an execution-health classification.
 
-The settled Phase 3 surface exposes active summaries and recent activity through `LOOMSPAN_list_executions`, `LOOMSPAN_get_execution`, and `LOOMSPAN_get_execution_activity`; implementation still defines their additive schema details without reopening those operation boundaries.
+The implemented surface exposes active summaries and recent activity through
+`LOOMSPAN_list_executions`, `LOOMSPAN_get_execution`, and
+`LOOMSPAN_get_execution_activity`. Additive schema evolution must preserve
+those operation boundaries unless an active workflow explicitly reconsiders
+them.
 
 ## `WF-EXPENSIVE-EXECUTION`: Explain unexpectedly high usage or cost
 
@@ -384,7 +419,7 @@ The developer may enter this workflow from:
 - a finalized trace in the selected application's current-process catalog;
 - a failure-focused trace investigation;
 - a current-scope deep link to a trace or frame; or
-- the Phase 3 MCP runtime inspector.
+- the implemented MCP runtime inspector.
 
 A currently active execution may expose provisional accumulated usage through its bounded snapshot. Complete attribution requires a finalized, successfully validated trace.
 
@@ -504,7 +539,11 @@ This workflow does not yet choose:
 
 Those choices remain implementation-level presentation and framing work. They must follow the product north star and must not introduce historical baselines, provider pricing, billing estimates, automatic importance rankings, causal diagnoses, or change recommendations.
 
-Direct, descendant, inclusive, attempt, retry, and unattributed usage and the Phase 1 model-usage fields they consume are settled. The settled Phase 3 trace, frame-query, record-query, and payload-read operations expose those facts and evidence references; implementation still defines additive schemas and interoperable one-response framing.
+Direct, descendant, inclusive, attempt, retry, and unattributed usage and their
+recorded model-usage inputs are settled baseline semantics. The implemented
+trace, frame-query, record-query, and payload-read operations expose those
+facts and evidence references; additive schemas and interoperable response
+framing must preserve their meanings.
 
 ## `WF-UNFAMILIAR-SKILL-PATH`: Understand an unfamiliar nested skill path
 
@@ -530,7 +569,7 @@ The developer may enter this workflow from:
 - a finalized trace's hierarchy;
 - a selected frame, record, failure, or usage attribution;
 - a current-scope deep link; or
-- the Phase 3 MCP runtime inspector.
+- the implemented MCP runtime inspector.
 
 An active execution exposes only its bounded current path and recent activity. A complete hierarchy requires a finalized, successfully validated trace.
 
@@ -573,7 +612,10 @@ The browser console displays the registered `sourcePath` and YAML returned by th
 - infer a Java implementation from a name; or
 - establish build or Git provenance.
 
-In Phase 3, the Agent Skill may guide the IDE LLM to compare application-provided YAML with candidate YAML or Java code in the workspace. A mapping identifier is only a search hint. A difference is development context or a possible change target, not proof of which source revision produced the running application.
+The Agent Skill may guide the IDE LLM to compare application-provided YAML with
+candidate YAML or Java code in the workspace. A mapping identifier is only a
+search hint. A difference is development context or a possible change target,
+not proof of which source revision produced the running application.
 
 ### Interpretation rules
 
@@ -649,7 +691,7 @@ The IDE investigation presents the difference as comparison context, not deploym
 | `WF-SP-R9` | Never use `sourcePath` as a browser or Go filesystem locator. | Settled descriptive-metadata contract. |
 | `WF-SP-R10` | Give browser and MCP identical hierarchy and frame calculations. | Transport-neutral Go shared services. |
 | `WF-SP-R11` | Make every frame in a valid acquired trace available without a hierarchy-specific depth or node cap. | Complete inspectability through bounded transport while the artifact handle remains valid. |
-| `WF-SP-R12` | Keep runtime-to-workspace comparison in the IDE and avoid deployment-provenance claims. | Phase 3 Agent Skill and runtime-to-workspace boundary. |
+| `WF-SP-R12` | Keep runtime-to-workspace comparison in the IDE and avoid deployment-provenance claims. | Agent Skill and runtime-to-workspace boundary. |
 | `WF-SP-R13` | Do not add copy, export, evidence-package, or additional retention behavior through this workflow. | Existing current-scope navigation and artifact lifecycle. |
 | `WF-SP-R14` | Do not explain routing intent, semantic causality, design correctness, or recommended restructuring. | Product north star. |
 
@@ -661,6 +703,14 @@ This workflow does not yet choose:
 - specialized rendering behavior for very deep hierarchies if a demonstrated need emerges;
 - the frontend framework or component strategy.
 
-Those choices remain implementation work. Duration, flat failure and validation indexes, usage, attempt/retry membership, final outcome, terminal-failure attribution, and the absence of an aggregate evidence-completeness model are settled by Phase 3's shared definitions and Phase 1 consumed trace relationships. The remaining choices must follow the product north star and must not add a parsed effective skill model, active-trace inspection, console-side repository access, source mapping, deployment attestation, hierarchy-specific truncation, or console-generated judgments.
+Duration, flat failure and validation indexes, usage, attempt/retry membership,
+final outcome, terminal-failure attribution, and the absence of an aggregate
+evidence-completeness model are implemented baseline semantics. Future choices
+must follow the product north star and must not add a parsed effective skill
+model, active-trace inspection, console-side repository access, source mapping,
+deployment attestation, hierarchy-specific truncation, or console-generated
+judgments without explicit reconsideration.
 
-The settled Phase 3 trace, frame-query, record-query, and skill-inspection operations expose the hierarchy, frame, and skill facts this workflow consumes. Their implementation schemas may evolve additively; workspace comparison remains client-owned.
+The implemented trace, frame-query, record-query, and skill-inspection
+operations expose the hierarchy, frame, and skill facts this workflow consumes.
+Their schemas may evolve additively; workspace comparison remains client-owned.
