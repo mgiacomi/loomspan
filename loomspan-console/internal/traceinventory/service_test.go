@@ -18,216 +18,253 @@ type fakeArtifacts struct {
 	lookups  map[string]artifact.LookupResult
 }
 
-func (f fakeArtifacts) StorageSnapshot() (artifact.StorageSnapshot, *consolecore.Error) {
-	return f.snapshot, nil
+func (fake *fakeArtifacts) StorageSnapshot() (artifact.StorageSnapshot, *consolecore.Error) {
+	return fake.snapshot, nil
 }
-func (f fakeArtifacts) Lookup(ref evidence.Reference, traceID string) (artifact.LookupResult, *consolecore.Error) {
-	return f.lookups[string(ref.Source)+":"+traceID], nil
+func (fake *fakeArtifacts) Lookup(ref evidence.Reference, traceID string) (artifact.LookupResult, *consolecore.Error) {
+	return fake.lookups[string(ref.Source)+":"+traceID], nil
 }
 
 type fakeTarget struct {
-	scope target.Scope
-	err   *consolecore.Error
-	calls int
+	scope      target.Scope
+	err        *consolecore.Error
+	currentErr *consolecore.Error
+	calls      int
 }
 
-func (f *fakeTarget) Capture() (target.Scope, *consolecore.Error) { f.calls++; return f.scope, f.err }
+func (fake *fakeTarget) Capture() (target.Scope, *consolecore.Error) {
+	fake.calls++
+	return fake.scope, fake.err
+}
+func (fake *fakeTarget) RequireCurrent(target.ScopeID) *consolecore.Error { return fake.currentErr }
 
 type fakeCatalog struct {
-	pages map[string]observability.Page[observability.Trace]
-	calls int
+	pages       map[string]observability.Page[observability.Trace]
+	listError   *consolecore.Error
+	probeErrors map[string]*consolecore.Error
+	listCalls   int
+	probeCalls  int
 }
 
-func (f *fakeCatalog) ListTraces(_ context.Context, _ target.Scope, request observability.ListRequest) (observability.Page[observability.Trace], *consolecore.Error) {
-	f.calls++
-	return f.pages[request.Cursor], nil
+func (fake *fakeCatalog) ListTraces(_ context.Context, _ target.Scope, request observability.ListRequest) (observability.Page[observability.Trace], *consolecore.Error) {
+	fake.listCalls++
+	return fake.pages[request.Cursor], fake.listError
+}
+func (fake *fakeCatalog) GetTrace(_ context.Context, _ target.Scope, traceID string) (observability.Trace, *consolecore.Error) {
+	fake.probeCalls++
+	if domain, ok := fake.probeErrors[traceID]; ok {
+		return observability.Trace{}, domain
+	}
+	return observability.Trace{TraceID: traceID}, nil
 }
 
-func TestInventoryAllWithoutTargetReturnsImportedEntriesAndCatalogError(t *testing.T) {
-	when := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
-	owner, _ := evidence.Imported("internal-owner")
-	artifacts := fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{{Source: evidence.SourceImported, TraceID: "import-1", FinalizedAt: when, LocalAvailable: true}}}, lookups: map[string]artifact.LookupResult{"IMPORTED:import-1": {Owner: owner, Handle: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Metadata: artifact.TraceMetadata{TraceID: "import-1", SessionID: "session-1", FinalizedAt: when}, LocalAvailable: true}}}
-	targetProvider := &fakeTarget{err: consolecore.NewError(consolecore.CodeInvalidArgument, "Select a target first.", "", consolecore.Details{}, nil)}
-	catalog := &fakeCatalog{}
-	result, domain := New(artifacts, catalog, targetProvider, func() time.Time { return when }).List(context.Background(), Query{SourceFilter: SourceFilterAll, PageSize: 64})
-	if domain != nil || len(result.Items) != 1 || result.Items[0].Source != evidence.SourceImported || result.Items[0].TargetScopeID != "" || !result.Items[0].LocalAvailable {
+func TestInventoryCompletenessDecisionTable(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	imported := installed(evidence.SourceImported, "imported", when)
+	tests := []struct {
+		name       string
+		target     *fakeTarget
+		catalog    *fakeCatalog
+		entries    []artifact.StoredEntry
+		lookups    map[string]artifact.LookupResult
+		wantItems  int
+		complete   bool
+		limitation bool
+	}{
+		{"no target imports complete", &fakeTarget{err: noTarget()}, &fakeCatalog{}, []artifact.StoredEntry{imported.stored}, imported.lookups, 1, true, false},
+		{"selected target complete", &fakeTarget{scope: target.Scope{ID: "scope-1"}}, &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: when, Items: []observability.Trace{}}}}, nil, map[string]artifact.LookupResult{}, 0, true, false},
+		{"catalog failure incomplete", &fakeTarget{scope: target.Scope{ID: "scope-1"}}, &fakeCatalog{listError: consolecore.NewError(consolecore.CodeTargetUnavailable, "unavailable", "", consolecore.Details{}, nil)}, nil, map[string]artifact.LookupResult{}, 0, false, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, domain := New(&fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: test.entries}, lookups: test.lookups}, test.catalog, test.target, func() time.Time { return when }).List(context.Background(), Query{PageSize: 64})
+			if domain != nil || len(result.Items) != test.wantItems || result.Complete != test.complete || (len(result.Limitations) > 0) != test.limitation {
+				t.Fatalf("result=%#v domain=%v", result, domain)
+			}
+			if test.limitation && (len(result.Limitations) != 1 || result.Limitations[0].Code != LimitationTraceDiscoveryIncomplete || result.Limitations[0].Message != incompleteMessage) {
+				t.Fatalf("limitations=%#v", result.Limitations)
+			}
+		})
+	}
+}
+
+func TestInventoryConsolidatesTraceIdentityBeforePagination(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	targetInstalled := installed(evidence.SourceTarget, "same", when)
+	importedInstalled := installed(evidence.SourceImported, "same", when.Add(-time.Minute))
+	artifacts := &fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{targetInstalled.stored, importedInstalled.stored}}, lookups: merge(targetInstalled.lookups, importedInstalled.lookups)}
+	catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: when, Items: []observability.Trace{{TraceID: "same", FinalizedAt: when}, {TraceID: "catalog", FinalizedAt: when.Add(-2 * time.Minute)}}}}}
+	service := New(artifacts, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return when })
+	result, domain := service.List(context.Background(), Query{PageSize: 2})
+	if domain != nil || len(result.Items) != 2 || result.Items[0].TraceID != "same" || !result.Items[0].Ambiguous || result.Items[1].TraceID != "catalog" {
 		t.Fatalf("result=%#v domain=%v", result, domain)
 	}
-	if !result.ApplicationCatalog.Requested || result.ApplicationCatalog.Available || result.ApplicationCatalog.Error == nil || catalog.calls != 0 {
-		t.Fatalf("catalog=%#v calls=%d", result.ApplicationCatalog, catalog.calls)
+	seen := map[string]bool{}
+	for _, item := range result.Items {
+		if seen[item.TraceID] {
+			t.Fatalf("duplicate identity: %#v", result.Items)
+		}
+		seen[item.TraceID] = true
 	}
 }
 
-func TestInventoryImportedNeverCapturesTargetAndPaginatesDeterministically(t *testing.T) {
-	base := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
-	owner, _ := evidence.Imported("owner")
-	entries := []artifact.StoredEntry{{Source: evidence.SourceImported, TraceID: "older", FinalizedAt: base.Add(-time.Minute)}, {Source: evidence.SourceImported, TraceID: "newer", FinalizedAt: base}}
-	lookups := map[string]artifact.LookupResult{}
-	for _, entry := range entries {
-		lookups["IMPORTED:"+entry.TraceID] = artifact.LookupResult{Owner: owner, Handle: artifact.Handle(entry.TraceID + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Metadata: artifact.TraceMetadata{TraceID: entry.TraceID, FinalizedAt: entry.FinalizedAt}, LocalAvailable: true}
+func TestInventoryCanonicalizesAmbiguousMetadataAcrossContinuationCalls(t *testing.T) {
+	base := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	olderTarget := installed(evidence.SourceTarget, "same", base.Add(-2*time.Minute))
+	newerImport := installed(evidence.SourceImported, "same", base)
+	middle := installed(evidence.SourceImported, "middle", base.Add(-time.Minute))
+	artifacts := &fakeArtifacts{
+		snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{olderTarget.stored, newerImport.stored, middle.stored}},
+		lookups:  merge(olderTarget.lookups, newerImport.lookups, middle.lookups),
 	}
-	targetProvider := &fakeTarget{}
-	service := New(fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: entries}, lookups: lookups}, &fakeCatalog{}, targetProvider, func() time.Time { return base })
-	first, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterImported, PageSize: 1})
-	if domain != nil || len(first.Items) != 1 || first.Items[0].TraceID != "newer" || !first.HasMore {
+	catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: base}}}
+	service := New(artifacts, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return base })
+	first, domain := service.List(context.Background(), Query{PageSize: 1})
+	if domain != nil || len(first.Items) != 1 || first.Items[0].TraceID != "same" || !first.Items[0].Ambiguous || !first.HasMore {
 		t.Fatalf("first=%#v domain=%v", first, domain)
 	}
-	second, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterImported, PageSize: 1, Continuation: first.Continuation})
-	if domain != nil || len(second.Items) != 1 || second.Items[0].TraceID != "older" || targetProvider.calls != 0 {
-		t.Fatalf("second=%#v domain=%v calls=%d", second, domain, targetProvider.calls)
-	}
-}
-
-func TestInventoryCursorRejectsWrongQueryAndUnknownFields(t *testing.T) {
-	key := installedKey{FinalizedAt: time.Now().UTC(), Source: "IMPORTED", TraceID: "trace"}
-	token, err := encodeCursor(inventoryCursor{Schema: cursorSchemaV1, Operation: cursorOperation, Fingerprint: queryFingerprint(SourceFilterImported, 1, ""), Segment: segmentInstalled, Installed: &key})
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := New(fakeArtifacts{}, nil, &fakeTarget{}, time.Now)
-	_, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterImported, PageSize: 2, Continuation: token})
-	if domain == nil || domain.Code != consolecore.CodeInvalidCursor {
-		t.Fatalf("domain=%v", domain)
-	}
-}
-
-func TestInventoryTargetRequiresSelectionAndAllOrdersThenDeduplicatesCatalog(t *testing.T) {
-	when := time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
-	noTarget := &fakeTarget{err: consolecore.NewError(consolecore.CodeInvalidArgument, "Select a target first.", "", consolecore.Details{}, nil)}
-	if _, domain := New(fakeArtifacts{}, nil, noTarget, func() time.Time { return when }).List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1}); domain == nil {
-		t.Fatal("TARGET without target was accepted")
-	}
-	targetOwner := evidence.Target("scope-1")
-	importOwner, _ := evidence.Imported("owner")
-	handleA := artifact.Handle("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	handleB := artifact.Handle("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	artifacts := fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{{Source: evidence.SourceImported, TraceID: "imported", FinalizedAt: when}, {Source: evidence.SourceTarget, TargetScopeID: "scope-1", TraceID: "installed", FinalizedAt: when}}}, lookups: map[string]artifact.LookupResult{"TARGET:installed": {Owner: targetOwner, Handle: handleA, Metadata: artifact.TraceMetadata{TraceID: "installed", FinalizedAt: when}, LocalAvailable: true}, "IMPORTED:imported": {Owner: importOwner, Handle: handleB, Metadata: artifact.TraceMetadata{TraceID: "imported", FinalizedAt: when}, LocalAvailable: true}}}
-	catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {Items: []observability.Trace{{TraceID: "installed", FinalizedAt: when}, {TraceID: "catalog-only", FinalizedAt: when.Add(-time.Minute)}}, ObservedAt: when}}}
-	provider := &fakeTarget{scope: target.Scope{ID: "scope-1", InstanceID: "instance-1"}}
-	result, domain := New(artifacts, catalog, provider, func() time.Time { return when }).List(context.Background(), Query{SourceFilter: SourceFilterAll, PageSize: 4})
-	if domain != nil {
-		t.Fatal(domain)
-	}
-	if len(result.Items) != 3 || result.Items[0].TraceID != "installed" || result.Items[1].TraceID != "imported" || result.Items[2].TraceID != "catalog-only" {
-		t.Fatalf("items=%#v", result.Items)
-	}
-	if !result.ApplicationCatalog.Available || result.ApplicationCatalog.TargetScopeID != "scope-1" || result.ApplicationCatalog.InstanceID != "instance-1" {
-		t.Fatalf("catalog=%#v", result.ApplicationCatalog)
-	}
-}
-
-func TestInventoryContinuationUsesKeysetAcrossInstalledSetChange(t *testing.T) {
-	base := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
-	owner, _ := evidence.Imported("owner")
-	entries := []artifact.StoredEntry{{Source: evidence.SourceImported, TraceID: "newer", FinalizedAt: base}, {Source: evidence.SourceImported, TraceID: "older", FinalizedAt: base.Add(-time.Minute)}}
-	lookups := map[string]artifact.LookupResult{}
-	addLookup := func(entry artifact.StoredEntry) {
-		lookups["IMPORTED:"+entry.TraceID] = artifact.LookupResult{Owner: owner, Handle: artifact.Handle(strings.Repeat(entry.TraceID[:1], 64)), Metadata: artifact.TraceMetadata{TraceID: entry.TraceID, FinalizedAt: entry.FinalizedAt}, LocalAvailable: true}
-	}
-	for _, entry := range entries {
-		addLookup(entry)
-	}
-	artifacts := &mutableArtifacts{snapshot: artifact.StorageSnapshot{Entries: entries}, lookups: lookups}
-	service := New(artifacts, nil, &fakeTarget{}, func() time.Time { return base })
-	first, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterImported, PageSize: 1})
-	if domain != nil {
-		t.Fatal(domain)
-	}
-	inserted := artifact.StoredEntry{Source: evidence.SourceImported, TraceID: "inserted", FinalizedAt: base.Add(time.Minute)}
-	addLookup(inserted)
-	artifacts.snapshot.Entries = append(artifacts.snapshot.Entries, inserted)
-	second, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterImported, PageSize: 1, Continuation: first.Continuation})
-	if domain != nil || len(second.Items) != 1 || second.Items[0].TraceID != "older" {
-		t.Fatalf("keyset continuation after insert: result=%#v domain=%v", second, domain)
-	}
-}
-
-func TestInventoryCursorCarriesCompositeApplicationState(t *testing.T) {
-	const upstream = "application-page-2"
-	value := inventoryCursor{Schema: cursorSchemaV1, Operation: cursorOperation, Fingerprint: "fingerprint", Segment: segmentApplication, InstalledFingerprint: "installed-fingerprint", ApplicationCursor: upstream}
-	token, err := encodeCursor(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := decodeCursor(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.ApplicationCursor != upstream {
-		t.Fatalf("application cursor=%q", decoded.ApplicationCursor)
-	}
-}
-
-func TestInventoryApplicationContinuationRejectsInstalledRemovalBeforeCatalogDeduplication(t *testing.T) {
-	when := time.Date(2026, 8, 14, 10, 45, 0, 0, time.UTC)
-	entry := artifact.StoredEntry{Source: evidence.SourceTarget, TargetScopeID: "scope-1", TraceID: "installed", FinalizedAt: when}
-	artifacts := &mutableArtifacts{
-		snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{entry}},
-		lookups: map[string]artifact.LookupResult{
-			"TARGET:installed": {Owner: evidence.Target("scope-1"), Handle: artifact.Handle(strings.Repeat("a", 64)), Metadata: artifact.TraceMetadata{TraceID: "installed", FinalizedAt: when}, LocalAvailable: true},
-		},
-	}
-	catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: when, Items: []observability.Trace{{TraceID: "installed", FinalizedAt: when}}}}}
-	service := New(artifacts, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return when })
-	first, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1})
-	if domain != nil || len(first.Items) != 1 || first.Items[0].TraceID != "installed" || !first.HasMore {
-		t.Fatalf("first=%#v domain=%v", first, domain)
-	}
-	artifacts.snapshot.Entries = nil
-	delete(artifacts.lookups, "TARGET:installed")
-	second, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1, Continuation: first.Continuation})
-	if domain == nil || domain.Code != consolecore.CodeInvalidCursor || len(second.Items) != 0 {
+	artifacts.snapshot.Entries[0], artifacts.snapshot.Entries[1] = artifacts.snapshot.Entries[1], artifacts.snapshot.Entries[0]
+	second, domain := service.List(context.Background(), Query{PageSize: 1, Continuation: first.Continuation})
+	if domain != nil || len(second.Items) != 1 || second.Items[0].TraceID != "middle" {
 		t.Fatalf("second=%#v domain=%v", second, domain)
 	}
 }
 
-func TestInventoryInstalledFullPageStillReportsObservedCatalogAvailability(t *testing.T) {
-	when := time.Date(2026, 8, 14, 10, 30, 0, 0, time.UTC)
-	owner := evidence.Target("scope-1")
-	artifacts := fakeArtifacts{
-		snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{{Source: evidence.SourceTarget, TargetScopeID: "scope-1", TraceID: "installed", FinalizedAt: when}}},
-		lookups:  map[string]artifact.LookupResult{"TARGET:installed": {Owner: owner, Handle: artifact.Handle(strings.Repeat("a", 64)), Metadata: artifact.TraceMetadata{TraceID: "installed", FinalizedAt: when}, LocalAvailable: true}},
-	}
-	catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: when, Items: []observability.Trace{}}}}
-	result, domain := New(artifacts, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return when }).List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1})
-	if domain != nil || len(result.Items) != 1 || !result.ApplicationCatalog.Requested || !result.ApplicationCatalog.Available || result.ApplicationCatalog.Error != nil || result.HasMore || catalog.calls != 1 {
-		t.Fatalf("result=%#v domain=%v catalogCalls=%d", result, domain, catalog.calls)
+func TestInventoryMarksImportedCatalogCollisionAndSuppressesCatalogRow(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	value := installed(evidence.SourceImported, "same", when)
+	catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: when, Items: []observability.Trace{{TraceID: "same", FinalizedAt: when}}}}, probeErrors: map[string]*consolecore.Error{}}
+	result, domain := New(&fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{value.stored}}, lookups: value.lookups}, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return when }).List(context.Background(), Query{PageSize: 64})
+	if domain != nil || len(result.Items) != 1 || !result.Items[0].Ambiguous || catalog.probeCalls != 1 {
+		t.Fatalf("result=%#v domain=%v probes=%d", result, domain, catalog.probeCalls)
 	}
 }
 
-func TestInventoryContinuationRejectsTargetRotationMalformedAndOversized(t *testing.T) {
-	base := time.Date(2026, 8, 14, 11, 0, 0, 0, time.UTC)
-	owner := evidence.Target("scope-1")
-	entries := []artifact.StoredEntry{{Source: evidence.SourceTarget, TargetScopeID: "scope-1", TraceID: "a", FinalizedAt: base}, {Source: evidence.SourceTarget, TargetScopeID: "scope-1", TraceID: "b", FinalizedAt: base.Add(-time.Minute)}}
-	lookups := map[string]artifact.LookupResult{}
-	for _, entry := range entries {
-		lookups["TARGET:"+entry.TraceID] = artifact.LookupResult{Owner: owner, Handle: artifact.Handle(strings.Repeat(entry.TraceID, 64)), Metadata: artifact.TraceMetadata{TraceID: entry.TraceID, FinalizedAt: entry.FinalizedAt}, LocalAvailable: true}
+func TestInventoryChecksCatalogCompletenessWhenInstalledPageIsFull(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	newer := installed(evidence.SourceTarget, "newer", when)
+	older := installed(evidence.SourceTarget, "older", when.Add(-time.Minute))
+	catalog := &fakeCatalog{listError: consolecore.NewError(consolecore.CodeTargetUnavailable, "unavailable", "", consolecore.Details{}, nil)}
+	result, domain := New(
+		&fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{newer.stored, older.stored}}, lookups: merge(newer.lookups, older.lookups)},
+		catalog,
+		&fakeTarget{scope: target.Scope{ID: "scope-1"}},
+		func() time.Time { return when },
+	).List(context.Background(), Query{PageSize: 1})
+	if domain != nil || !result.HasMore || result.Complete || len(result.Limitations) != 1 || catalog.listCalls != 1 {
+		t.Fatalf("result=%#v domain=%v catalogCalls=%d", result, domain, catalog.listCalls)
 	}
-	provider := &fakeTarget{scope: target.Scope{ID: "scope-1", InstanceID: "one"}}
-	service := New(fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: entries}, lookups: lookups}, &fakeCatalog{}, provider, func() time.Time { return base })
-	first, domain := service.List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1})
-	if domain != nil || !first.HasMore {
+}
+
+func TestInventoryHasMoreRequiresAnUnlistedCatalogTrace(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	value := installed(evidence.SourceTarget, "same", when)
+	next := "next"
+	artifacts := &fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{value.stored}}, lookups: value.lookups}
+	for _, test := range []struct {
+		name        string
+		second      observability.Trace
+		wantHasMore bool
+		wantItems   int
+	}{
+		{"duplicates exhausted", observability.Trace{TraceID: "same", FinalizedAt: when}, false, 0},
+		{"unique trace remains", observability.Trace{TraceID: "other", FinalizedAt: when.Add(-time.Minute)}, true, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := &fakeCatalog{pages: map[string]observability.Page[observability.Trace]{
+				"":     {ObservedAt: when, Items: []observability.Trace{{TraceID: "same", FinalizedAt: when}}, HasMore: true, NextCursor: &next},
+				"next": {ObservedAt: when, Items: []observability.Trace{test.second}},
+			}}
+			service := New(artifacts, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return when })
+			first, domain := service.List(context.Background(), Query{PageSize: 1})
+			if domain != nil || first.HasMore != test.wantHasMore || (first.Continuation != "") != test.wantHasMore || catalog.listCalls != 2 {
+				t.Fatalf("first=%#v domain=%v catalogCalls=%d", first, domain, catalog.listCalls)
+			}
+			if !test.wantHasMore {
+				return
+			}
+			second, domain := service.List(context.Background(), Query{PageSize: 1, Continuation: first.Continuation})
+			if domain != nil || len(second.Items) != test.wantItems || second.Items[0].TraceID != "other" {
+				t.Fatalf("second=%#v domain=%v", second, domain)
+			}
+		})
+	}
+}
+
+func TestUnifiedInventoryContinuationRejectsChangedSelectionAndInstalledSet(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	firstValue := installed(evidence.SourceImported, "newer", when)
+	secondValue := installed(evidence.SourceImported, "older", when.Add(-time.Minute))
+	artifacts := &fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{firstValue.stored, secondValue.stored}}, lookups: merge(firstValue.lookups, secondValue.lookups)}
+	service := New(artifacts, nil, &fakeTarget{err: noTarget()}, func() time.Time { return when })
+	first, domain := service.List(context.Background(), Query{PageSize: 1})
+	if domain != nil || !first.HasMore || first.Items[0].TraceID != "newer" {
 		t.Fatalf("first=%#v domain=%v", first, domain)
 	}
-	provider.scope = target.Scope{ID: "scope-2", InstanceID: "two"}
-	if _, domain = service.List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1, Continuation: first.Continuation}); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
-		t.Fatalf("rotation domain=%v", domain)
+	second, domain := service.List(context.Background(), Query{PageSize: 1, Continuation: first.Continuation})
+	if domain != nil || len(second.Items) != 1 || second.Items[0].TraceID != "older" {
+		t.Fatalf("second=%#v domain=%v", second, domain)
+	}
+	if _, domain = service.List(context.Background(), Query{PageSize: 2, Continuation: first.Continuation}); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+		t.Fatalf("changed query domain=%v", domain)
+	}
+	thirdValue := installed(evidence.SourceImported, "changed", when.Add(-2*time.Minute))
+	artifacts.snapshot.Entries = append(artifacts.snapshot.Entries, thirdValue.stored)
+	artifacts.lookups = merge(artifacts.lookups, thirdValue.lookups)
+	if _, domain = service.List(context.Background(), Query{PageSize: 1, Continuation: first.Continuation}); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+		t.Fatalf("changed installed set domain=%v", domain)
 	}
 	for _, token := range []string{"%%%", strings.Repeat("a", maxContinuationLength+1)} {
-		if _, domain = service.List(context.Background(), Query{SourceFilter: SourceFilterTarget, PageSize: 1, Continuation: token}); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
-			t.Fatalf("token accepted domain=%v", domain)
+		if _, domain = service.List(context.Background(), Query{PageSize: 1, Continuation: token}); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+			t.Fatalf("token accepted: %v", domain)
 		}
 	}
 }
 
-type mutableArtifacts struct {
-	snapshot artifact.StorageSnapshot
-	lookups  map[string]artifact.LookupResult
+func TestInventorySuppressesResultAfterTargetRotation(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	targetProvider := &fakeTarget{
+		scope:      target.Scope{ID: "scope-1"},
+		currentErr: consolecore.NewError(consolecore.CodeTargetChanged, "changed", "scope-1", consolecore.Details{}, nil),
+	}
+	result, domain := New(
+		&fakeArtifacts{lookups: map[string]artifact.LookupResult{}},
+		&fakeCatalog{pages: map[string]observability.Page[observability.Trace]{"": {ObservedAt: when}}},
+		targetProvider,
+		func() time.Time { return when },
+	).List(context.Background(), Query{PageSize: 1})
+	if domain == nil || domain.Code != consolecore.CodeTargetChanged || len(result.Items) != 0 {
+		t.Fatalf("result=%#v domain=%v", result, domain)
+	}
 }
 
-func (f *mutableArtifacts) StorageSnapshot() (artifact.StorageSnapshot, *consolecore.Error) {
-	return f.snapshot, nil
+type installedValue struct {
+	stored  artifact.StoredEntry
+	lookups map[string]artifact.LookupResult
 }
-func (f *mutableArtifacts) Lookup(ref evidence.Reference, id string) (artifact.LookupResult, *consolecore.Error) {
-	return f.lookups[string(ref.Source)+":"+id], nil
+
+func installed(source evidence.Source, traceID string, finalized time.Time) installedValue {
+	owner := evidence.Target("scope-1")
+	targetScope := "scope-1"
+	if source == evidence.SourceImported {
+		owner, _ = evidence.Imported("owner")
+		targetScope = ""
+	}
+	handle := artifact.Handle(strings.Repeat(string(traceID[0]), 64))
+	lookup := artifact.LookupResult{Owner: owner, Handle: handle, Metadata: artifact.TraceMetadata{TraceID: traceID, SessionID: "session-" + traceID, EntrySkill: "skill", Outcome: "SUCCEEDED", FinalizedAt: finalized}, LocalAvailable: true}
+	return installedValue{artifact.StoredEntry{Source: source, TargetScopeID: targetScope, TraceID: traceID, FinalizedAt: finalized}, map[string]artifact.LookupResult{string(source) + ":" + traceID: lookup}}
+}
+
+func merge(maps ...map[string]artifact.LookupResult) map[string]artifact.LookupResult {
+	result := map[string]artifact.LookupResult{}
+	for _, values := range maps {
+		for key, value := range values {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func noTarget() *consolecore.Error {
+	return consolecore.NewError(consolecore.CodeInvalidArgument, "Select a target first.", "", consolecore.Details{}, nil)
 }

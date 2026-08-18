@@ -46,9 +46,8 @@ func TestListSkillsGoldenStructuredResultAndText(t *testing.T) {
 	assertJSONGolden(t, "skills-list.json", envelope)
 	text := result.Content[0].(*mcp.TextContent).Text
 	for _, required := range []string{
-		`targetScopeId: "scope-1"`, `count: 1`, `hasMore: true`,
+		`count: 1`, `hasMore: true`,
 		`items[0].registeredName: "skill-☃"`, `items[0].sourcePath: "nested/skill.yaml"`,
-		`items[0].resourceUri: "loomspan://targets/scope-1/skills/skill-%E2%98%83"`,
 	} {
 		if !containsLine(text, required) {
 			t.Errorf("missing %q in:\n%s", required, text)

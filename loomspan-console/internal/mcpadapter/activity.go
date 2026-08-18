@@ -79,9 +79,9 @@ func handleGetExecutionActivity(ctx context.Context, options ServerOptions, inpu
 		}
 	}
 	result := activityResult{
-		TargetScopeID: string(scope.ID), InstanceID: scope.InstanceID, ObservedAt: recent.ObservedAt.UTC(),
-		Items: items, ReturnedCursorRange: returnedRange, HasMore: recent.HasMore,
-		Continuation: continuation, Continuity: recent.Continuity,
+		ObservedAt: recent.ObservedAt.UTC(),
+		Items:      items, ReturnedCursorRange: returnedRange, HasMore: recent.HasMore,
+		Continuation: continuation, Continuity: mapContinuity(recent.Continuity),
 		BeginningUnavailable: recent.BeginningUnavailable,
 	}
 	if domain := publicationDomain(options, scope); domain != nil {
@@ -95,7 +95,7 @@ func handleGetExecutionActivity(ctx context.Context, options ServerOptions, inpu
 
 func activityText(result activityResult) string {
 	var writer lineWriter
-	appendCommon(&writer, result.TargetScopeID, result.InstanceID, result.ObservedAt)
+	appendCommon(&writer, result.ObservedAt)
 	if result.ReturnedCursorRange == nil {
 		writer.lines = append(writer.lines, "returnedCursorRange: -")
 	} else {
@@ -106,8 +106,6 @@ func activityText(result activityResult) string {
 		writer.lines = append(writer.lines, "continuity: -")
 	} else {
 		writer.quoted("continuity.intervalId", result.Continuity.IntervalID)
-		writer.quoted("continuity.targetScopeId", result.Continuity.TargetScopeID)
-		writer.quoted("continuity.instanceId", result.Continuity.InstanceID)
 		writer.quoted("continuity.firstCursor", result.Continuity.FirstCursor)
 		writer.quoted("continuity.lastCursor", result.Continuity.LastCursor)
 		writer.time("continuity.observedAt", result.Continuity.ObservedAt)
@@ -131,4 +129,11 @@ func activityText(result activityResult) string {
 		writer.quoted(prefix+"summary", item.Summary)
 	}
 	return writer.String()
+}
+
+func mapContinuity(value *live.Continuity) *continuityDTO {
+	if value == nil {
+		return nil
+	}
+	return &continuityDTO{IntervalID: value.IntervalID, FirstCursor: value.FirstCursor, LastCursor: value.LastCursor, ObservedAt: value.ObservedAt, Reset: value.Reset}
 }

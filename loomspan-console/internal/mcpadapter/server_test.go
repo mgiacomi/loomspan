@@ -94,14 +94,8 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	}
 	templateList := post(`{"jsonrpc":"2.0","id":5,"method":"resources/templates/list","params":{}}`)
 	templates := templateList["result"].(map[string]any)["resourceTemplates"].([]any)
-	if len(templates) != 7 || !rawTemplateNamesContain(templates, SkillResourceTemplate, TargetTraceSummaryResourceTemplate, TargetTraceFrameResourceTemplate, TargetTraceRecordResourceTemplate, ImportedTraceSummaryResourceTemplate, ImportedTraceFrameResourceTemplate, ImportedTraceRecordResourceTemplate) {
+	if len(templates) != 0 {
 		t.Fatalf("resource templates = %+v", templates)
-	}
-	resourceURI := skillResourceURI("scope-1", "skill-☃")
-	resourceRead := post(fmt.Sprintf(`{"jsonrpc":"2.0","id":6,"method":"resources/read","params":{"uri":%q}}`, resourceURI))
-	contents := resourceRead["result"].(map[string]any)["contents"].([]any)
-	if len(contents) != 1 || contents[0].(map[string]any)["text"] != "name: skill-☃\n" {
-		t.Fatalf("resource read = %+v", resourceRead)
 	}
 }
 
@@ -172,7 +166,7 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 		}
 	}
 	templates, err := session.ListResourceTemplates(context.Background(), nil)
-	if err != nil || len(templates.ResourceTemplates) != 7 || !templateNamesContain(templates.ResourceTemplates, SkillResourceTemplate, TargetTraceSummaryResourceTemplate, TargetTraceFrameResourceTemplate, TargetTraceRecordResourceTemplate, ImportedTraceSummaryResourceTemplate, ImportedTraceFrameResourceTemplate, ImportedTraceRecordResourceTemplate) {
+	if err != nil || len(templates.ResourceTemplates) != 0 {
 		t.Fatalf("resource templates=%#v err=%v", templates, err)
 	}
 	var runtimeTool *mcp.Tool
@@ -227,11 +221,6 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 		if err != nil || !invalid.IsError || invalid.StructuredContent != nil {
 			t.Fatalf("invalid arguments %#v result=%#v err=%v", arguments, invalid, err)
 		}
-	}
-	resourceURI := skillResourceURI("scope-1", "skill-☃")
-	resource, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: resourceURI})
-	if err != nil || len(resource.Contents) != 1 || resource.Contents[0].Text != "name: skill-☃\n" || resource.Contents[0].MIMEType != skillResourceMIMEType {
-		t.Fatalf("resource=%#v err=%v", resource, err)
 	}
 }
 

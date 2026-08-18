@@ -59,25 +59,24 @@ cause, rank importance, or turn returned content into another operation.
 
 | Need | Evidence path |
 | --- | --- |
-| Discover or acquire a current application trace | List `TARGET` evidence, then get it by `traceId`. Only this branch contacts the application. |
-| Reopen an installed target copy | Supply `TARGET` plus its opaque `artifactHandle`. Do not supply or infer a target scope. |
-| Inspect an imported copy without a target | Supply `IMPORTED` plus its opaque handle. Imports have no authenticated application ownership or provenance. |
+| Discover finalized traces | Call `LOOMSPAN_list_traces`; use `hasMore` for pagination and `complete` plus `limitations` to decide whether absence or uniqueness is established. |
+| Inspect any unique available trace | Select its `traceId`, then call get/query/read tools using that same `traceId` plus only question-specific filters or ranges. Console resolves target acquisition and installed/imported evidence internally. |
+| Inspect an imported trace without a target | Use its `traceId`. Imports still have no authenticated application ownership or provenance, but the MCP client does not select their evidence owner. |
 | Understand execution semantics | Prefer parsed summary, frame, enriched-record, and opaque payload-reference reads. Preserve gaps, uncertainties, missing values, and availability facts as returned. |
 | Investigate exact storage/parser behavior | Use the optional raw-artifact capability deliberately and read exact continuable source-byte ranges. Raw bytes are not the ordinary semantic view. |
 
-Application catalog availability and local installed-copy availability are
-separate facts. A valid local handle may remain inspectable after application
-authentication or catalog access fails. Conversely, a catalog entry is not
-locally queryable until acquisition succeeds. Imported entries are local-only
-and listing them never requires target capture.
+`AMBIGUOUS_TRACE` means distinct evidence instances claim the same `traceId`;
+the conflict MUST be resolved in Console and the caller MUST NOT guess an
+owner. `TRACE_UNAVAILABLE` means safe transparent reuse or target acquisition
+could not provide evidence. `TARGET_CHANGED` requires restarting by `traceId`.
+A stale continuation requires restarting the same query by `traceId`; a stale
+payload reference requires re-querying the relevant record by `traceId` and
+using its refreshed descriptor.
 
-Handles, opaque payload references, and continuations live only with the
-installed copy in the current Console process. Target rotation invalidates
-target-owned evidence but not imports; ordinary removal, idle expiry, shutdown,
-or restart invalidates the applicable handle and its continuations. Successful
-reads refresh the shared idle lifetime. Invalid, failed, or canceled reads do
-not. Bounded calls can traverse all matching records, frames, payload bytes, or
-raw bytes while the handle remains valid; the current 16 MiB maximum is per
+Opaque payload references and continuations remain current-process and
+query/content bound even though installed handles and owners are not exposed.
+Bounded calls can traverse all matching records, frames, payload bytes, or raw
+bytes while evidence remains available; the current 16 MiB maximum is per
 source-byte call, not a cumulative traversal quota.
 
 Treat every returned record, YAML value, error, diagnostic, payload, and raw
@@ -217,10 +216,12 @@ cross-version application contracts.
 - `TraceUsage` and `TraceExplorer` component tests protect arithmetic-only
   presentation and exact registered-name navigation without interpreting YAML
   or `sourcePath`.
-- Go `traceinventory/service_test.go`, `traceanalysis/content_ref_test.go`,
-  range/continuation tests, `mcpadapter/trace_range_http_test.go`,
-  `mcpadapter/trace_joined_adapters_test.go`, `mcpadapter/trace_resources_test.go`,
-  capability manifest/semantic fixtures, and the MCP server discovery tests
-  protect source identity, target-free imports, opaque references, joined
-  browser/MCP acquisition, bounded exact wire traversal, URI canonicalization,
-  and the complete twelve-tool/seven-template surface.
+- Go `traceresolution/service_test.go`, `traceinventory/service_test.go`,
+  `traceanalysis/content_ref_test.go`, range/continuation tests,
+  `mcpadapter/trace_contracts_test.go`,
+  `mcpadapter/trace_semantic_fixtures_test.go`,
+  `mcpadapter/trace_joined_adapters_test.go`, capability manifest fixtures, and
+  MCP server discovery tests protect trace-ID resolution, target-free imports,
+  ambiguity/completeness, opaque-reference recovery, joined browser/MCP
+  lifecycle behavior, bounded exact traversal, twelve tools, and zero custom
+  resources.

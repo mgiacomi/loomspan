@@ -23,39 +23,40 @@ type toolEnvelope[T any] struct {
 }
 
 type domainErrorDTO struct {
-	Code          consolecore.Code    `json:"code"`
-	Message       string              `json:"message"`
-	TargetScopeID string              `json:"targetScopeId,omitempty"`
-	Details       consolecore.Details `json:"details"`
+	Code    consolecore.Code `json:"code"`
+	Message string           `json:"message"`
+	Details errorDetailsDTO  `json:"details"`
+}
+
+type errorDetailsDTO struct {
+	ExpectedCompatibilityVersion string `json:"expectedCompatibilityVersion,omitempty"`
+	ObservedCompatibilityVersion string `json:"observedCompatibilityVersion,omitempty"`
+	LimitName                    string `json:"limitName,omitempty"`
+	LimitValue                   int64  `json:"limitValue,omitempty"`
+	RawDownloadAvailable         *bool  `json:"rawDownloadAvailable,omitempty"`
 }
 
 type skillSummaryDTO struct {
 	RegisteredName string `json:"registeredName"`
 	SourcePath     string `json:"sourcePath"`
-	ResourceURI    string `json:"resourceUri"`
 }
 
 type skillDetailDTO struct {
 	RegisteredName string `json:"registeredName"`
 	SourcePath     string `json:"sourcePath"`
 	YAML           string `json:"yaml"`
-	ResourceURI    string `json:"resourceUri"`
 }
 
 type skillListResult struct {
-	TargetScopeID string            `json:"targetScopeId"`
-	InstanceID    string            `json:"instanceId"`
-	ObservedAt    time.Time         `json:"observedAt"`
-	Items         []skillSummaryDTO `json:"items"`
-	HasMore       bool              `json:"hasMore"`
-	Continuation  string            `json:"continuation,omitempty"`
+	ObservedAt   time.Time         `json:"observedAt"`
+	Items        []skillSummaryDTO `json:"items"`
+	HasMore      bool              `json:"hasMore"`
+	Continuation string            `json:"continuation,omitempty"`
 }
 
 type skillDetailResult struct {
-	TargetScopeID string         `json:"targetScopeId"`
-	InstanceID    string         `json:"instanceId"`
-	ObservedAt    time.Time      `json:"observedAt"`
-	Skill         skillDetailDTO `json:"skill"`
+	ObservedAt time.Time      `json:"observedAt"`
+	Skill      skillDetailDTO `json:"skill"`
 }
 
 type framePathDTO struct {
@@ -83,23 +84,18 @@ type executionDTO struct {
 }
 
 type executionListResult struct {
-	TargetScopeID string         `json:"targetScopeId"`
-	InstanceID    string         `json:"instanceId"`
-	ObservedAt    time.Time      `json:"observedAt"`
-	Items         []executionDTO `json:"items"`
-	HasMore       bool           `json:"hasMore"`
-	Continuation  string         `json:"continuation,omitempty"`
+	ObservedAt   time.Time      `json:"observedAt"`
+	Items        []executionDTO `json:"items"`
+	HasMore      bool           `json:"hasMore"`
+	Continuation string         `json:"continuation,omitempty"`
 }
 
 type executionDetailResult struct {
-	TargetScopeID string       `json:"targetScopeId"`
-	InstanceID    string       `json:"instanceId"`
-	ObservedAt    time.Time    `json:"observedAt"`
-	Execution     executionDTO `json:"execution"`
+	ObservedAt time.Time    `json:"observedAt"`
+	Execution  executionDTO `json:"execution"`
 }
 
 type activityDTO struct {
-	InstanceID        string            `json:"instanceId"`
 	Cursor            string            `json:"cursor"`
 	SessionID         string            `json:"sessionId"`
 	TraceID           string            `json:"traceId"`
@@ -120,16 +116,22 @@ type cursorRangeDTO struct {
 	LastCursor  string `json:"lastCursor"`
 }
 
+type continuityDTO struct {
+	IntervalID  string          `json:"intervalId"`
+	FirstCursor string          `json:"firstCursor,omitempty"`
+	LastCursor  string          `json:"lastCursor,omitempty"`
+	ObservedAt  time.Time       `json:"observedAt,omitempty"`
+	Reset       *live.ResetFact `json:"reset,omitempty"`
+}
+
 type activityResult struct {
-	TargetScopeID        string           `json:"targetScopeId"`
-	InstanceID           string           `json:"instanceId"`
-	ObservedAt           time.Time        `json:"observedAt"`
-	Items                []activityDTO    `json:"items"`
-	ReturnedCursorRange  *cursorRangeDTO  `json:"returnedCursorRange,omitempty"`
-	HasMore              bool             `json:"hasMore"`
-	Continuation         string           `json:"continuation,omitempty"`
-	Continuity           *live.Continuity `json:"continuity,omitempty"`
-	BeginningUnavailable bool             `json:"beginningUnavailable"`
+	ObservedAt           time.Time       `json:"observedAt"`
+	Items                []activityDTO   `json:"items"`
+	ReturnedCursorRange  *cursorRangeDTO `json:"returnedCursorRange,omitempty"`
+	HasMore              bool            `json:"hasMore"`
+	Continuation         string          `json:"continuation,omitempty"`
+	Continuity           *continuityDTO  `json:"continuity,omitempty"`
+	BeginningUnavailable bool            `json:"beginningUnavailable"`
 }
 
 var readOnlyAnnotations = func() *mcp.ToolAnnotations {
@@ -158,8 +160,12 @@ func mapDomainError(domain *consolecore.Error) domainErrorDTO {
 		domain = consolecore.NewError(consolecore.CodeConsoleError, "The Console operation could not be completed.", "", consolecore.Details{}, nil)
 	}
 	return domainErrorDTO{
-		Code: domain.Code, Message: domain.Message,
-		TargetScopeID: domain.TargetScopeID, Details: domain.Details,
+		Code: domain.Code, Message: domain.Message, Details: errorDetailsDTO{
+			ExpectedCompatibilityVersion: domain.Details.ExpectedCompatibilityVersion,
+			ObservedCompatibilityVersion: domain.Details.ObservedCompatibilityVersion,
+			LimitName:                    domain.Details.LimitName, LimitValue: domain.Details.LimitValue,
+			RawDownloadAvailable: domain.Details.RawDownloadAvailable,
+		},
 	}
 }
 
@@ -192,9 +198,7 @@ func (writer *lineWriter) continuation(value string) {
 
 func (writer *lineWriter) String() string { return strings.Join(writer.lines, "\n") + "\n" }
 
-func appendCommon(writer *lineWriter, scopeID, instanceID string, observedAt time.Time) {
-	writer.quoted("targetScopeId", scopeID)
-	writer.quoted("instanceId", instanceID)
+func appendCommon(writer *lineWriter, observedAt time.Time) {
 	writer.time("observedAt", observedAt)
 }
 
@@ -229,7 +233,7 @@ func mapActivity(source live.Activity) (activityDTO, error) {
 		return activityDTO{}, err
 	}
 	return activityDTO{
-		InstanceID: source.InstanceID, Cursor: source.Cursor,
+		Cursor:    source.Cursor,
 		SessionID: source.SessionID, TraceID: source.TraceID,
 		CanonicalSequence: source.CanonicalSequence, Timestamp: source.Timestamp,
 		Kind: source.Kind, ExecutionStatus: source.ExecutionStatus,

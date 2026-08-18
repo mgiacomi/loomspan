@@ -11,5 +11,5 @@ The harness runs the protocol-generic scenarios applicable to the MCP foundation
 supported revisions. Fixture-specific official scenarios that require
 non-product test tools, resources, prompts, sampling, or elicitation are
 intentionally excluded. Loomspan's real tool discovery and calling are covered
-by the SDK and assembled HTTP integration suites, including the PR 17 tools and
-skill resource, without an expected-failure baseline.
+by the SDK and assembled HTTP integration suites across the complete twelve-tool,
+zero-custom-resource surface, without an expected-failure baseline.

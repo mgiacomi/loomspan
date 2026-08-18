@@ -15,7 +15,11 @@ import (
 func TestRuntimeOutputGoldenAndTextAgree(t *testing.T) {
 	output := RuntimeOutput{
 		Capabilities: installedCapabilities(),
-		Status:       consolecore.NoTargetStatus(time.Unix(1, 0).UTC()),
+		Status: runtimeStatusDTO{
+			ObservedAt: time.Unix(1, 0).UTC(), TargetSelection: consolecore.SelectionNone,
+			TargetConnection: consolecore.ConnectionNotApplicable, TargetAuthentication: consolecore.AuthenticationNotApplicable,
+			JavaGoCompatibility: consolecore.CompatibilityNotApplicable, RuntimeIdentity: consolecore.RuntimeNotApplicable, LiveMonitoring: consolecore.LiveNotApplicable,
+		},
 	}
 	actual, err := json.Marshal(output)
 	if err != nil {
@@ -73,7 +77,7 @@ func TestRuntimeOutputSucceedsForEveryTargetStatusFactAndRejectsInvalidInvariant
 	for name, status := range statuses {
 		t.Run(name, func(t *testing.T) {
 			output, err := buildRuntimeOutput(context.Background(), func() consolecore.StatusSnapshot { return status }, credentials)
-			if err != nil || len(output.Capabilities) != 6 || output.Capabilities[0] != RuntimeStatusCapability || output.Status != status {
+			if err != nil || len(output.Capabilities) != 6 || output.Capabilities[0] != RuntimeStatusCapability || output.Status.ObservedAt != status.ObservedAt || output.Status.TargetSelection != status.TargetSelection || output.Status.RuntimeIdentity != status.RuntimeIdentity {
 				t.Fatalf("output=%+v err=%v", output, err)
 			}
 		})

@@ -8,6 +8,13 @@ and requirement IDs used by completed implementation and evaluation work. New
 LLM-mediated workflow design lives in
 [LLM Trace Understanding Workflows](./loomspan_llm_trace_understanding_workflows.md).
 
+The accepted 2026-08-18 MCP cleanup deliberately hides target scope, runtime
+instance, evidence source, and artifact lifecycle from the LLM-facing contract
+while retaining them inside Console and in browser workflows where they remain
+meaningful. Therefore this historical/browser record is not the authority for
+new MCP parameters or return fields; use the active roadmap, question ledger,
+and [cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md).
+
 ## Related designs
 
 - [LLM Trace Understanding Roadmap](./2026-08-15-loomspan-llm-trace-understanding-roadmap.md)

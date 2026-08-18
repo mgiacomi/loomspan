@@ -16,6 +16,8 @@ const (
 	CodeStaleCursor               Code = "STALE_CURSOR"
 	CodeNotFound                  Code = "NOT_FOUND"
 	CodeArtifactExpired           Code = "ARTIFACT_EXPIRED"
+	CodeAmbiguousTrace            Code = "AMBIGUOUS_TRACE"
+	CodeTraceUnavailable          Code = "TRACE_UNAVAILABLE"
 	CodeArtifactInUse             Code = "ARTIFACT_IN_USE"
 	CodeArtifactAlreadyExists     Code = "ARTIFACT_ALREADY_EXISTS"
 	CodeInvalidArtifact           Code = "INVALID_ARTIFACT"

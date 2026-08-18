@@ -27,6 +27,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/webhost"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
@@ -205,6 +206,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 	// leases by handle.
 	traceAnalysisService.SetArtifactService(artifactService)
 	traceInventoryService := traceinventory.New(artifactService, observabilityService, targetContext, time.Now)
+	traceResolutionService := traceresolution.New(artifactService, observabilityService, targetContext)
 	if err := targetContext.RegisterOwner("artifacts", artifactService); err != nil {
 		return err
 	}
@@ -251,7 +253,7 @@ func Run(parent context.Context, options Options, dependencies Dependencies) (re
 				Port: port, Credentials: mcpStore, Tracker: mcpTracker,
 				Status: func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status },
 				Target: targetContext, Observability: observabilityService, Live: liveService,
-				Artifacts: artifactService, TraceAnalysis: traceAnalysisService, TraceInventory: traceInventoryService,
+				TraceResolver: traceResolutionService, TraceAnalysis: traceAnalysisService, TraceInventory: traceInventoryService,
 				Now: time.Now,
 			})
 			mcpLifecycle = mcpadapter.NewLifecycle(mcpStore, mcpTracker, mcpServer.CloseSessions)

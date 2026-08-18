@@ -25,6 +25,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 )
 
@@ -160,11 +161,20 @@ func StartServer(output string, caseValue Case, consoleVersion, consoleCommit st
 		}
 		statusProvider = func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status }
 	}
+	var resolverCatalog traceresolution.CatalogService
+	var resolverTarget traceresolution.TargetProvider
+	if observabilityService != nil {
+		resolverCatalog = observabilityService
+	}
+	if targetContext != nil {
+		resolverTarget = targetContext
+	}
+	resolver := traceresolution.New(artifacts, resolverCatalog, resolverTarget)
 	mcpServer := mcpadapter.NewServer(mcpadapter.ServerOptions{
 		Port: port, Credentials: store, Tracker: tracker,
 		Status:                 statusProvider,
 		EvaluationCapabilities: &caseValue.Capabilities,
-		Artifacts:              artifacts, TraceAnalysis: analysis, TraceInventory: inventory,
+		TraceResolver:          resolver, TraceAnalysis: analysis, TraceInventory: inventory,
 		Target: targetContext, Live: liveService, Observability: observabilityService,
 	})
 	httpServer := &http.Server{Handler: mcpServer.Handler(), ReadHeaderTimeout: 5 * time.Second}

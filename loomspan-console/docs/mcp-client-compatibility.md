@@ -2,9 +2,9 @@
 
 Loomspan Console exposes stateless Streamable HTTP at exact `/mcp`, with MCP
 `2026-07-28` and compatible `2025-11-25` negotiation. It requires an exact
-loopback Host and one bearer key. The installed PR 18 surface contains twelve
-read-only tools, the skill resource plus six target/imported trace resource
-templates. Runtime discovery advertises six capability IDs, including
+loopback Host and one bearer key. The installed surface contains twelve
+read-only tools and no custom resource templates. Runtime discovery advertises
+six capability IDs, including
 `loomspan.trace-inspection.v1` and
 `loomspan.raw-artifact-inspection.v1`. Trace reads retain exact source-byte
 offsets with a 64 KiB default and a 16 MiB (16,777,216-byte) shared per-call
@@ -26,8 +26,8 @@ target, authentication, evidence, and target-scope failures are not collapsed.
 Automated release evidence consists of pinned official conformance scenarios
 for initialization, tool listing, caching, and DNS-rebinding protection across
 both protocol revisions; SDK black-box discovery, strict schema rejection,
-structured/text results, domain errors, opaque continuation, and skill-resource
-reads against the real Loomspan surface; native credential/lifecycle tests on Windows x86_64, Linux
+structured/text results, domain errors, opaque continuations, and trace-ID-only
+calls against the real Loomspan surface; native credential/lifecycle tests on Windows x86_64, Linux
 x86_64, macOS arm64, and macOS x86_64; and browser/API tests. Official
 fixture-specific scenarios for diagnostic tools, prompts, resources, sampling,
 and elicitation are intentionally inapplicable and must not be made to pass by
@@ -48,11 +48,11 @@ evaluation summary and is not inferred from an unexecuted row.
 
 | Client family | Skill/configuration and selected evidence | Result for this change |
 | --- | --- | --- |
-| Codex CLI | User/global skill plus protected authenticated Streamable HTTP; repeated cases, continuations, and resources | Not run; date/OS/product/model build, protocol, case IDs, and result links not yet recorded |
-| Codex desktop and IDE extension | User/global skill discovery/activation plus native MCP configuration and resources | Not run; executable local build observation unavailable |
+| Codex CLI | User/global skill plus protected authenticated Streamable HTTP; repeated cases and continuations | Not run; date/OS/product/model build, protocol, case IDs, and result links not yet recorded |
+| Codex desktop and IDE extension | User/global skill discovery/activation plus native MCP configuration | Not run; executable local build observation unavailable |
 | Claude Code | User/global skill plus protected MCP; failed, slow, unfamiliar-path, and adversarial repeated cases | Not run; date/OS/product/model build, protocol, case IDs, and result links not yet recorded |
-| Antigravity local app, IDE, or CLI | User/global endpoint/header and skill; one workflow, resource, and continuation observation | Not run; client build/version not recorded; record when available |
-| Cursor | Global endpoint/header and skill; one workflow, resource, and continuation observation | Not run; client build/version not recorded; record when available |
+| Antigravity local app, IDE, or CLI | User/global endpoint/header and skill; one workflow and continuation observation | Not run; client build/version not recorded; record when available |
+| Cursor | Global endpoint/header and skill; one workflow and continuation observation | Not run; client build/version not recorded; record when available |
 | Devin Desktop / Windsurf / Cascade | Global endpoint/header or protected file interpolation and skill; one representative workflow | Not run; executable local build observation unavailable |
 | Local Devin CLI | Protected file or environment interpolation and skill; one representative workflow | Not run; executable local build observation unavailable |
 | Hosted Codex or hosted Devin | Loopback reachability | Out of scope; hosted clients cannot reach the local listener |

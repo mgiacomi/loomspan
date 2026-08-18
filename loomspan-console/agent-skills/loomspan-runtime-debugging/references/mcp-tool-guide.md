@@ -14,34 +14,44 @@ Live execution evidence:
 - `LOOMSPAN_get_execution_activity` returns bounded ordered recent activity
   with observation and continuity facts.
 
-Trace evidence:
+Finalized trace evidence follows one workflow:
 
-- `LOOMSPAN_list_traces` lists target catalog or imported installed evidence.
-- `LOOMSPAN_get_trace` acquires or opens one trace and returns its summary.
-- `LOOMSPAN_query_trace_frames` pages structural frame facts.
-- `LOOMSPAN_query_trace_records` pages enriched ordered record facts.
+```text
+LOOMSPAN_list_traces -> select traceId -> inspect/query/read by traceId
+```
+
+- `LOOMSPAN_list_traces` returns one compact candidate per trace ID. `hasMore`
+  means another page exists; `complete` means every expected evidence family
+  was checked. Do not make a negative or uniqueness conclusion when
+  `complete` is false; preserve its compact limitation.
+- `LOOMSPAN_get_trace` resolves one unique available trace and returns its
+  parsed summary.
+- `LOOMSPAN_query_trace_frames` and `LOOMSPAN_query_trace_records` page parsed
+  structural and ordered facts.
 - `LOOMSPAN_read_trace_payload` reads an exact bounded reconstructed payload or
-  diagnostic range.
+  diagnostic range using a returned opaque `payloadRef`.
 - `LOOMSPAN_read_trace_artifact` optionally reads exact bounded raw source bytes
   for storage/parser forensics.
 
-Respect each schema's required identity and source fields. Page sizes are
-bounded. A continuation belongs only to the operation, scope, installed copy,
-and any session filter that produced it. Payload and raw reads use returned
-source-byte offsets and lengths; continue while `hasMore` is true. Never infer
-an application cursor or authority from an opaque token.
+Every trace inspection tool requires `traceId` plus only question-specific
+filters, pagination, representation, payload-reference, or range controls.
+Page sizes and ranges are bounded. A continuation is opaque and belongs only
+to its query. Continue while `hasMore` is true; never infer authority or
+identity from an opaque token. Tools are the complete MCP investigation path;
+no custom Loomspan resources are advertised.
 
-Tools provide the complete portable investigation surface. Resources can
-present unchanged YAML or parsed summary/frame/record JSON, but are optional
-and raw artifacts have no resource form.
+Preserve exact domain errors and recovery:
 
-Preserve the exact error class. Protocol negotiation or HTTP authentication is
-not a Loomspan domain error. Missing capability is not `INCOMPATIBLE_TARGET`.
-Target authentication is not evidence expiry. `TARGET_CHANGED` invalidates the
-old target scope instead of authorizing remapping. `ARTIFACT_EXPIRED` and other
-availability results describe the installed evidence lifecycle.
+| Code or condition | Recovery |
+| --- | --- |
+| `AMBIGUOUS_TRACE` | Resolve the conflicting trace identity in Console; never choose an evidence owner silently. |
+| `TRACE_UNAVAILABLE` | Retry inspection by `traceId` after evidence or target availability changes. |
+| `TARGET_CHANGED` | Restart the operation by `traceId`. |
+| stale/invalid continuation | Restart the same query by `traceId`. |
+| stale/invalid payload reference | Re-query the relevant record by `traceId`, then use its refreshed descriptor. |
+| `TRACE_DISCOVERY_INCOMPLETE` limitation | Preserve returned candidates but avoid unsafe negative or uniqueness conclusions. |
 
-Missing `loomspan.raw-artifact-inspection.v1` removes only the last tool and
-exact raw forensics. Parsed trace inspection can continue. Likewise, retained
-parsed evidence can remain inspectable even when a new application acquisition
-returns `TARGET_AUTHENTICATION_REQUIRED`.
+Protocol negotiation or HTTP authentication is not a Loomspan domain error.
+Missing capability is not `INCOMPATIBLE_TARGET`. Target authentication is not
+evidence unavailability. Missing `loomspan.raw-artifact-inspection.v1` removes
+only exact raw forensics; parsed trace inspection can continue.

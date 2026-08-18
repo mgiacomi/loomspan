@@ -41,7 +41,7 @@ retrieval are unavailable.
 
 Keep protocol support, capability advertisement, target selection,
 `INCOMPATIBLE_TARGET`, target authentication, live availability, evidence
-availability/expiry, and `TARGET_CHANGED` separate. Capability advertisement,
+availability, ambiguity, and `TARGET_CHANGED` separate. Capability advertisement,
 the side-effect-free current status snapshot, and an individual operation
 result are independent facts. Do not derive one aggregate health state or skip
 a permitted read merely because an earlier status fact was degraded.
@@ -63,17 +63,17 @@ Start with structural summaries and disclose frames, records, diagnostics, or
 bounded payload ranges only as the question needs them. This is an efficiency
 default, not an evidence cap: deliberate broad, complete, or raw inspection is
 appropriate when the developer explicitly needs it. Tools are the complete
-portable path; resources are optional presentation aids. Do not impose a fixed
+MCP path; no custom Loomspan resources are advertised. Do not impose a fixed
 call count, order, or report template.
 
 ## Preserve evidence boundaries
 
-Use stable identifiers in the explanation: for example `targetScopeId`,
+Use stable model-facing identifiers in the explanation: for example
 `sessionId`, `traceId`, `frameId`, record sequence, `failureId`, `attemptId`,
-`retrySequenceId`, `artifactHandle`, or a returned continuation/range. Never
-combine evidence from different target scopes unless the developer explicitly
-asked for a comparison. Do not remap stale scope-bound handles, resources, or
-continuations; report `TARGET_CHANGED`.
+`retrySequenceId`, or a returned continuation/payload reference. Resolve and
+inspect finalized traces by `traceId`; Console enforces evidence ownership and
+target generations internally. On `TARGET_CHANGED`, restart the operation by
+`traceId`. Never infer or request an internal owner, scope, instance, or handle.
 
 Distinguish:
 

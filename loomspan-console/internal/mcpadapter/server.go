@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
@@ -15,6 +14,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -31,7 +31,7 @@ type ServerOptions struct {
 	Target         *target.Context
 	Observability  *observability.Service
 	Live           *live.Service
-	Artifacts      TraceArtifactService
+	TraceResolver  TraceResolver
 	TraceAnalysis  TraceAnalysisService
 	TraceInventory TraceInventoryService
 	Now            func() time.Time
@@ -44,8 +44,8 @@ type ServerOptions struct {
 type TraceInventoryService interface {
 	List(context.Context, traceinventory.Query) (traceinventory.Result, *consolecore.Error)
 }
-type TraceArtifactService interface {
-	Acquire(context.Context, target.Scope, string) (artifact.AcquiredArtifact, *consolecore.Error)
+type TraceResolver interface {
+	Resolve(context.Context, string) (traceresolution.Resolved, *consolecore.Error)
 }
 type TraceAnalysisService interface {
 	GetSummary(context.Context, evidence.Reference, traceanalysis.SummaryRequest) (traceanalysis.TraceSummary, *consolecore.Error)
@@ -65,8 +65,6 @@ func NewServer(options ServerOptions) *Server {
 	addExecutionTools(sdk, options)
 	addActivityTool(sdk, options)
 	addTraceTools(sdk, options)
-	addSkillResource(sdk, options)
-	addTraceResources(sdk, options)
 	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return sdk }, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxRequestBody, PropagateRequestCancellation: true,
 	})

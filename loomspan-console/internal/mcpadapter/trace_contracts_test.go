@@ -3,6 +3,7 @@ package mcpadapter
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,11 +19,9 @@ func TestTraceToolSchemasAreClosedBoundedAndUseSettledBranches(t *testing.T) {
 		}
 	}
 	get := traceInputSchema[getTraceInput]()
-	enumProperty(get, "source", "TARGET", "IMPORTED")
-	artifactHandleProperty(get, "artifactHandle")
-	exactlyOne(get, "traceId", "artifactHandle")
+	nonblankBoundedString(get, "traceId", maxTraceTokenLength)
 	body, _ := json.Marshal(get)
-	if !strings.Contains(string(body), `"oneOf"`) || !strings.Contains(string(body), `"enum":["TARGET","IMPORTED"]`) || !strings.Contains(string(body), `"pattern":"^[0-9a-f]{64}$"`) || !strings.Contains(string(body), `"minLength":64`) || !strings.Contains(string(body), `"maxLength":64`) {
+	if strings.Contains(string(body), `"oneOf"`) || !strings.Contains(string(body), `"required":["traceId"]`) || !strings.Contains(string(body), `"minLength":1`) || !strings.Contains(string(body), `"maxLength":8192`) || get.Properties["traceId"].Pattern != `.*\S.*` {
 		t.Fatalf("get schema=%s", body)
 	}
 	rangeSchema := traceInputSchema[traceRangeInput]()
@@ -33,6 +32,45 @@ func TestTraceToolSchemasAreClosedBoundedAndUseSettledBranches(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("range schema missing %s: %s", want, text)
 		}
+	}
+}
+
+func TestTraceToolSchemasExposeOnlyDeveloperIntentIdentity(t *testing.T) {
+	rawSchema := traceInputSchema[traceRangeInput]()
+	prepareRangeSchema(rawSchema, false)
+	tests := []struct {
+		name       string
+		schema     any
+		properties []string
+	}{
+		{ListTracesToolName, traceInputSchema[listTracesInput](), []string{"continuation", "pageSize"}},
+		{GetTraceToolName, traceInputSchema[getTraceInput](), []string{"traceId"}},
+		{QueryTraceFramesToolName, traceInputSchema[queryTraceFramesInput](), []string{"continuation", "filter", "order", "pageSize", "traceId"}},
+		{QueryTraceRecordsToolName, traceInputSchema[queryTraceRecordsInput](), []string{"continuation", "filter", "inlinePayload", "pageSize", "representation", "traceId"}},
+		{ReadTracePayloadToolName, traceInputSchema[traceRangeInput](), []string{"continuation", "maxBytes", "payloadRef", "start", "traceId"}},
+		{ReadTraceArtifactToolName, rawSchema, []string{"continuation", "maxBytes", "start", "traceId"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(test.schema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			}
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(decoded.Properties))
+			for name := range decoded.Properties {
+				got = append(got, name)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, test.properties) {
+				t.Fatalf("properties mismatch: got %v want %v", got, test.properties)
+			}
+		})
 	}
 }
 

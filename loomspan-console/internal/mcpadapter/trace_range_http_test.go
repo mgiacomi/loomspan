@@ -70,12 +70,12 @@ func TestMCPRangeSerializationMeetsDeadlineForSelectedMaximum(t *testing.T) {
 					Source:  traceanalysis.RangeSourceRawArtifact, ActualEnd: int64(len(source)), TotalLength: int64(len(source)),
 					ContentType: "application/octet-stream", Encoding: encoding, Content: content,
 				}}
-				session := semanticFixtureSession(t, analysis)
+				session := semanticFixtureSession(t, analysis, &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()})
 				ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
 				defer cancel()
 				started := time.Now()
 				call, err := session.CallTool(ctx, &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: map[string]any{
-					"source": "IMPORTED", "artifactHandle": string(handle), "start": 0, "maxBytes": size,
+					"traceId": "large-trace", "start": 0, "maxBytes": size,
 				}})
 				if err != nil || call == nil || call.IsError {
 					t.Fatalf("large MCP range failed after %s: result=%#v err=%v", time.Since(started), call, err)
@@ -112,7 +112,8 @@ func TestMCPRangeSerializationRemainsResponsiveUnderConcurrentClients(t *testing
 		Context: traceanalysis.TraceContext{Evidence: evidence.ForImported(), Handle: handle, TraceID: "concurrent-trace", SessionID: "concurrent-session"},
 		Source:  traceanalysis.RangeSourceRawArtifact, ActualEnd: size, TotalLength: size, ContentType: "text/plain", Encoding: traceanalysis.RangeEncodingText, Content: content,
 	}}
-	sessions := []*mcp.ClientSession{semanticFixtureSession(t, analysis), semanticFixtureSession(t, analysis)}
+	resolver := &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()}
+	sessions := []*mcp.ClientSession{semanticFixtureSession(t, analysis, resolver), semanticFixtureSession(t, analysis, resolver)}
 	start := make(chan struct{})
 	errs := make(chan error, len(sessions))
 	var wg sync.WaitGroup
@@ -123,7 +124,7 @@ func TestMCPRangeSerializationRemainsResponsiveUnderConcurrentClients(t *testing
 			<-start
 			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
 			defer cancel()
-			call, err := session.CallTool(ctx, &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: map[string]any{"source": "IMPORTED", "artifactHandle": string(handle), "start": 0, "maxBytes": size}})
+			call, err := session.CallTool(ctx, &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: map[string]any{"traceId": "concurrent-trace", "start": 0, "maxBytes": size}})
 			if err != nil || call == nil || call.IsError {
 				errs <- fmt.Errorf("concurrent range: result=%#v err=%w", call, err)
 			}
@@ -138,10 +139,10 @@ func TestMCPRangeSerializationRemainsResponsiveUnderConcurrentClients(t *testing
 }
 
 func TestMCPRangeSchemaRejectsThirtyTwoAndSixtyFourMiBCandidates(t *testing.T) {
-	handle := strings.Repeat("c", 64)
-	session := semanticFixtureSession(t, &immutableRangeAnalysis{})
+	handle := artifact.Handle(strings.Repeat("c", 64))
+	session := semanticFixtureSession(t, &immutableRangeAnalysis{}, &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()})
 	for _, size := range []int{32 << 20, 64 << 20} {
-		call, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: map[string]any{"source": "IMPORTED", "artifactHandle": handle, "start": 0, "maxBytes": size}})
+		call, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: map[string]any{"traceId": "range", "start": 0, "maxBytes": size}})
 		if err == nil && call != nil && !call.IsError {
 			t.Fatalf("candidate %d unexpectedly passed the selected %d-byte ceiling", size, maxTraceRangeBytes)
 		}
@@ -195,14 +196,14 @@ func measureRangeMaterialization(t *testing.T, size int, encoding traceanalysis.
 		Context:   traceanalysis.TraceContext{Evidence: evidence.ForImported(), Handle: handle},
 		ActualEnd: int64(size), TotalLength: int64(size), Encoding: encoding, Content: content,
 	}}
-	options := ServerOptions{Credentials: fakeCredentials{}, Now: time.Now, TraceAnalysis: analysis}
+	options := ServerOptions{Credentials: fakeCredentials{}, Now: time.Now, TraceAnalysis: analysis, TraceResolver: &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()}}
 	start := int64(0)
 	runtime.GC()
 	previousGCPercent := debug.SetGCPercent(-1)
 	defer debug.SetGCPercent(previousGCPercent)
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	call, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(handle), Start: &start, MaxBytes: size}, true)
+	call, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-range", Start: &start, MaxBytes: size}, true)
 	if err != nil || call == nil || call.IsError {
 		t.Fatalf("candidate %d materialization failed: result=%#v err=%v", size, call, err)
 	}
@@ -232,12 +233,12 @@ func BenchmarkMCPRangeMaterialization(b *testing.B) {
 			}
 			handle := artifact.Handle(strings.Repeat("d", 64))
 			analysis := &immutableRangeAnalysis{result: traceanalysis.ByteRangeResult{Context: traceanalysis.TraceContext{Evidence: evidence.ForImported(), Handle: handle}, ActualEnd: maxTraceRangeBytes, TotalLength: maxTraceRangeBytes, Encoding: encoding, Content: content}}
-			options := ServerOptions{Credentials: fakeCredentials{}, Now: time.Now, TraceAnalysis: analysis}
+			options := ServerOptions{Credentials: fakeCredentials{}, Now: time.Now, TraceAnalysis: analysis, TraceResolver: &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()}}
 			start := int64(0)
 			b.ReportAllocs()
 			b.SetBytes(maxTraceRangeBytes)
 			for range b.N {
-				call, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(handle), Start: &start, MaxBytes: maxTraceRangeBytes}, true)
+				call, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-range", Start: &start, MaxBytes: maxTraceRangeBytes}, true)
 				if err != nil {
 					b.Fatal(err)
 				}

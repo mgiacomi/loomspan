@@ -16,8 +16,8 @@ import (
 )
 
 // WF-X-R7/WF-SP-R7/WF-SP-R9: browser responses serialize the shared
-// observability DTO directly; MCP may add resource routing but must preserve
-// the same skill identity, source, YAML, scope, and observation facts.
+// observability DTO directly; MCP preserves skill identity, source path, YAML,
+// and observation facts while omitting internal ownership identifiers.
 func TestBrowserAndMCPPreserveSameSkillFacts(t *testing.T) {
 	browserFact := observability.SkillDetail{
 		RegisteredName: "skill-☃", SourcePath: `C:\\deployed\\skill.yaml`,
@@ -36,8 +36,8 @@ func TestBrowserAndMCPPreserveSameSkillFacts(t *testing.T) {
 	if mcpFact.RegisteredName != browserFact.RegisteredName || mcpFact.SourcePath != browserFact.SourcePath || mcpFact.YAML != browserFact.Yaml {
 		t.Fatalf("browser=%#v MCP=%#v", browserFact, mcpFact)
 	}
-	if envelope.Result.TargetScopeID != "scope-1" || envelope.Result.InstanceID != mcpTestInstanceID || envelope.Result.ObservedAt != options.Now().UTC() {
-		t.Fatalf("MCP scope/observation facts changed: %#v", envelope.Result)
+	if envelope.Result.ObservedAt != options.Now().UTC() {
+		t.Fatalf("MCP observation fact changed: %#v", envelope.Result)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestBrowserAndMCPPreserveSameRecentContinuityAndGapFacts(t *testing.T) {
 	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
 		t.Fatal(err)
 	}
-	if roundTrip.InstanceID != browserItem.InstanceID || roundTrip.Cursor != browserItem.Cursor || roundTrip.SessionID != browserItem.SessionID ||
+	if roundTrip.InstanceID != "" || roundTrip.Cursor != browserItem.Cursor || roundTrip.SessionID != browserItem.SessionID ||
 		roundTrip.TraceID != browserItem.TraceID || !reflect.DeepEqual(roundTrip.CanonicalSequence, browserItem.CanonicalSequence) ||
 		!roundTrip.Timestamp.Equal(browserItem.Timestamp) || roundTrip.Kind != browserItem.Kind || roundTrip.Summary != browserItem.Summary ||
 		string(roundTrip.Details) != string(browserItem.Details) {
@@ -98,12 +98,13 @@ func TestBrowserAndMCPPreserveSameRecentContinuityAndGapFacts(t *testing.T) {
 		FirstCursor: "9", LastCursor: "9", ObservedAt: continuityObservedAt,
 		Reset: &live.ResetFact{Cause: live.ResetUpstreamStaleCursor, Cursor: "8", Timestamp: continuityObservedAt.Add(-time.Second)},
 	}
+	mcpContinuity := mapContinuity(continuity)
 	mcpResult := activityResult{
-		TargetScopeID: "scope-1", InstanceID: mcpTestInstanceID, ObservedAt: queryObservedAt,
-		Items: []activityDTO{mcpItem}, ReturnedCursorRange: &cursorRangeDTO{FirstCursor: "9", LastCursor: "9"},
-		Continuity: continuity, BeginningUnavailable: true,
+		ObservedAt: queryObservedAt,
+		Items:      []activityDTO{mcpItem}, ReturnedCursorRange: &cursorRangeDTO{FirstCursor: "9", LastCursor: "9"},
+		Continuity: mcpContinuity, BeginningUnavailable: true,
 	}
-	if mcpResult.ObservedAt != queryObservedAt || mcpResult.Continuity != continuity || !mcpResult.BeginningUnavailable {
+	if mcpResult.ObservedAt != queryObservedAt || mcpResult.Continuity != mcpContinuity || !mcpResult.BeginningUnavailable {
 		t.Fatalf("recent observation/continuity/gap facts changed: %#v", mcpResult)
 	}
 }
@@ -117,7 +118,7 @@ func TestBrowserAndMCPPreserveSameDomainErrorMeanings(t *testing.T) {
 		context.Canceled,
 	)
 	mcpFact := mapDomainError(browserFact)
-	if mcpFact.Code != browserFact.Code || mcpFact.Message != browserFact.Message || mcpFact.TargetScopeID != browserFact.TargetScopeID || !reflect.DeepEqual(mcpFact.Details, browserFact.Details) {
+	if mcpFact.Code != browserFact.Code || mcpFact.Message != browserFact.Message || !reflect.DeepEqual(mcpFact.Details, errorDetailsDTO{}) {
 		t.Fatalf("browser=%#v MCP=%#v", browserFact, mcpFact)
 	}
 	encoded, err := json.Marshal(mcpFact)

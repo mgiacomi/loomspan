@@ -13,7 +13,7 @@ func TestEvaluationCasesAreVersionedUniqueAndWorkflowLinked(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{"failed-execution", "slow-execution", "expensive-execution", "unfamiliar-skill-path",
-		"composite-adversarial", "missing-required-capability", "missing-optional-raw", "skill-without-mcp", "mcp-without-skill"} {
+		"composite-adversarial", "ambiguous-trace", "missing-required-capability", "missing-optional-raw", "skill-without-mcp", "mcp-without-skill"} {
 		if _, ok := cases[required]; !ok {
 			t.Errorf("missing case %q", required)
 		}
@@ -57,6 +57,28 @@ func TestEvaluationDegradationCasesHaveDistinctExpectedClassifications(t *testin
 	}
 	if !contains(optional.Capabilities, "loomspan.trace-inspection.v1") || contains(optional.Capabilities, OptionalRawCapability) {
 		t.Fatal("optional-capability case does not isolate raw inspection")
+	}
+}
+
+func TestTraceInterfaceEvaluationCasesUseOnlyLLMFacingIdentifiers(t *testing.T) {
+	cases, err := LoadCases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := map[string]bool{
+		"sourceFilter":   true,
+		"source":         true,
+		"artifactHandle": true,
+		"targetScopeId":  true,
+		"instanceId":     true,
+		"resourceUri":    true,
+	}
+	for _, value := range cases {
+		for _, identifier := range value.RequiredIdentifierClasses {
+			if rejected[identifier] {
+				t.Errorf("case %q requires rejected identifier class %q", value.ID, identifier)
+			}
+		}
 	}
 }
 

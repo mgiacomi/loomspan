@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -51,12 +54,11 @@ func TestDomainErrorResultIsStructuredMarkedAndSafe(t *testing.T) {
 
 func TestPR17TextFallbacksHaveExactOrderEscapingAndFinalNewline(t *testing.T) {
 	result := skillListResult{
-		TargetScopeID: "scope\n1", InstanceID: "instance:1",
 		ObservedAt: time.Date(2026, 8, 13, 20, 0, 0, 123, time.FixedZone("offset", -7*60*60)),
-		Items:      []skillSummaryDTO{{RegisteredName: "name\nquoted\"", SourcePath: "skills/a.yaml", ResourceURI: "loomspan://targets/scope/skills/name"}},
+		Items:      []skillSummaryDTO{{RegisteredName: "name\nquoted\"", SourcePath: "skills/a.yaml"}},
 	}
 	text := skillListText(result)
-	wantPrefix := "targetScopeId: \"scope\\n1\"\ninstanceId: \"instance:1\"\nobservedAt: \"2026-08-14T03:00:00.000000123Z\"\ncount: 1\nhasMore: false\ncontinuation: -\n"
+	wantPrefix := "observedAt: \"2026-08-14T03:00:00.000000123Z\"\ncount: 1\nhasMore: false\ncontinuation: -\n"
 	if !strings.HasPrefix(text, wantPrefix) || !strings.HasSuffix(text, "\n") || strings.Count(text, "name\\nquoted") != 1 {
 		t.Fatalf("text fallback changed:\n%s", text)
 	}
@@ -118,6 +120,82 @@ func TestMCPGoldenInventoryContainsOnlyImplementedSurface(t *testing.T) {
 	for _, entry := range entries {
 		if entry.IsDir() || !want[entry.Name()] {
 			t.Fatalf("unexpected golden entry %q", entry.Name())
+		}
+	}
+}
+
+func TestMCPDefinedContractsContainNoRejectedProperties(t *testing.T) {
+	forbidden := map[string]bool{
+		"sourceFilter": true, "source": true, "artifactHandle": true,
+		"targetScopeId": true, "instanceId": true, "resourceUri": true, "resources": true,
+	}
+	values := []any{
+		RuntimeOutput{}, domainErrorDTO{}, skillListResult{}, skillDetailResult{},
+		executionListResult{}, executionDetailResult{}, activityResult{}, listTracesResult{},
+		getTraceResult{}, queryFramesResult{}, queryRecordsResult{}, rangeResult{},
+	}
+	for _, value := range values {
+		walkMCPProperties(t, reflect.TypeOf(value), reflect.TypeOf(value).Name(), forbidden, map[reflect.Type]bool{})
+	}
+}
+
+func TestRejectedPropertySpellingsInsideUntrustedEvidenceRoundTripUnchanged(t *testing.T) {
+	sentinel := `{"sourceFilter":"s","artifactHandle":"h","targetScopeId":"t","instanceId":"i","resourceUri":"r"}`
+	skill := skillDetailDTO{YAML: sentinel}
+	if skill.YAML != sentinel {
+		t.Fatalf("YAML changed: %q", skill.YAML)
+	}
+
+	activity, err := mapActivity(live.Activity{Details: json.RawMessage(sentinel)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected any
+	if err := json.Unmarshal([]byte(sentinel), &expected); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(activity.Details, expected) {
+		t.Fatalf("activity details changed: %#v", activity.Details)
+	}
+
+	record := mapRecord(traceanalysis.RecordSummary{
+		InlinePayload: &traceanalysis.InlinePayload{ContentType: "application/json", Bytes: []byte(sentinel)},
+		Facts:         traceanalysis.RecordFacts{Failures: []traceanalysis.FailureSummary{{ContextSummary: sentinel}}},
+	})
+	if record.InlinePayload == nil || record.InlinePayload.Content != sentinel || len(record.Facts.Failures) != 1 || record.Facts.Failures[0].ContextSummary != sentinel {
+		t.Fatalf("record evidence changed: %#v", record)
+	}
+	for _, value := range []traceanalysis.ByteRangeResult{
+		{Encoding: traceanalysis.RangeEncodingText, Content: []byte(sentinel)},
+		{Encoding: traceanalysis.RangeEncodingBase64, Content: []byte(sentinel)},
+	} {
+		if got := rangeContent(value); got != sentinel {
+			t.Fatalf("range content changed: %q", got)
+		}
+	}
+}
+
+func walkMCPProperties(t *testing.T, typ reflect.Type, path string, forbidden map[string]bool, seen map[reflect.Type]bool) {
+	t.Helper()
+	for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct || typ.PkgPath() == "time" || seen[typ] {
+		return
+	}
+	seen[typ] = true
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name == "" || name == "-" {
+			continue
+		}
+		fieldPath := path + "." + name
+		if forbidden[name] {
+			t.Errorf("rejected MCP property at %s", fieldPath)
+		}
+		if field.Type.Kind() != reflect.Interface {
+			walkMCPProperties(t, field.Type, fieldPath, forbidden, seen)
 		}
 	}
 }

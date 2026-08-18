@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 )
 
 const (
@@ -21,26 +20,21 @@ const (
 )
 
 type listTracesInput struct {
-	SourceFilter traceinventory.SourceFilter `json:"sourceFilter,omitempty"`
-	PageSize     int                         `json:"pageSize,omitempty"`
-	Continuation string                      `json:"continuation,omitempty"`
+	PageSize     int    `json:"pageSize,omitempty"`
+	Continuation string `json:"continuation,omitempty"`
 }
 type getTraceInput struct {
-	Source         string `json:"source"`
-	TraceID        string `json:"traceId,omitempty"`
-	ArtifactHandle string `json:"artifactHandle,omitempty"`
+	TraceID string `json:"traceId"`
 }
 type queryTraceFramesInput struct {
-	Source         string                    `json:"source"`
-	ArtifactHandle string                    `json:"artifactHandle"`
-	Filter         traceanalysis.FrameFilter `json:"filter,omitempty"`
-	Order          traceanalysis.FrameOrder  `json:"order,omitempty"`
-	PageSize       int                       `json:"pageSize,omitempty"`
-	Continuation   string                    `json:"continuation,omitempty"`
+	TraceID      string                    `json:"traceId"`
+	Filter       traceanalysis.FrameFilter `json:"filter,omitempty"`
+	Order        traceanalysis.FrameOrder  `json:"order,omitempty"`
+	PageSize     int                       `json:"pageSize,omitempty"`
+	Continuation string                    `json:"continuation,omitempty"`
 }
 type queryTraceRecordsInput struct {
-	Source         string                             `json:"source"`
-	ArtifactHandle string                             `json:"artifactHandle"`
+	TraceID        string                             `json:"traceId"`
 	Filter         traceanalysis.RecordFilter         `json:"filter,omitempty"`
 	Representation traceanalysis.RecordRepresentation `json:"representation,omitempty"`
 	InlinePayload  bool                               `json:"inlinePayload,omitempty"`
@@ -48,54 +42,37 @@ type queryTraceRecordsInput struct {
 	Continuation   string                             `json:"continuation,omitempty"`
 }
 type traceRangeInput struct {
-	Source         string `json:"source"`
-	ArtifactHandle string `json:"artifactHandle"`
-	PayloadRef     string `json:"payloadRef,omitempty"`
-	Start          *int64 `json:"start,omitempty"`
-	Continuation   string `json:"continuation,omitempty"`
-	MaxBytes       int    `json:"maxBytes,omitempty"`
+	TraceID      string `json:"traceId"`
+	PayloadRef   string `json:"payloadRef,omitempty"`
+	Start        *int64 `json:"start,omitempty"`
+	Continuation string `json:"continuation,omitempty"`
+	MaxBytes     int    `json:"maxBytes,omitempty"`
 }
 
 type evidenceDTO struct {
-	Source         string    `json:"source"`
-	TargetScopeID  string    `json:"targetScopeId,omitempty"`
-	ArtifactHandle string    `json:"artifactHandle"`
-	TraceID        string    `json:"traceId"`
-	SessionID      string    `json:"sessionId"`
-	ObservedAt     time.Time `json:"observedAt"`
+	TraceID    string    `json:"traceId"`
+	SessionID  string    `json:"sessionId"`
+	ObservedAt time.Time `json:"observedAt"`
 }
-type catalogDTO struct {
-	Requested     bool            `json:"requested"`
-	Available     bool            `json:"available"`
-	TargetScopeID string          `json:"targetScopeId,omitempty"`
-	InstanceID    string          `json:"instanceId,omitempty"`
-	Error         *domainErrorDTO `json:"error,omitempty"`
+type traceLimitationDTO struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 type traceInventoryItemDTO struct {
-	Source                    string     `json:"source"`
-	TargetScopeID             string     `json:"targetScopeId,omitempty"`
-	TraceID                   string     `json:"traceId"`
-	SessionID                 string     `json:"sessionId"`
-	EntrySkill                string     `json:"entrySkill"`
-	Outcome                   string     `json:"outcome"`
-	FinalizedAt               time.Time  `json:"finalizedAt"`
-	SizeBytes                 int64      `json:"sizeBytes"`
-	PersistencePolicy         string     `json:"persistencePolicy"`
-	ApplicationTraceExpiresAt *time.Time `json:"applicationTraceExpiresAt,omitempty"`
-	ApplicationAvailability   string     `json:"applicationAvailability,omitempty"`
-	LocalAvailable            bool       `json:"localAvailable"`
-	ArtifactHandle            string     `json:"artifactHandle,omitempty"`
-	AcquiredAt                *time.Time `json:"acquiredAt,omitempty"`
-	LastUsedAt                *time.Time `json:"lastUsedAt,omitempty"`
-	LocalExpiresAt            *time.Time `json:"localExpiresAt,omitempty"`
-	LocalBytes                int64      `json:"localBytes,omitempty"`
+	TraceID     string    `json:"traceId"`
+	SessionID   string    `json:"sessionId"`
+	EntrySkill  string    `json:"entrySkill"`
+	Outcome     string    `json:"outcome"`
+	FinalizedAt time.Time `json:"finalizedAt"`
+	Ambiguous   bool      `json:"ambiguous,omitempty"`
 }
 type listTracesResult struct {
-	ObservedAt         time.Time               `json:"observedAt"`
-	ApplicationCatalog catalogDTO              `json:"applicationCatalog"`
-	Items              []traceInventoryItemDTO `json:"items"`
-	HasMore            bool                    `json:"hasMore"`
-	Continuation       string                  `json:"continuation,omitempty"`
+	ObservedAt   time.Time               `json:"observedAt"`
+	Items        []traceInventoryItemDTO `json:"items"`
+	Complete     bool                    `json:"complete"`
+	Limitations  []traceLimitationDTO    `json:"limitations,omitempty"`
+	HasMore      bool                    `json:"hasMore"`
+	Continuation string                  `json:"continuation,omitempty"`
 }
 
 type usageDTO struct {
@@ -123,15 +100,9 @@ type traceSummaryDTO struct {
 	UnframedAttributedUsage usageDTO                        `json:"unframedAttributedUsage"`
 	UsageComplete           bool                            `json:"usageComplete"`
 }
-type traceResourcesDTO struct {
-	Summary string `json:"summary"`
-	Frames  string `json:"frames"`
-	Records string `json:"records"`
-}
 type getTraceResult struct {
-	Evidence  evidenceDTO       `json:"evidence"`
-	Summary   traceSummaryDTO   `json:"summary"`
-	Resources traceResourcesDTO `json:"resources"`
+	Evidence evidenceDTO     `json:"evidence"`
+	Summary  traceSummaryDTO `json:"summary"`
 }
 
 type frameDTO struct {
@@ -313,24 +284,11 @@ func boundedString(schema *jsonschema.Schema, name string, max int) {
 		p.MaxLength = &max
 	}
 }
-func artifactHandleProperty(schema *jsonschema.Schema, name string) {
+func nonblankBoundedString(schema *jsonschema.Schema, name string, max int) {
+	boundedString(schema, name, max)
 	if p := schema.Properties[name]; p != nil {
-		length := 64
-		p.MinLength = &length
-		p.MaxLength = &length
-		p.Pattern = `^[0-9a-f]{64}$`
+		p.Pattern = `.*\S.*`
 	}
-}
-func validArtifactHandle(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	for _, c := range value {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
 }
 func exactlyOne(schema *jsonschema.Schema, first, second string) {
 	schema.OneOf = []*jsonschema.Schema{{Required: []string{first}, Not: &jsonschema.Schema{Required: []string{second}}}, {Required: []string{second}, Not: &jsonschema.Schema{Required: []string{first}}}}

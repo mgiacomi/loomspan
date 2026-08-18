@@ -29,6 +29,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -91,24 +92,25 @@ func newRealSemanticHarnessFromRawAndConfig(t *testing.T, raw []byte, config art
 // capability suite rather than silently shrinking its promise.
 func TestPR18SemanticFixtures(t *testing.T) {
 	runners := map[string]func(*testing.T){
-		"trace.target-acquisition": fixtureTargetAcquisition,
-		"trace.target-free-import": fixtureTargetFreeImport,
-		"trace.source-binding":     fixtureSourceBinding,
-		"trace.availability":       fixtureAvailability,
-		"trace.parity":             fixtureTraceParity,
-		"trace.fact-projection":    fixtureFactProjection,
-		"trace.continuation":       fixtureContinuation,
-		"trace.lifecycle":          fixtureLifecycle,
-		"trace.cancellation":       fixtureCancellation,
-		"trace.expiration":         fixtureExpiration,
-		"trace.concurrent-clients": fixtureConcurrentClients,
-		"trace.joined-adapters":    fixtureJoinedAdapters,
-		"trace.schema-errors":      fixtureSchemaErrors,
-		"raw.exact-range":          fixtureRawExactRange,
-		"raw.sources-continuation": fixtureRawSourcesAndContinuation,
-		"raw.lifecycle-errors":     fixtureRawLifecycleErrors,
-		"raw.no-acquisition":       fixtureRawNoAcquisition,
-		"raw.inert-content":        fixtureRawInertContent,
+		"trace.target-acquisition":     fixtureTargetAcquisition,
+		"trace.target-free-import":     fixtureTargetFreeImport,
+		"trace.trace-id-resolution":    fixtureSourceBinding,
+		"trace.ambiguous-identity":     fixtureAmbiguousIdentity,
+		"trace.discovery-completeness": fixtureAvailability,
+		"trace.parity":                 fixtureTraceParity,
+		"trace.fact-projection":        fixtureFactProjection,
+		"trace.continuation":           fixtureContinuation,
+		"trace.lifecycle":              fixtureLifecycle,
+		"trace.cancellation":           fixtureCancellation,
+		"trace.unavailable-evidence":   fixtureExpiration,
+		"trace.concurrent-clients":     fixtureConcurrentClients,
+		"trace.joined-adapters":        fixtureJoinedAdapters,
+		"trace.schema-errors":          fixtureSchemaErrors,
+		"raw.exact-range":              fixtureRawExactRange,
+		"raw.trace-id-continuation":    fixtureRawSourcesAndContinuation,
+		"raw.lifecycle-errors":         fixtureRawLifecycleErrors,
+		"raw.resolver-only":            fixtureRawNoAcquisition,
+		"raw.inert-content":            fixtureRawInertContent,
 	}
 	for _, id := range append(append([]string{}, traceSemanticFixtures...), rawArtifactSemanticFixtures...) {
 		runner := runners[id]
@@ -127,8 +129,9 @@ func semanticFixtureOptions() (ServerOptions, artifact.Handle, *fakeTraceAnalysi
 		records: traceanalysis.Page[traceanalysis.RecordSummary]{Context: traceCtx, Items: []traceanalysis.RecordSummary{}},
 		raw:     traceanalysis.ByteRangeResult{Context: traceCtx, ActualEnd: 2, TotalLength: 2, ContentType: "application/octet-stream", Encoding: traceanalysis.RangeEncodingBase64, Content: []byte("AAE=")},
 	}
-	artifacts := &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle, Owner: evidence.Target("scope-1")}}
-	options := ServerOptions{Credentials: fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled}}, Now: time.Now, TraceAnalysis: analysis, Artifacts: artifacts}
+	importedOwner, _ := evidence.Imported("semantic-fixture")
+	artifacts := &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle, Owner: importedOwner}}
+	options := ServerOptions{Credentials: fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled}}, Now: time.Now, TraceAnalysis: analysis, TraceResolver: artifacts}
 	return options, handle, analysis, artifacts
 }
 
@@ -136,10 +139,11 @@ func fixtureTargetAcquisition(t *testing.T) {
 	options := newMCPTestOptions(t, nil)
 	base, handle, analysis, artifacts := semanticFixtureOptions()
 	analysis.summary.Context.Evidence = evidence.ForTarget("scope-1")
-	options.TraceAnalysis, options.Artifacts = base.TraceAnalysis, base.Artifacts
-	result, _, err := handleGetTrace(context.Background(), options, getTraceInput{Source: "TARGET", TraceID: "trace"})
-	if err != nil || result.IsError || artifacts.calls != 1 || analysis.refs[0].Source != evidence.SourceTarget || handle == "" {
-		t.Fatalf("result=%#v calls=%d refs=%#v err=%v", result, artifacts.calls, analysis.refs, err)
+	artifacts.ref, artifacts.scope = evidence.ForTarget("scope-1"), target.Scope{ID: "scope-1"}
+	options.TraceAnalysis, options.TraceResolver = base.TraceAnalysis, base.TraceResolver
+	result, _, err := handleGetTrace(context.Background(), options, getTraceInput{TraceID: "trace"})
+	if err != nil || result.IsError || artifacts.calls.Load() != 1 || analysis.refs[0].Source != evidence.SourceTarget || handle == "" {
+		t.Fatalf("result=%#v calls=%d refs=%#v err=%v", result, artifacts.calls.Load(), analysis.refs, err)
 	}
 }
 
@@ -147,23 +151,33 @@ func fixtureTargetFreeImport(t *testing.T) {
 	h := newRealSemanticHarness(t)
 	options := newMCPTestOptions(t, nil)
 	options.TraceAnalysis = h.analysis
-	result, envelope, err := handleGetTrace(context.Background(), options, getTraceInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle)})
-	if err != nil || result.IsError || envelope.Result == nil || envelope.Result.Evidence.Source != "IMPORTED" || envelope.Result.Evidence.TargetScopeID != "" {
+	options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
+	result, envelope, err := handleGetTrace(context.Background(), options, getTraceInput{TraceID: h.acquired.Metadata.TraceID})
+	if err != nil || result.IsError || envelope.Result == nil || envelope.Result.Evidence.TraceID != h.acquired.Metadata.TraceID {
 		t.Fatalf("target-free imported read: result=%#v envelope=%#v err=%v", result, envelope, err)
 	}
 }
 
 func fixtureSourceBinding(t *testing.T) {
-	options, handle, analysis, _ := semanticFixtureOptions()
-	_, _, _ = handleGetTrace(context.Background(), options, getTraceInput{Source: "IMPORTED", ArtifactHandle: string(handle)})
+	options, _, analysis, _ := semanticFixtureOptions()
+	_, _, _ = handleGetTrace(context.Background(), options, getTraceInput{TraceID: "trace"})
 	if len(analysis.refs) != 1 || analysis.refs[0] != evidence.ForImported() {
 		t.Fatalf("refs=%#v", analysis.refs)
 	}
 }
 
+func fixtureAmbiguousIdentity(t *testing.T) {
+	options, _, analysis, _ := semanticFixtureOptions()
+	options.TraceResolver = &fakeTraceArtifacts{err: consolecore.NewError(consolecore.CodeAmbiguousTrace, "Multiple trace evidence instances use this trace ID.", "", consolecore.Details{}, nil)}
+	result, envelope, err := handleGetTrace(context.Background(), options, getTraceInput{TraceID: "trace"})
+	if err != nil || result == nil || !result.IsError || envelope.Error == nil || envelope.Error.Code != consolecore.CodeAmbiguousTrace || analysis.summaryCalls != 0 {
+		t.Fatalf("result=%#v envelope=%#v err=%v summaryCalls=%d", result, envelope, err, analysis.summaryCalls)
+	}
+}
+
 func fixtureAvailability(t *testing.T) {
-	mapped := mapInventory(traceinventory.Result{ApplicationCatalog: traceinventory.ApplicationCatalog{Requested: true, Available: false}, Items: []traceinventory.Entry{{Source: evidence.SourceImported, LocalAvailable: true}}})
-	if !mapped.ApplicationCatalog.Requested || mapped.ApplicationCatalog.Available || !mapped.Items[0].LocalAvailable || mapped.Items[0].Source != "IMPORTED" {
+	mapped := mapInventory(traceinventory.Result{Complete: false, Limitations: []traceinventory.Limitation{{Code: traceinventory.LimitationTraceDiscoveryIncomplete, Message: "incomplete"}}, Items: []traceinventory.Entry{{TraceID: "trace"}}})
+	if mapped.Complete || len(mapped.Limitations) != 1 || mapped.Items[0].TraceID != "trace" {
 		t.Fatalf("mapped=%#v", mapped)
 	}
 }
@@ -196,7 +210,8 @@ func fixtureTraceParity(t *testing.T) {
 	h := newRealSemanticHarnessFromRaw(t, raw)
 	options := newMCPTestOptions(t, nil)
 	options.TraceAnalysis = h.analysis
-	mcpResult, mcpEnvelope, err := handleGetTrace(context.Background(), options, getTraceInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle)})
+	options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
+	mcpResult, mcpEnvelope, err := handleGetTrace(context.Background(), options, getTraceInput{TraceID: h.acquired.Metadata.TraceID})
 	if err != nil || mcpResult.IsError || mcpEnvelope.Result == nil {
 		t.Fatalf("MCP summary=%#v err=%v", mcpResult, err)
 	}
@@ -208,7 +223,7 @@ func fixtureTraceParity(t *testing.T) {
 	encodedMCP, _ := json.Marshal(mcpEnvelope.Result.Summary)
 	var mcpSummary map[string]any
 	_ = json.Unmarshal(encodedMCP, &mcpSummary)
-	if browserSummary["source"] != mcpEnvelope.Result.Evidence.Source || browserSummary["traceId"] != mcpEnvelope.Result.Evidence.TraceID || browserSummary["sessionId"] != mcpEnvelope.Result.Evidence.SessionID {
+	if browserSummary["traceId"] != mcpEnvelope.Result.Evidence.TraceID || browserSummary["sessionId"] != mcpEnvelope.Result.Evidence.SessionID {
 		t.Fatalf("browser/MCP evidence mismatch: browser=%#v mcp=%#v", browserSummary, mcpEnvelope.Result.Evidence)
 	}
 	delete(browserSummary, "source")
@@ -225,7 +240,7 @@ func fixtureTraceParity(t *testing.T) {
 		t.Fatalf("browser/MCP summary mismatch\nbrowser=%#v\nmcp=%#v", browserSummary, mcpSummary)
 	}
 
-	_, frameEnvelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle), PageSize: 64})
+	_, frameEnvelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
 	if err != nil || frameEnvelope.Result == nil {
 		t.Fatalf("MCP frames=%#v err=%v", frameEnvelope, err)
 	}
@@ -240,7 +255,7 @@ func fixtureTraceParity(t *testing.T) {
 	}
 	assertAdapterItemsEqual(t, browserPost("/api/console/v1/traces/analysis/frames", body)["items"], frameEnvelope.Result.Items, "gapKinds", "uncertaintyKinds")
 
-	_, recordEnvelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle), PageSize: 64})
+	_, recordEnvelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
 	if err != nil || recordEnvelope.Result == nil {
 		t.Fatalf("MCP records=%#v err=%v", recordEnvelope, err)
 	}
@@ -267,7 +282,7 @@ func fixtureTraceParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	mcpCursorResult, mcpCursorEnvelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{
-		Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle), PageSize: 64, Continuation: "%%%",
+		TraceID: h.acquired.Metadata.TraceID, PageSize: 64, Continuation: "%%%",
 	})
 	if err != nil || !mcpCursorResult.IsError || mcpCursorEnvelope.Error == nil {
 		t.Fatalf("MCP invalid cursor result=%#v envelope=%#v err=%v", mcpCursorResult, mcpCursorEnvelope, err)
@@ -350,11 +365,12 @@ func assertSemanticFactFixture(t *testing.T, name string) map[string]int {
 	h := newRealSemanticHarnessFromRaw(t, raw)
 	options := newMCPTestOptions(t, nil)
 	options.TraceAnalysis = h.analysis
-	_, frames, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle), PageSize: 64})
+	options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
+	_, frames, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
 	if err != nil || frames.Result == nil {
 		t.Fatalf("MCP frames=%#v err=%v", frames, err)
 	}
-	_, records, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle), PageSize: 64})
+	_, records, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
 	if err != nil || records.Result == nil {
 		t.Fatalf("MCP records=%#v err=%v", records, err)
 	}
@@ -460,7 +476,7 @@ func assertAddressableSemanticContent(t *testing.T, browserPost func(string, str
 			browserRequest["maxBytes"] = maxTraceRangeBytes
 			browserBody, _ := json.Marshal(browserRequest)
 			browserRange := browserPost("/api/console/v1/traces/analysis/payload-range", string(browserBody))
-			result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(handle), PayloadRef: payloadRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
+			result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: request["traceId"].(string), PayloadRef: payloadRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
 			if err != nil || result.IsError || envelope.Result == nil {
 				t.Fatalf("MCP payload %d read=%#v err=%v", index, envelope, err)
 			}
@@ -487,13 +503,14 @@ func assertAddressableSemanticContent(t *testing.T, browserPost func(string, str
 				browserRequest["ordinal"] = ordinal
 				browserBody, _ := json.Marshal(browserRequest)
 				browserDiagnostic := browserPost("/api/console/v1/traces/analysis/failure-diagnostic", string(browserBody))
-				result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(handle), PayloadRef: payloadRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
+				result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: request["traceId"].(string), PayloadRef: payloadRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
 				if err != nil || result.IsError || envelope.Result == nil || browserDiagnostic["text"] != envelope.Result.Content {
 					t.Fatalf("diagnostic %d/%d differs: browser=%#v MCP=%#v err=%v", index, ordinal, browserDiagnostic, envelope, err)
 				}
 			}
 		}
 	}
+	_ = handle
 }
 
 func cloneSemanticRequest(value map[string]any) map[string]any {
@@ -614,9 +631,9 @@ func assertAdapterItemsEqual(t *testing.T, browser any, mcpItems any, mcpOnly ..
 }
 
 func fixtureContinuation(t *testing.T) {
-	options, handle, analysis, _ := semanticFixtureOptions()
+	options, _, analysis, _ := semanticFixtureOptions()
 	analysis.records.NextCursor, analysis.records.HasMore = "next", true
-	result, envelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{Source: "IMPORTED", ArtifactHandle: string(handle), Continuation: "prior"})
+	result, envelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: "trace", Continuation: "prior"})
 	if err != nil || result.IsError || envelope.Result.Continuation != "next" || analysis.recordQuery.Cursor != "prior" {
 		t.Fatalf("result=%#v envelope=%#v query=%#v err=%v", result, envelope, analysis.recordQuery, err)
 	}
@@ -624,8 +641,8 @@ func fixtureContinuation(t *testing.T) {
 
 func fixtureLifecycle(t *testing.T) {
 	h := newRealSemanticHarness(t)
-	session := semanticFixtureSession(t, h.analysis)
-	arguments := map[string]any{"source": "IMPORTED", "artifactHandle": string(h.acquired.Handle)}
+	session := semanticFixtureSession(t, h.analysis, traceresolution.New(h.artifacts, nil, nil))
+	arguments := map[string]any{"traceId": h.acquired.Metadata.TraceID}
 	browserRouter, browserSessionID := newSemanticBrowserTransport(t, h)
 	browserBody := `{"source":"IMPORTED","traceId":"trace-t"}`
 	if response := semanticBrowserResponse(browserRouter, browserSessionID, "/api/console/v1/traces/analysis/summary", browserBody); response.Code != http.StatusOK {
@@ -644,7 +661,7 @@ func fixtureLifecycle(t *testing.T) {
 	if domain != nil || !afterSuccess.LastUsedAt.After(before.LastUsedAt) {
 		t.Fatalf("successful MCP read did not refresh shared TTL: before=%s after=%s domain=%v", before.LastUsedAt, afterSuccess.LastUsedAt, domain)
 	}
-	failed, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTracePayloadToolName, Arguments: map[string]any{"source": "IMPORTED", "artifactHandle": string(h.acquired.Handle), "payloadRef": "malformed", "start": 0}})
+	failed, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTracePayloadToolName, Arguments: map[string]any{"traceId": h.acquired.Metadata.TraceID, "payloadRef": "malformed", "start": 0}})
 	if err != nil || failed == nil || !failed.IsError {
 		t.Fatalf("invalid payload reference result=%#v err=%v", failed, err)
 	}
@@ -665,19 +682,19 @@ func fixtureLifecycle(t *testing.T) {
 	}
 	envelope := second.StructuredContent.(map[string]any)
 	errorDTO := envelope["error"].(map[string]any)
-	if errorDTO["code"] != string(consolecore.CodeArtifactExpired) {
+	if errorDTO["code"] != string(consolecore.CodeTraceUnavailable) {
 		t.Fatalf("domain=%#v", errorDTO)
 	}
 }
 
 func fixtureCancellation(t *testing.T) {
-	_, _, base, _ := semanticFixtureOptions()
+	_, handle, base, _ := semanticFixtureOptions()
 	analysis := &cancelSemanticAnalysis{fakeTraceAnalysis: base, entered: make(chan struct{}, 1)}
-	session := semanticFixtureSession(t, analysis)
+	session := semanticFixtureSession(t, analysis, &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()})
 	ctx, cancel := context.WithCancel(context.Background())
 	completed := make(chan error, 1)
 	go func() {
-		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: QueryTraceRecordsToolName, Arguments: map[string]any{"source": "IMPORTED", "artifactHandle": strings.Repeat("d", 64)}})
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: QueryTraceRecordsToolName, Arguments: map[string]any{"traceId": "trace"}})
 		if result != nil {
 			completed <- errors.New("canceled operation published a result")
 			return
@@ -700,15 +717,15 @@ func fixtureExpiration(t *testing.T) {
 	h := newRealSemanticHarnessFromRawAndConfig(t, []byte(semanticTrace), artifact.Config{MaxBytes: 128 << 20, IdleTTL: 10 * time.Millisecond})
 	browserRouter, browserSessionID := newSemanticBrowserTransport(t, h)
 	time.Sleep(30 * time.Millisecond)
-	session := semanticFixtureSession(t, h.analysis)
+	session := semanticFixtureSession(t, h.analysis, traceresolution.New(h.artifacts, nil, nil))
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: GetTraceToolName, Arguments: map[string]any{
-		"source": "IMPORTED", "artifactHandle": string(h.acquired.Handle),
+		"traceId": h.acquired.Metadata.TraceID,
 	}})
 	if err != nil || result == nil || !result.IsError {
 		t.Fatalf("expired artifact result=%#v err=%v", result, err)
 	}
 	envelope := result.StructuredContent.(map[string]any)
-	if envelope["error"].(map[string]any)["code"] != string(consolecore.CodeArtifactExpired) {
+	if envelope["error"].(map[string]any)["code"] != string(consolecore.CodeTraceUnavailable) {
 		t.Fatalf("expired artifact domain=%#v", envelope)
 	}
 	browserExpired := semanticBrowserResponse(browserRouter, browserSessionID, "/api/console/v1/traces/analysis/summary", `{"source":"IMPORTED","traceId":"trace-t"}`)
@@ -719,13 +736,13 @@ func fixtureExpiration(t *testing.T) {
 
 func fixtureConcurrentClients(t *testing.T) {
 	h := newRealSemanticHarness(t)
-	first := semanticFixtureSession(t, h.analysis)
-	second := semanticFixtureSession(t, h.analysis)
+	first := semanticFixtureSession(t, h.analysis, traceresolution.New(h.artifacts, nil, nil))
+	second := semanticFixtureSession(t, h.analysis, traceresolution.New(h.artifacts, nil, nil))
 	results := make(chan error, 2)
 	start := make(chan struct{})
 	call := func(session *mcp.ClientSession) {
 		<-start
-		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: QueryTraceRecordsToolName, Arguments: map[string]any{"source": "IMPORTED", "artifactHandle": string(h.acquired.Handle), "pageSize": 1}})
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: QueryTraceRecordsToolName, Arguments: map[string]any{"traceId": h.acquired.Metadata.TraceID, "pageSize": 1}})
 		if err == nil && (result == nil || result.IsError) {
 			err = errors.New("shared trace query failed")
 		}
@@ -760,10 +777,11 @@ func (analysis *cancelSemanticAnalysis) QueryRecords(ctx context.Context, _ evid
 	return traceanalysis.Page[traceanalysis.RecordSummary]{}, consolecore.NewError(consolecore.CodeTargetUnavailable, "The operation was canceled.", "", consolecore.Details{}, ctx.Err())
 }
 
-func semanticFixtureSession(t *testing.T, analysis TraceAnalysisService) *mcp.ClientSession {
+func semanticFixtureSession(t *testing.T, analysis TraceAnalysisService, resolver TraceResolver) *mcp.ClientSession {
 	t.Helper()
 	options := newMCPTestOptions(t, nil)
 	options.TraceAnalysis = analysis
+	options.TraceResolver = resolver
 	return semanticFixtureSessionWithOptions(t, options)
 }
 
@@ -789,10 +807,8 @@ func semanticFixtureSessionWithAuthenticator(t *testing.T, options ServerOptions
 
 func fixtureSchemaErrors(t *testing.T) {
 	schema := traceInputSchema[getTraceInput]()
-	enumProperty(schema, "source", "TARGET", "IMPORTED")
-	exactlyOne(schema, "traceId", "artifactHandle")
 	body, _ := json.Marshal(schema)
-	if !strings.Contains(string(body), `"additionalProperties":false`) || !strings.Contains(string(body), `"oneOf"`) {
+	if !strings.Contains(string(body), `"additionalProperties":false`) || !strings.Contains(string(body), `"required":["traceId"]`) {
 		t.Fatalf("schema=%s", body)
 	}
 }
@@ -801,8 +817,9 @@ func fixtureRawExactRange(t *testing.T) {
 	h := newRealSemanticHarness(t)
 	options := newMCPTestOptions(t, nil)
 	options.TraceAnalysis = h.analysis
+	options.TraceResolver = traceresolution.New(h.artifacts, nil, nil)
 	start := int64(0)
-	input := traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(h.acquired.Handle), Start: &start, MaxBytes: 73}
+	input := traceRangeInput{TraceID: h.acquired.Metadata.TraceID, Start: &start, MaxBytes: 73}
 	var reconstructed []byte
 	var expectedStart int64
 	for {
@@ -838,17 +855,20 @@ func fixtureRawExactRange(t *testing.T) {
 
 func fixtureRawSourcesAndContinuation(t *testing.T) {
 	options := newMCPTestOptions(t, nil)
-	_, handle, analysis, _ := semanticFixtureOptions()
+	base, _, analysis, resolver := semanticFixtureOptions()
 	analysis.raw.Context.Evidence = evidence.ForTarget("scope-1")
 	analysis.raw.NextCursor, analysis.raw.HasMore = "next", true
-	options.TraceAnalysis = analysis
-	result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{Source: "TARGET", ArtifactHandle: string(handle), Continuation: "prior"}, true)
+	resolver.ref, resolver.scope = evidence.ForTarget("scope-1"), target.Scope{ID: "scope-1"}
+	options.TraceAnalysis, options.TraceResolver = analysis, resolver
+	result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace", Continuation: "prior"}, true)
 	if err != nil || result.IsError || envelope.Result == nil || envelope.Result.Continuation != "next" || analysis.rangeRequest.ContinueCursor != "prior" || analysis.refs[0].Source != evidence.SourceTarget {
 		t.Fatalf("target result=%#v envelope=%#v refs=%#v request=%#v err=%v", result, envelope, analysis.refs, analysis.rangeRequest, err)
 	}
 	analysis.refs = nil
 	analysis.raw.Context.Evidence = evidence.ForImported()
-	result, _, err = handleTraceRange(context.Background(), ServerOptions{Credentials: options.Credentials, Now: options.Now, TraceAnalysis: analysis}, traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(handle), Continuation: "prior"}, true)
+	base.TraceAnalysis = analysis
+	base.TraceResolver = &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: analysis.raw.Context.Handle}, ref: evidence.ForImported()}
+	result, _, err = handleTraceRange(context.Background(), base, traceRangeInput{TraceID: "trace", Continuation: "prior"}, true)
 	if err != nil || result.IsError || analysis.refs[0].Source != evidence.SourceImported {
 		t.Fatalf("import result=%#v refs=%#v err=%v", result, analysis.refs, err)
 	}
@@ -856,8 +876,8 @@ func fixtureRawSourcesAndContinuation(t *testing.T) {
 
 func fixtureRawLifecycleErrors(t *testing.T) {
 	h := newRealSemanticHarness(t)
-	session := semanticFixtureSession(t, h.analysis)
-	arguments := map[string]any{"source": "IMPORTED", "artifactHandle": string(h.acquired.Handle), "start": 0}
+	session := semanticFixtureSession(t, h.analysis, traceresolution.New(h.artifacts, nil, nil))
+	arguments := map[string]any{"traceId": h.acquired.Metadata.TraceID, "start": 0}
 	first, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: arguments})
 	if err != nil || first.IsError {
 		t.Fatalf("initial raw read=%#v err=%v", first, err)
@@ -870,22 +890,22 @@ func fixtureRawLifecycleErrors(t *testing.T) {
 		t.Fatalf("invalidated raw read=%#v err=%v", second, err)
 	}
 	envelope := second.StructuredContent.(map[string]any)
-	if envelope["error"].(map[string]any)["code"] != string(consolecore.CodeArtifactExpired) {
+	if envelope["error"].(map[string]any)["code"] != string(consolecore.CodeTraceUnavailable) {
 		t.Fatalf("raw error=%#v", envelope)
 	}
 }
 
 func fixtureRawNoAcquisition(t *testing.T) {
-	options, handle, _, artifacts := semanticFixtureOptions()
+	options, _, _, artifacts := semanticFixtureOptions()
 	start := int64(0)
-	result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{Source: "IMPORTED", ArtifactHandle: string(handle), Start: &start}, true)
-	if err != nil || result.IsError || artifacts.calls != 0 {
-		t.Fatalf("result=%#v acquireCalls=%d err=%v", result, artifacts.calls, err)
+	result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace", Start: &start}, true)
+	if err != nil || result.IsError || artifacts.calls.Load() != 1 {
+		t.Fatalf("result=%#v acquireCalls=%d err=%v", result, artifacts.calls.Load(), err)
 	}
 }
 
 func fixtureRawInertContent(t *testing.T) {
-	options, handle, analysis, artifacts := semanticFixtureOptions()
+	options, _, analysis, artifacts := semanticFixtureOptions()
 	var networkCalls atomic.Int64
 	attacker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { networkCalls.Add(1) }))
 	t.Cleanup(attacker.Close)
@@ -917,7 +937,7 @@ func fixtureRawInertContent(t *testing.T) {
 	session := semanticFixtureSessionWithAuthenticator(t, options, credentials)
 	beforeSnapshots, beforeAuthentications := credentials.snapshots.Load(), credentials.authentications.Load()
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTraceArtifactToolName, Arguments: map[string]any{
-		"source": "IMPORTED", "artifactHandle": string(handle), "start": 0,
+		"traceId": "trace", "start": 0,
 	}})
 	if err != nil || result == nil {
 		t.Fatalf("HTTP MCP call result=%#v err=%v", result, err)
@@ -927,8 +947,8 @@ func fixtureRawInertContent(t *testing.T) {
 	if result.IsError || rangeValue["content"] != malicious {
 		t.Fatalf("HTTP MCP result=%#v structured=%#v err=%v", result, structured, err)
 	}
-	if artifacts.calls != 0 || analysis.rawCalls != 1 || analysis.summaryCalls != 0 || analysis.frameCalls != 0 || analysis.recordCalls != 0 || analysis.payloadCalls != 0 || len(analysis.refs) != 1 || analysis.refs[0].Source != evidence.SourceImported {
-		t.Fatalf("inert content crossed an authority boundary: acquire=%d raw=%d summary=%d frames=%d records=%d payload=%d refs=%#v", artifacts.calls, analysis.rawCalls, analysis.summaryCalls, analysis.frameCalls, analysis.recordCalls, analysis.payloadCalls, analysis.refs)
+	if artifacts.calls.Load() != 1 || analysis.rawCalls != 1 || analysis.summaryCalls != 0 || analysis.frameCalls != 0 || analysis.recordCalls != 0 || analysis.payloadCalls != 0 || len(analysis.refs) != 1 || analysis.refs[0].Source != evidence.SourceImported {
+		t.Fatalf("inert content crossed an authority boundary: acquire=%d raw=%d summary=%d frames=%d records=%d payload=%d refs=%#v", artifacts.calls.Load(), analysis.rawCalls, analysis.summaryCalls, analysis.frameCalls, analysis.recordCalls, analysis.payloadCalls, analysis.refs)
 	}
 	if inventory.calls != 0 || statusCalls.Load() != 0 || targetNetworkCalls.Load() != 0 || networkCalls.Load() != 0 {
 		t.Fatalf("inert content invoked another operation: inventory=%d status=%d targetNetwork=%d contentNetwork=%d", inventory.calls, statusCalls.Load(), targetNetworkCalls.Load(), networkCalls.Load())

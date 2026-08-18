@@ -11,14 +11,15 @@
     "requiredSemanticFixtures": [
       "trace.target-acquisition",
       "trace.target-free-import",
-      "trace.source-binding",
-      "trace.availability",
+      "trace.trace-id-resolution",
+      "trace.ambiguous-identity",
+      "trace.discovery-completeness",
       "trace.parity",
       "trace.fact-projection",
       "trace.continuation",
       "trace.lifecycle",
       "trace.cancellation",
-      "trace.expiration",
+      "trace.unavailable-evidence",
       "trace.concurrent-clients",
       "trace.joined-adapters",
       "trace.schema-errors"
@@ -29,9 +30,9 @@
     "requiredTools": ["LOOMSPAN_read_trace_artifact"],
     "requiredSemanticFixtures": [
       "raw.exact-range",
-      "raw.sources-continuation",
+      "raw.trace-id-continuation",
       "raw.lifecycle-errors",
-      "raw.no-acquisition",
+      "raw.resolver-only",
       "raw.inert-content"
     ]
   }

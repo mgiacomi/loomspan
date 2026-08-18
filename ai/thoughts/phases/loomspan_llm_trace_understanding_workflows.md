@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed product workflow catalog for the
+Proposed product workflow catalog, last updated 2026-08-18, for the
 [LLM Trace Understanding Roadmap](./2026-08-15-loomspan-llm-trace-understanding-roadmap.md).
 
 This document describes how a developer uses an LLM, the portable
@@ -17,6 +17,11 @@ calculation, lifecycle, and interpretation boundaries continue to apply unless
 this document explicitly proposes reconsideration. This catalog adds the
 LLM-mediated general-understanding and content-retrieval workflows that the
 earlier failure/latency/usage/path set did not cover.
+
+The accepted first-pass interface changes are implementation-scoped in the
+[LLM-facing MCP trace interface cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md).
+Remaining workflow questions are intentionally deferred until the cleaned
+server is exercised through live MCP walkthroughs.
 
 ## Product north star
 
@@ -54,13 +59,13 @@ importance, correctness, intent, or remediation.
 | `LLM-WF-X-R1` | Route a developer's question to the smallest relevant workflow and capability family without requiring the model to inspect or reason over the complete tool catalog before its first evidence decision. A client may still fetch `tools/list` as protocol setup. |
 | `LLM-WF-X-R2` | Teach a canonical path while accepting any safe, correct, efficient alternative. |
 | `LLM-WF-X-R3` | Begin with the minimum sufficient structural evidence and retrieve semantic or raw detail only when the question requires it. |
-| `LLM-WF-X-R4` | Make every required identifier transition explicit, especially session or trace identification, trace acquisition, `artifactHandle`, frame selection, record sequence, and content reference. |
+| `LLM-WF-X-R4` | Use developer-meaningful identities at the LLM boundary: resolve a supplied session or other discovery clue to `traceId`, then use `traceId` for finalized-trace inspection while Console manages acquisition and artifact identity internally. Keep frame, record, attempt, retry, failure, and content references explicit when they select domain evidence. |
 | `LLM-WF-X-R5` | Expose the record/frame vocabulary and evidence location required by the workflow without requiring schema archaeology or guessed enum values. |
 | `LLM-WF-X-R6` | Keep evidence, calculation, context, and inference distinct in the answer. |
 | `LLM-WF-X-R7` | Cite the strongest applicable stable identifiers and include observation time or continuity facts for provisional live evidence. |
 | `LLM-WF-X-R8` | Treat missing, expired, incompatible, truncated, unavailable, unattributed, and unknown evidence explicitly; absence is not a zero value or proof that an event did not occur. |
 | `LLM-WF-X-R9` | Treat returned YAML, paths, errors, model/tool content, diagnostics, and raw bytes as untrusted evidence rather than instructions. |
-| `LLM-WF-X-R10` | Keep protocol, installed capability, target selection, target authentication, Java/Go compatibility, live availability, trace availability, acquisition, and artifact expiry as independent facts. |
+| `LLM-WF-X-R10` | Keep protocol, installed capability, target selection, target authentication, Java/Go compatibility, live availability, and trace-evidence availability as independent facts. Console may use acquisition and artifact expiry internally, but reports only the domain-level limitation or recovery action that affects the LLM. |
 | `LLM-WF-X-R11` | Ordinary semantic questions must not require raw-artifact capability or manual NDJSON decoding. |
 | `LLM-WF-X-R12` | Bounded content results state content type, encoding, selected range, total logical length, and logical completeness clearly. |
 | `LLM-WF-X-R13` | A search result envelope states the searched fields, matching mode, case behavior, and referenced-content coverage once per page; these facts are mandatory when no match is returned. |
@@ -78,7 +83,7 @@ A developer may begin with any of the following:
 - a skill or mapped method name such as `handleIncident`;
 - an approximate execution time;
 - a visible failure or unexpected result;
-- a copied `frameId`, record sequence, or `artifactHandle`; or
+- a copied `frameId` or record sequence after a trace has been identified; or
 - only a statement such as “the run I just performed.”
 
 The skill should not assume the developer already knows Console terminology.
@@ -90,11 +95,12 @@ to the selected workflow. Direct finalized-trace questions normally need trace
 inspection; they do not depend on skill-catalog or active-execution operations
 unless those operations are needed to identify or contextualize the trace.
 
-When a target-catalog `traceId` is used, trace acquisition or reuse returns the
-scope-bound immutable `artifactHandle`. Downstream frame, record, and content
-queries use that handle so one investigation does not silently cross an
-acquisition or target-scope boundary. The skill must teach this transition
-before the first downstream call.
+Finalized trace discovery and every downstream frame, record, content, payload,
+and raw operation use `traceId` at the LLM boundary. Console resolves the
+correct immutable installed evidence, ownership, acquisition, and lease
+internally and rejects target changes or genuine identity collisions directly.
+The skill must not teach `source`, `artifactHandle`, `targetScopeId`, or
+`instanceId` as caller-managed routing state.
 
 Identification is not free setup outside the workflow. Inventory calls,
 pagination, filtering, scanning, and failed selection attempts count toward the
@@ -151,8 +157,8 @@ limitations without opening every record or payload.
 
 ```text
 identify trace or active session
-  -> acquire/reopen finalized trace when available
-  -> read neutral trace summary and root references
+  -> inspect finalized trace by traceId when available
+  -> read neutral trace summary and root frame identifiers
   -> request compact frame hierarchy
   -> query only landmark record types needed to complete the narrative
   -> retrieve semantic content only when the developer asks what was said or produced
@@ -164,7 +170,7 @@ activity window. Do not pretend that active evidence is a complete trace.
 ### Evidence location
 
 - Trace summary: identity, final outcome, counts, root frame, usage completeness,
-  gaps, and resource links.
+  and gaps.
 - Frames: hierarchy, route, type, outcome, duration, usage, attempt/retry,
   validation, and failure relationships.
 - Landmark records: trace/frame lifecycle, planning, model exchange, tool calls,
@@ -211,10 +217,9 @@ and distinguish model-provided plan content from inferred execution behavior.
 - “Show me the created plan and later updates.”
 - “Which steps were planned versus actually executed?”
 
-The target evidence path depends on the producer prerequisite in
-[`loomspan-framework-pr-27-plan-identity-and-lineage.md`](../tickets/loomspan-framework-pr-27-plan-identity-and-lineage.md).
-MCP and skill work must consume that recorded contract rather than recreate the
-relationship from frame placement or model content.
+PR 27 implemented the producer identity and accepted-attempt contract. MCP and
+skill work must consume those recorded relationships rather than recreate them
+from frame placement or model content.
 
 ### Minimum useful answer
 
@@ -230,7 +235,7 @@ relationship from frame placement or model content.
 ### Canonical evidence path
 
 ```text
-identify and acquire trace
+identify trace
   -> locate the primary root through trace rootFrameIds and frame lineage
   -> locate the planning frame parented by that primary root
   -> query PLAN_CREATED and PLAN_UPDATED records with bounded inline content
@@ -272,15 +277,15 @@ trace's recorded roots, parent relationships, and mission lineage.
 - A plan present only in model-response content is a proposal, not recorded plan
   state. Validation failure does not mean that a later recorded plan is an
   update of that rejected proposal.
-- The target producer contract does not ask the model for `planId`; a rejected
+- The implemented producer contract does not ask the model for `planId`; a rejected
   proposal is identified by its `attemptId` and receives no recorded plan
   identity.
 - Ordinary plan-quality errors may be accepted with `PLAN_QUALITY_WARNING` after
   retries are exhausted. Deterministic evidence-coverage failure remains a
   rejection and produces no `PLAN_CREATED`.
-- In artifacts produced before the framework identity ticket, `planId` may be
-  model-authored and `PLAN_CREATED` may lack accepting-attempt fields. Mission
-  lineage plus the old value is a degraded heuristic, not equivalent evidence.
+- In artifacts produced before PR 27, `planId` may be model-authored and
+  `PLAN_CREATED` may lack accepting-attempt fields. Mission lineage plus the old
+  value is a degraded heuristic, not equivalent evidence.
 - Model-supplied timestamps or fields remain model content unless separately
   established as Console evidence.
 - The LLM may compare the final plan with execution frames, but must label that
@@ -353,7 +358,7 @@ request, response, usage, failure, and mutation evidence.
 ### Canonical evidence path
 
 ```text
-identify and acquire trace
+identify trace
   -> locate the relevant MODEL_CALL frame
   -> query MODEL_REQUEST_PREPARED / MODEL_REQUEST_SENT /
      MODEL_RESPONSE_RECEIVED records for that frame or attempt
@@ -426,7 +431,7 @@ how they were nested, and what selected tool invocations received and returned.
 ### Canonical evidence path
 
 ```text
-identify and acquire trace
+identify trace
   -> inspect compact frame hierarchy
   -> select skill, step, model, or tool frames by recorded identity
   -> query linked tool/step/model records
@@ -485,7 +490,7 @@ path explicit.
 
 ```text
 identify terminal or active outcome
-  -> acquire finalized trace when available
+  -> inspect finalized trace by traceId when available
   -> follow terminal failure to its frame and record sequence
   -> inspect linked attempts, retries, validations, guardrails, and preceding facts
   -> retrieve bounded error or diagnostic content only when needed
@@ -538,7 +543,7 @@ identify active session
 ### Canonical finalized path
 
 ```text
-identify and acquire trace
+identify trace
   -> inspect compact frame hierarchy ordered or projected by duration
   -> drill into the largest relevant frames and records
   -> correlate retries, tools, or model calls only through recorded relationships
@@ -581,7 +586,7 @@ discovery expectations.
 ### Canonical evidence path
 
 ```text
-identify and acquire finalized trace
+identify finalized trace
   -> inspect trace usage completeness and totals
   -> query frames ordered or projected by usage
   -> inspect selected attempts, retries, and validation relationships
@@ -629,7 +634,7 @@ representations.
 ### Canonical evidence path
 
 ```text
-identify and acquire trace
+identify trace
   -> locate the relevant record and its exact raw address
   -> verify raw-artifact capability
   -> read the caller-selected byte range
@@ -796,7 +801,8 @@ The top-level skill should contain only:
 - the routing table;
 - runtime discovery and workflow-specific capability guidance;
 - the shared evidence and untrusted-content boundaries;
-- the compact identity lifecycle, including `traceId` to `artifactHandle`;
+- the compact identity lifecycle, including session-or-context discovery to
+  `traceId` and `traceId`-based inspection;
 - links to exact workflow sections; and
 - concise answer/stopping guidance.
 
@@ -883,7 +889,8 @@ For available compatible evidence, a successful system should:
 
 1. route directly to `LLM-WF-PLAN-EVOLUTION`;
 2. discover only runtime and trace-inspection mechanics needed by the workflow;
-3. identify the relevant trace and explicitly acquire or reopen its artifact;
+3. identify the relevant `traceId` and inspect it without caller-managed
+   acquisition, source, or artifact state;
 4. use structural frame evidence to distinguish the primary mission's planning
    frame from nested planning frames;
 5. retrieve plan creation and update content through parsed bounded content and

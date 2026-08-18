@@ -15,11 +15,11 @@ const (
 )
 
 var traceSemanticFixtures = []string{
-	"trace.target-acquisition", "trace.target-free-import", "trace.source-binding", "trace.availability",
+	"trace.target-acquisition", "trace.target-free-import", "trace.trace-id-resolution", "trace.ambiguous-identity", "trace.discovery-completeness",
 	"trace.parity", "trace.fact-projection", "trace.continuation", "trace.lifecycle", "trace.cancellation",
-	"trace.expiration", "trace.concurrent-clients", "trace.joined-adapters", "trace.schema-errors",
+	"trace.unavailable-evidence", "trace.concurrent-clients", "trace.joined-adapters", "trace.schema-errors",
 }
-var rawArtifactSemanticFixtures = []string{"raw.exact-range", "raw.sources-continuation", "raw.lifecycle-errors", "raw.no-acquisition", "raw.inert-content"}
+var rawArtifactSemanticFixtures = []string{"raw.exact-range", "raw.trace-id-continuation", "raw.lifecycle-errors", "raw.resolver-only", "raw.inert-content"}
 
 var capabilityDescriptors = []capabilityDescriptor{
 	{ID: SkillInspectionCapability, RequiredTools: []string{ListSkillsToolName, GetSkillToolName}},

@@ -70,8 +70,7 @@ func handleListExecutions(ctx context.Context, options ServerOptions, input list
 		}
 	}
 	result := executionListResult{
-		TargetScopeID: string(scope.ID), InstanceID: scope.InstanceID, ObservedAt: page.ObservedAt.UTC(),
-		Items: items, HasMore: page.HasMore, Continuation: continuation,
+		ObservedAt: page.ObservedAt.UTC(), Items: items, HasMore: page.HasMore, Continuation: continuation,
 	}
 	if domain := publicationDomain(options, scope); domain != nil {
 		return checkedDomainFailure[executionListResult](ctx, options, domain)
@@ -95,7 +94,6 @@ func handleGetExecution(ctx context.Context, options ServerOptions, input getExe
 		return checkedDomainFailure[executionDetailResult](ctx, options, domain)
 	}
 	result := executionDetailResult{
-		TargetScopeID: string(scope.ID), InstanceID: scope.InstanceID,
 		ObservedAt: options.Now().UTC(), Execution: mapExecution(execution),
 	}
 	if domain := publicationDomain(options, scope); domain != nil {
@@ -109,7 +107,7 @@ func handleGetExecution(ctx context.Context, options ServerOptions, input getExe
 
 func executionListText(result executionListResult) string {
 	var writer lineWriter
-	appendCommon(&writer, result.TargetScopeID, result.InstanceID, result.ObservedAt)
+	appendCommon(&writer, result.ObservedAt)
 	writer.integer("count", int64(len(result.Items)))
 	writer.boolean("hasMore", result.HasMore)
 	writer.continuation(result.Continuation)
@@ -128,7 +126,7 @@ func executionListText(result executionListResult) string {
 func executionDetailText(result executionDetailResult) string {
 	execution := result.Execution
 	var writer lineWriter
-	appendCommon(&writer, result.TargetScopeID, result.InstanceID, result.ObservedAt)
+	appendCommon(&writer, result.ObservedAt)
 	writer.quoted("execution.sessionId", execution.SessionID)
 	writer.quoted("execution.traceId", execution.TraceID)
 	writer.integer("execution.lastCanonicalSequence", int64(execution.LastCanonicalSequence))

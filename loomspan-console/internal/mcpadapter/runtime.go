@@ -18,8 +18,18 @@ type StatusProvider func() consolecore.StatusSnapshot
 type emptyInput struct{}
 
 type RuntimeOutput struct {
-	Capabilities []string                   `json:"capabilities" jsonschema:"Loomspan capability identifiers supported by this server"`
-	Status       consolecore.StatusSnapshot `json:"status" jsonschema:"Current side-effect-free Loomspan Console target status"`
+	Capabilities []string         `json:"capabilities" jsonschema:"Loomspan capability identifiers supported by this server"`
+	Status       runtimeStatusDTO `json:"status" jsonschema:"Current side-effect-free Loomspan Console target status"`
+}
+
+type runtimeStatusDTO struct {
+	ObservedAt           time.Time                   `json:"observedAt"`
+	TargetSelection      consolecore.Selection       `json:"targetSelection"`
+	TargetConnection     consolecore.Connection      `json:"targetConnection"`
+	TargetAuthentication consolecore.Authentication  `json:"targetAuthentication"`
+	JavaGoCompatibility  consolecore.Compatibility   `json:"javaGoCompatibility"`
+	RuntimeIdentity      consolecore.RuntimeIdentity `json:"runtimeIdentity"`
+	LiveMonitoring       consolecore.LiveMonitoring  `json:"liveMonitoring"`
 }
 
 func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator, evaluationCapabilities *[]string) {
@@ -52,29 +62,22 @@ func buildRuntimeOutputWithCapabilities(ctx context.Context, provider StatusProv
 	if evaluationCapabilities != nil {
 		capabilities = append([]string{}, (*evaluationCapabilities)...)
 	}
-	return RuntimeOutput{Capabilities: capabilities, Status: status}, nil
+	mapped := runtimeStatusDTO{ObservedAt: status.ObservedAt, TargetSelection: status.TargetSelection, TargetConnection: status.TargetConnection, TargetAuthentication: status.TargetAuthentication, JavaGoCompatibility: status.JavaGoCompatibility, RuntimeIdentity: status.RuntimeIdentity, LiveMonitoring: status.LiveMonitoring}
+	return RuntimeOutput{Capabilities: capabilities, Status: mapped}, nil
 }
 
 func runtimeText(output RuntimeOutput) string {
 	status := output.Status
-	value := func(value string) string {
-		if value == "" {
-			return "-"
-		}
-		return value
-	}
-	lines := make([]string, 0, len(output.Capabilities)+9)
+	lines := make([]string, 0, len(output.Capabilities)+7)
 	for _, capability := range output.Capabilities {
 		lines = append(lines, "capability: "+capability)
 	}
 	lines = append(lines,
-		"targetScopeId: "+value(status.TargetScopeID),
 		"targetSelection: "+string(status.TargetSelection),
 		"targetConnection: "+string(status.TargetConnection),
 		"targetAuthentication: "+string(status.TargetAuthentication),
 		"javaGoCompatibility: "+string(status.JavaGoCompatibility),
 		"runtimeIdentity: "+string(status.RuntimeIdentity),
-		"instanceId: "+value(status.InstanceID),
 		"liveMonitoring: "+string(status.LiveMonitoring),
 		"observedAt: "+status.ObservedAt.UTC().Format(time.RFC3339Nano),
 	)

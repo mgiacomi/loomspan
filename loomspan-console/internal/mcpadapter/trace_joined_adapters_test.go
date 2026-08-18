@@ -22,7 +22,9 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/workspace"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type passThroughProcessor struct{}
@@ -50,6 +52,35 @@ func (echoSummaryAnalysis) ReadPayloadRange(context.Context, evidence.Reference,
 }
 func (echoSummaryAnalysis) ReadRawArtifactRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
 	return traceanalysis.ByteRangeResult{}, nil
+}
+
+type leasingSummaryAnalysis struct {
+	echoSummaryAnalysis
+	artifacts *artifact.Service
+	entered   chan *artifact.Lease
+	release   <-chan struct{}
+	active    atomic.Int32
+	maximum   atomic.Int32
+}
+
+func (analysis *leasingSummaryAnalysis) GetSummary(_ context.Context, ref evidence.Reference, request traceanalysis.SummaryRequest) (traceanalysis.TraceSummary, *consolecore.Error) {
+	lease, domain := analysis.artifacts.Use(ref, request.Handle)
+	if domain != nil {
+		analysis.entered <- nil
+		return traceanalysis.TraceSummary{}, domain
+	}
+	active := analysis.active.Add(1)
+	for {
+		maximum := analysis.maximum.Load()
+		if active <= maximum || analysis.maximum.CompareAndSwap(maximum, active) {
+			break
+		}
+	}
+	analysis.entered <- lease
+	<-analysis.release
+	analysis.active.Add(-1)
+	_ = lease.Close(true)
+	return traceanalysis.TraceSummary{Context: traceanalysis.TraceContext{Evidence: ref, Handle: request.Handle, TraceID: "trace-joined", SessionID: "session-joined"}, RootFrameIDs: []string{}}, nil
 }
 
 func TestBrowserAndMCPJoinOneAcquisitionHandleAndCapacityCharge(t *testing.T) {
@@ -92,8 +123,9 @@ func runJoinedAdapterAcquisitionFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	artifacts.ActivateActivity(mustCaptureScope(t, options.Target))
-	analysis := echoSummaryAnalysis{}
-	options.Artifacts = artifacts
+	releaseAnalysis := make(chan struct{})
+	analysis := &leasingSummaryAnalysis{artifacts: artifacts, entered: make(chan *artifact.Lease, 2), release: releaseAnalysis}
+	options.TraceResolver = traceresolution.New(artifacts, options.Observability, options.Target)
 	options.TraceAnalysis = analysis
 
 	router, cookie, tabID, csrf := joinedBrowserRouter(t, options.Target, artifacts)
@@ -118,21 +150,48 @@ func runJoinedAdapterAcquisitionFixture(t *testing.T) {
 		browserDone <- browserResult{code: response.Code, body: response.Body.Bytes(), handle: handle}
 	}()
 	<-loaderEntered
-	mcpDone := make(chan toolEnvelope[getTraceResult], 1)
-	go func() {
-		result, envelope, err := handleGetTrace(context.Background(), options, getTraceInput{Source: "TARGET", TraceID: "trace-joined"})
-		if err != nil || result == nil || result.IsError {
-			mcpDone <- toolEnvelope[getTraceResult]{}
-			return
-		}
-		mcpDone <- envelope
-	}()
-	waitForJoinedAdapterWaiters(t, artifacts, 2)
+	type mcpResult struct {
+		result   *mcp.CallToolResult
+		envelope toolEnvelope[getTraceResult]
+		err      error
+	}
+	callMCP := func(ctx context.Context) <-chan mcpResult {
+		done := make(chan mcpResult, 1)
+		go func() {
+			result, envelope, err := handleGetTrace(ctx, options, getTraceInput{TraceID: "trace-joined"})
+			done <- mcpResult{result: result, envelope: envelope, err: err}
+		}()
+		return done
+	}
+	firstMCP := callMCP(context.Background())
+	secondMCP := callMCP(context.Background())
+	canceledContext, cancel := context.WithCancel(context.Background())
+	canceledMCP := callMCP(canceledContext)
+	waitForJoinedAdapterWaiters(t, artifacts, 4)
+	cancel()
+	canceled := <-canceledMCP
+	if canceled.err == nil && canceled.result != nil && !canceled.result.IsError {
+		t.Fatalf("canceled acquisition published success: %#v", canceled)
+	}
 	close(releaseLoader)
 	browser := <-browserDone
-	mcpEnvelope := <-mcpDone
-	if browser.code != http.StatusOK || browser.handle == "" || mcpEnvelope.Result == nil || mcpEnvelope.Result.Evidence.ArtifactHandle != browser.handle {
-		t.Fatalf("browser code=%d body=%s handle=%q MCP=%#v", browser.code, browser.body, browser.handle, mcpEnvelope)
+	firstLease, secondLease := <-analysis.entered, <-analysis.entered
+	if firstLease == nil || secondLease == nil || firstLease == secondLease || analysis.maximum.Load() != 2 {
+		t.Fatalf("leases first=%p second=%p maximum=%d", firstLease, secondLease, analysis.maximum.Load())
+	}
+	pinned, domain := artifacts.StorageSnapshot()
+	if domain != nil || len(pinned.Entries) != 1 || !pinned.Entries[0].ActivePin {
+		t.Fatalf("concurrent analysis did not pin shared evidence: snapshot=%#v domain=%v", pinned, domain)
+	}
+	close(releaseAnalysis)
+	first, second := <-firstMCP, <-secondMCP
+	for index, call := range []mcpResult{first, second} {
+		if call.err != nil || call.result == nil || call.result.IsError || call.envelope.Result == nil || call.envelope.Result.Evidence.TraceID != "trace-joined" {
+			t.Fatalf("MCP call %d=%#v", index, call)
+		}
+	}
+	if browser.code != http.StatusOK || browser.handle == "" {
+		t.Fatalf("browser code=%d body=%s handle=%q", browser.code, browser.body, browser.handle)
 	}
 	snapshot, domain := artifacts.StorageSnapshot()
 	if domain != nil || loaderCalls.Load() != 1 || streamCalls.Load() != 1 || snapshot.AcquiredCount != 1 || len(snapshot.Entries) != 1 {

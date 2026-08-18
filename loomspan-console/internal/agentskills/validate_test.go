@@ -15,6 +15,28 @@ func TestCanonicalRuntimeDebuggingSkillIsValidAndExact(t *testing.T) {
 	}
 }
 
+func TestRuntimeDebuggingSkillDoesNotTeachRemovedMCPWorkflow(t *testing.T) {
+	root := canonicalSkill(t)
+	stale := []string{
+		"claim to evidence: target scope",
+		"artifact handle, payload reference",
+		"expired evidence",
+		"changed scope",
+	}
+	for _, relative := range RuntimeDebuggingFiles {
+		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lower := strings.ToLower(string(content))
+		for _, phrase := range stale {
+			if strings.Contains(lower, phrase) {
+				t.Fatalf("%s still teaches removed MCP workflow %q", relative, phrase)
+			}
+		}
+	}
+}
+
 func TestRuntimeDebuggingSkillValidationRejectsUnsafeAndNonPortableVariants(t *testing.T) {
 	tests := []struct {
 		name   string

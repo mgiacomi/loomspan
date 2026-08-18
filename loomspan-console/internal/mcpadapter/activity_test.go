@@ -37,12 +37,11 @@ func TestExecutionActivityGoldenPreservesCompleteEnvelopesAndConciseText(t *test
 		t.Fatal(err)
 	}
 	result := activityResult{
-		TargetScopeID: "scope-1", InstanceID: mcpTestInstanceID,
 		ObservedAt: time.Date(2026, 8, 13, 21, 0, 0, 123, time.UTC), Items: []activityDTO{item},
 		ReturnedCursorRange: &cursorRangeDTO{FirstCursor: "7", LastCursor: "7"},
 		HasMore:             false, Continuation: continuation,
-		Continuity: &live.Continuity{
-			IntervalID: "interval-2", TargetScopeID: "scope-1", InstanceID: mcpTestInstanceID,
+		Continuity: &continuityDTO{
+			IntervalID:  "interval-2",
 			FirstCursor: "7", LastCursor: "7", ObservedAt: time.Date(2026, 8, 13, 20, 0, 0, 0, time.UTC),
 			Reset: &live.ResetFact{Cause: live.ResetUpstreamStaleCursor, Timestamp: time.Date(2026, 8, 13, 19, 59, 59, 0, time.UTC), Cursor: "6"},
 		},

@@ -244,8 +244,8 @@ The read-only tool surface is:
   provisional active-execution snapshots; and
 - `LOOMSPAN_get_execution_activity` for a bounded, ordered recent-activity
   snapshot from the Console's one current continuity interval;
-- `LOOMSPAN_list_traces` and `LOOMSPAN_get_trace` for target catalog
-  acquisition and target-free imported installed copies;
+- `LOOMSPAN_list_traces` and `LOOMSPAN_get_trace` for compact finalized-trace
+  discovery and unique trace-ID resolution;
 - `LOOMSPAN_query_trace_frames` and `LOOMSPAN_query_trace_records` for finite,
   continuable mechanical trace facts;
 - `LOOMSPAN_read_trace_payload` for exact bounded reconstructed payload or
@@ -263,7 +263,7 @@ current target, authentication, compatibility, live availability, or evidence
 state.
 
 List and activity calls require `pageSize` from 1 through 64. A returned
-`continuation` is an opaque, current-process, target-scope-bound Loomspan token;
+`continuation` is an opaque, current-process, operation/state-bound Loomspan token;
 clients pass it back only to the same operation (and the same `sessionId` for
 activity). It is not an application cursor or authority credential. `hasMore`
 on activity means more matching items are retained now, not that a live stream
@@ -280,30 +280,21 @@ do not consume structured results. Skill YAML and activity content are
 untrusted diagnostic data, not server instructions. `sourcePath` is
 descriptive text only and is never a Console filesystem locator.
 
-Clients that support resources may read unchanged YAML through
-`loomspan://targets/{targetScopeId}/skills/{skillName}`. Each variable is one
-canonical percent-encoded UTF-8 path segment; the current target scope must
-match. Parsed trace summary, frame, and record JSON is also available through
-these supplementary templates:
+The server advertises no custom MCP resource templates. Tools are the complete
+portable contract for runtime, skill, execution, activity, parsed trace,
+payload, and raw-artifact inspection.
 
-- `loomspan://targets/{targetScopeId}/artifacts/{artifactHandle}/summary`
-- `loomspan://targets/{targetScopeId}/artifacts/{artifactHandle}/frames/{frameId}`
-- `loomspan://targets/{targetScopeId}/artifacts/{artifactHandle}/records/{sequence}`
-- `loomspan://imports/artifacts/{artifactHandle}/summary`
-- `loomspan://imports/artifacts/{artifactHandle}/frames/{frameId}`
-- `loomspan://imports/artifacts/{artifactHandle}/records/{sequence}`
+The finalized-trace workflow is `list traces -> select traceId ->
+inspect/query/read by traceId`. Inventory emits one candidate per `traceId`;
+`hasMore` reports pagination while `complete` and compact `limitations` report
+whether absence or uniqueness is safe to conclude. `ambiguous: true` and
+`AMBIGUOUS_TRACE` never silently prefer one evidence owner.
 
-Tools remain the portable complete contract; there is no raw-artifact
-resource.
-
-Trace evidence always states `TARGET` or `IMPORTED`. Target inventory keeps
-application-catalog availability separate from local installed-copy
-availability. Imported copies need no selected target and carry no target scope
-or authenticated application provenance. Handles, imports, resources, opaque
-payload references, and continuations are transient current-process evidence:
-removal, idle expiry, target rotation for target-owned entries, shutdown, or
-restart invalidates the applicable values. Successful reads refresh the shared
-artifact last-use time; rejected or canceled reads do not.
+Console resolves installed target evidence, imported evidence, safe target
+acquisition, expiry, and leases internally. `TRACE_UNAVAILABLE` replaces
+caller-managed artifact repair. `TARGET_CHANGED` requires restarting by
+`traceId`; stale continuations restart their query by `traceId`, and stale
+payload references require a refreshed record descriptor by `traceId`.
 
 Trace pages accept at most 64 items. Payload and raw reads use exact source-byte
 offsets, default to 64 KiB, and accept at most 16 MiB (16,777,216 source bytes)

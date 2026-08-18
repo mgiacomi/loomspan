@@ -40,5 +40,5 @@ are clear.
 If a required capability is missing, name it and do not guess another tool. If
 raw inspection alone is missing, continue all parsed workflows and state that
 exact storage/parser forensics is unavailable. Keep no target, incompatible
-target, authentication required, unavailable live monitoring, expired evidence,
-and changed scope as their returned distinct conditions.
+target, authentication required, unavailable live monitoring,
+`TRACE_UNAVAILABLE`, and `TARGET_CHANGED` as their returned distinct conditions.

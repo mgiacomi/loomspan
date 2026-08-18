@@ -3,7 +3,6 @@ package mcpadapter
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
@@ -63,10 +62,7 @@ func handleListSkills(ctx context.Context, options ServerOptions, input listSkil
 	}
 	items := make([]skillSummaryDTO, 0, len(page.Items))
 	for _, item := range page.Items {
-		items = append(items, skillSummaryDTO{
-			RegisteredName: item.RegisteredName, SourcePath: item.SourcePath,
-			ResourceURI: skillResourceURI(string(scope.ID), item.RegisteredName),
-		})
+		items = append(items, skillSummaryDTO{RegisteredName: item.RegisteredName, SourcePath: item.SourcePath})
 	}
 	continuation := ""
 	if page.HasMore && page.NextCursor != nil {
@@ -76,8 +72,7 @@ func handleListSkills(ctx context.Context, options ServerOptions, input listSkil
 		}
 	}
 	result := skillListResult{
-		TargetScopeID: string(scope.ID), InstanceID: scope.InstanceID, ObservedAt: page.ObservedAt.UTC(),
-		Items: items, HasMore: page.HasMore, Continuation: continuation,
+		ObservedAt: page.ObservedAt.UTC(), Items: items, HasMore: page.HasMore, Continuation: continuation,
 	}
 	if domain := publicationDomain(options, scope); domain != nil {
 		return checkedDomainFailure[skillListResult](ctx, options, domain)
@@ -101,10 +96,9 @@ func handleGetSkill(ctx context.Context, options ServerOptions, input getSkillIn
 		return checkedDomainFailure[skillDetailResult](ctx, options, domain)
 	}
 	result := skillDetailResult{
-		TargetScopeID: string(scope.ID), InstanceID: scope.InstanceID, ObservedAt: options.Now().UTC(),
+		ObservedAt: options.Now().UTC(),
 		Skill: skillDetailDTO{
 			RegisteredName: detail.RegisteredName, SourcePath: detail.SourcePath, YAML: detail.Yaml,
-			ResourceURI: skillResourceURI(string(scope.ID), detail.RegisteredName),
 		},
 	}
 	if domain := publicationDomain(options, scope); domain != nil {
@@ -116,13 +110,9 @@ func handleGetSkill(ctx context.Context, options ServerOptions, input getSkillIn
 	return successResult(result, skillDetailText(result))
 }
 
-func skillResourceURI(scopeID, name string) string {
-	return "loomspan://targets/" + url.PathEscape(scopeID) + "/skills/" + url.PathEscape(name)
-}
-
 func skillListText(result skillListResult) string {
 	var writer lineWriter
-	appendCommon(&writer, result.TargetScopeID, result.InstanceID, result.ObservedAt)
+	appendCommon(&writer, result.ObservedAt)
 	writer.integer("count", int64(len(result.Items)))
 	writer.boolean("hasMore", result.HasMore)
 	writer.continuation(result.Continuation)
@@ -130,17 +120,15 @@ func skillListText(result skillListResult) string {
 		prefix := fmt.Sprintf("items[%d].", index)
 		writer.quoted(prefix+"registeredName", item.RegisteredName)
 		writer.quoted(prefix+"sourcePath", item.SourcePath)
-		writer.quoted(prefix+"resourceUri", item.ResourceURI)
 	}
 	return writer.String()
 }
 
 func skillDetailText(result skillDetailResult) string {
 	var writer lineWriter
-	appendCommon(&writer, result.TargetScopeID, result.InstanceID, result.ObservedAt)
+	appendCommon(&writer, result.ObservedAt)
 	writer.quoted("skill.registeredName", result.Skill.RegisteredName)
 	writer.quoted("skill.sourcePath", result.Skill.SourcePath)
-	writer.quoted("skill.resourceUri", result.Skill.ResourceURI)
 	text := writer.String() + "yaml:\n" + result.Skill.YAML
 	if !strings.HasSuffix(text, "\n") {
 		text += "\n"
