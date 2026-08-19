@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 const (
@@ -22,26 +21,25 @@ const (
 	segmentApplication cursorSegment = "APPLICATION"
 )
 
-type installedKey struct {
-	FinalizedAt time.Time `json:"finalizedAt"`
-	TraceID     string    `json:"traceId"`
-}
-
 type inventoryCursor struct {
 	Schema               string        `json:"schema"`
 	Operation            string        `json:"operation"`
 	Fingerprint          string        `json:"fingerprint"`
 	Segment              cursorSegment `json:"segment"`
-	Installed            *installedKey `json:"installed,omitempty"`
-	InstalledFingerprint string        `json:"installedFingerprint,omitempty"`
+	InstalledOffset      int           `json:"installedOffset,omitempty"`
+	InstalledFingerprint string        `json:"installedFingerprint"`
 	ApplicationCursor    string        `json:"applicationCursor,omitempty"`
+	ApplicationOffset    int           `json:"applicationOffset,omitempty"`
 }
 
-func queryFingerprint(pageSize int, scopeID string) string {
+func queryFingerprint(query Query, pageSize int, scopeID string) string {
+	copy := query
+	copy.PageSize = pageSize
+	copy.Continuation = ""
 	body, _ := json.Marshal(struct {
-		PageSize int    `json:"pageSize"`
-		ScopeID  string `json:"scope"`
-	}{pageSize, scopeID})
+		Query Query  `json:"query"`
+		Scope string `json:"scope"`
+	}{copy, scopeID})
 	sum := sha256.Sum256(body)
 	return fmt.Sprintf("%x", sum[:])
 }
@@ -78,17 +76,11 @@ func decodeCursor(token string) (inventoryCursor, error) {
 	if value.Schema != cursorSchemaV1 || value.Operation != cursorOperation || (value.Segment != segmentInstalled && value.Segment != segmentApplication) {
 		return inventoryCursor{}, fmt.Errorf("continuation shape is unsupported")
 	}
-	if value.Segment == segmentInstalled && value.Installed == nil {
-		return inventoryCursor{}, fmt.Errorf("installed continuation key is missing")
-	}
-	if value.Segment == segmentApplication && value.Installed != nil {
-		return inventoryCursor{}, fmt.Errorf("application continuation contains an installed key")
+	if value.InstalledFingerprint == "" || value.InstalledOffset < 0 || value.ApplicationOffset < 0 {
+		return inventoryCursor{}, fmt.Errorf("continuation is missing installed state")
 	}
 	if value.Segment == segmentInstalled && value.ApplicationCursor != "" {
 		return inventoryCursor{}, fmt.Errorf("installed continuation contains application state")
-	}
-	if value.InstalledFingerprint == "" {
-		return inventoryCursor{}, fmt.Errorf("continuation is missing installed state")
 	}
 	return value, nil
 }

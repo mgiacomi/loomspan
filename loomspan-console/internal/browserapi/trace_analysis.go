@@ -1,6 +1,8 @@
 package browserapi
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
@@ -66,8 +68,9 @@ func (router *Router) traceAnalysisSummary(w http.ResponseWriter, r *http.Reques
 func (router *Router) traceAnalysisFrames(w http.ResponseWriter, r *http.Request, _ string) {
 	var b struct {
 		analysisRequest
-		Filter traceanalysis.FrameFilter `json:"filter"`
-		Order  traceanalysis.FrameOrder  `json:"order"`
+		Filter     traceanalysis.FrameFilter     `json:"filter"`
+		Order      traceanalysis.FrameOrder      `json:"order"`
+		Projection traceanalysis.FrameProjection `json:"projection"`
 	}
 	if decodeJSONLimit(r, &b, maxTraceAnalysisJSONBody) != nil {
 		writeError(w, 400, "INVALID_REQUEST", "Invalid request.")
@@ -77,14 +80,15 @@ func (router *Router) traceAnalysisFrames(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	v, d := router.options.TraceAnalysis.QueryFrames(r.Context(), s, traceanalysis.FrameQuery{Handle: h, Filter: b.Filter, Order: b.Order, PageSize: b.PageSize, Cursor: b.Cursor})
+	v, d := router.options.TraceAnalysis.QueryFrames(r.Context(), s, traceanalysis.FrameQuery{Handle: h, Filter: b.Filter, Order: b.Order, Projection: b.Projection, PageSize: b.PageSize, Cursor: b.Cursor})
 	if d != nil {
 		writeEvidenceDomainError(w, s, d)
 		return
 	}
 	items := make([]frameDTO, 0, len(v.Items))
+	compact := b.Projection == "" || b.Projection == traceanalysis.FrameProjectionCompact
 	for _, x := range v.Items {
-		items = append(items, frameDTO{FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, ChildFrameIDs: append([]string{}, x.ChildFrameIDs...), FrameType: x.FrameType, Route: x.Route, OpenedTimestampMillis: x.OpenedTimestampMillis, ClosedTimestampMillis: x.ClosedTimestampMillis, InclusiveDurationMillis: x.InclusiveDurationMillis, SelfDurationMillis: x.SelfDurationMillis, DirectUsage: usageDTOValue(x.DirectUsage), DirectUsageComplete: x.DirectUsageComplete, DescendantUsage: usageDTOValue(x.DescendantUsage), DescendantUsageComplete: x.DescendantUsageComplete, InclusiveUsage: usageDTOValue(x.InclusiveUsage), InclusiveUsageComplete: x.InclusiveUsageComplete, SkillNames: append([]string{}, x.SkillNames...), Outcomes: append([]string{}, x.Outcomes...), AttemptIDs: append([]string{}, x.AttemptIDs...), RetrySequenceIDs: append([]string{}, x.RetrySequenceIDs...), ValidationStatuses: append([]string{}, x.ValidationStatuses...), FailureIDs: append([]string{}, x.FailureIDs...)})
+		items = append(items, frameDTO{FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, ChildFrameIDs: append([]string{}, x.ChildFrameIDs...), FrameType: x.FrameType, Route: x.Route, OpenedTimestampMillis: x.OpenedTimestampMillis, ClosedTimestampMillis: x.ClosedTimestampMillis, InclusiveDurationMillis: x.InclusiveDurationMillis, SelfDurationMillis: x.SelfDurationMillis, DirectUsage: usageDTOValue(x.DirectUsage), DirectUsageComplete: x.DirectUsageComplete, DescendantUsage: usageDTOValue(x.DescendantUsage), DescendantUsageComplete: x.DescendantUsageComplete, InclusiveUsage: usageDTOValue(x.InclusiveUsage), InclusiveUsageComplete: x.InclusiveUsageComplete, SkillNames: append([]string{}, x.SkillNames...), Outcomes: append([]string{}, x.Outcomes...), AttemptIDs: append([]string{}, x.AttemptIDs...), RetrySequenceIDs: append([]string{}, x.RetrySequenceIDs...), ValidationStatuses: append([]string{}, x.ValidationStatuses...), FailureIDs: append([]string{}, x.FailureIDs...), GapKinds: append([]string{}, x.GapKinds...), UncertaintyKinds: append([]string{}, x.UncertaintyKinds...), DirectAttemptCount: x.DirectAttemptCount, DirectRetryCount: x.DirectRetryCount, DirectValidationCount: x.DirectValidationCount, DirectFailureCount: x.DirectFailureCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, compact: compact})
 	}
 	router.writeEvidenceJSON(w, s, pageDTO[frameDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
 }
@@ -93,6 +97,7 @@ func (router *Router) traceAnalysisRecords(w http.ResponseWriter, r *http.Reques
 		analysisRequest
 		Filter         traceanalysis.RecordFilter         `json:"filter"`
 		Representation traceanalysis.RecordRepresentation `json:"representation"`
+		InlineContent  bool                               `json:"inlineContent"`
 	}
 	if decodeJSONLimit(r, &b, maxTraceAnalysisJSONBody) != nil {
 		writeError(w, 400, "INVALID_REQUEST", "Invalid request.")
@@ -102,14 +107,26 @@ func (router *Router) traceAnalysisRecords(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	v, d := router.options.TraceAnalysis.QueryRecords(r.Context(), s, traceanalysis.RecordQuery{Handle: h, Filter: b.Filter, Representation: b.Representation, PageSize: b.PageSize, Cursor: b.Cursor})
+	v, d := router.options.TraceAnalysis.QueryRecords(r.Context(), s, traceanalysis.RecordQuery{Handle: h, Filter: b.Filter, Representation: b.Representation, InlineContent: b.InlineContent, PageSize: b.PageSize, Cursor: b.Cursor})
 	if d != nil {
 		writeEvidenceDomainError(w, s, d)
 		return
 	}
 	items := make([]recordDTO, 0, len(v.Items))
 	for _, x := range v.Items {
-		items = append(items, recordDTO{Sequence: x.Sequence, Type: x.Type, FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, FrameType: x.FrameType, Route: x.Route, ThreadName: x.ThreadName, TimestampMillis: x.TimestampMillis, Representation: x.Representation, IsChunk: x.IsChunk, IsEnvelope: x.IsEnvelope, PayloadID: x.PayloadID})
+		item := recordDTO{Sequence: x.Sequence, Type: x.Type, FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, FrameType: x.FrameType, Route: x.Route, ThreadName: x.ThreadName, TimestampMillis: x.TimestampMillis, Representation: x.Representation, IsChunk: x.IsChunk, IsEnvelope: x.IsEnvelope}
+		if x.Content != nil {
+			inline := string(x.Content.InlineContent)
+			if x.Content.Encoding == traceanalysis.ContentEncodingBinary && len(x.Content.InlineContent) > 0 {
+				inline = base64.StdEncoding.EncodeToString(x.Content.InlineContent)
+			}
+			item.Content = &contentDescriptorDTO{Role: string(x.Content.Role), ContentType: x.Content.ContentType, Encoding: string(x.Content.Encoding), RetainedBytes: x.Content.RetainedBytes, Available: x.Content.Available, Complete: x.Content.Complete, InlineEligibility: x.Content.InlineEligibility, InlineOmission: string(x.Content.InlineOmission), ContentRef: x.Content.ContentRef, InlineContent: inline}
+		}
+		if x.Facts.Plan != nil {
+			p := x.Facts.Plan
+			item.Plan = &planLandmarkDTO{PlanID: p.PlanID, Sequence: p.Sequence, RootFrameID: p.RootFrameID, PlanningFrameID: p.PlanningFrameID, AttemptID: p.AttemptID, RetrySequenceID: p.RetrySequenceID}
+		}
+		items = append(items, item)
 	}
 	router.writeEvidenceJSON(w, s, pageDTO[recordDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
 }
@@ -151,7 +168,7 @@ func (router *Router) traceAnalysisAttempts(w http.ResponseWriter, r *http.Reque
 			FailureClassification: x.FailureClassification, FailureCategory: x.FailureCategory,
 			RetryDecision: x.RetryDecision, RetryDelayMillis: x.RetryDelayMillis, RetryDelaySource: x.RetryDelaySource,
 			HTTPStatus: x.HTTPStatus, ProviderErrorType: x.ProviderErrorType, ProviderErrorCode: x.ProviderErrorCode,
-			PayloadID: x.PayloadID, Usage: usageDTOValue(x.Usage), UsageComplete: x.UsageComplete})
+			ContentRef: x.ContentRef, Usage: usageDTOValue(x.Usage), UsageComplete: x.UsageComplete})
 	}
 	router.writeEvidenceJSON(w, s, pageDTO[attemptDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
 }
@@ -245,26 +262,6 @@ func (router *Router) traceAnalysisFailureDiagnostic(w http.ResponseWriter, r *h
 	desc := diagnosticDescriptorDTO{Ordinal: v.Descriptor.Ordinal, Kind: v.Descriptor.Kind, ContentType: v.Descriptor.ContentType, Truncated: v.Descriptor.Truncated, CaptureLimitBytes: v.Descriptor.CaptureLimitBytes, DecodedBytes: v.Descriptor.DecodedBytes}
 	router.writeEvidenceJSON(w, s, failureDiagnosticDTO{Source: s.Source, TargetScopeID: string(s.TargetScope), FailureID: v.FailureID, Descriptor: desc, Text: v.Text})
 }
-func (router *Router) traceAnalysisPayloads(w http.ResponseWriter, r *http.Request, _ string) {
-	var b analysisRequest
-	if !router.decodeAnalysis(w, r, &b) {
-		return
-	}
-	s, h, ok := router.resolveAnalysis(w, r, &b)
-	if !ok {
-		return
-	}
-	v, d := router.options.TraceAnalysis.QueryPayloads(r.Context(), s, traceanalysis.PayloadQuery{Handle: h, PageSize: b.PageSize, Cursor: b.Cursor})
-	if d != nil {
-		writeEvidenceDomainError(w, s, d)
-		return
-	}
-	items := make([]payloadDTO, 0, len(v.Items))
-	for _, x := range v.Items {
-		items = append(items, payloadDTO{PayloadID: x.PayloadID, Sequence: x.Sequence, ContentType: x.ContentType, ChunkCount: x.ChunkCount, StoreLength: x.StoreLength})
-	}
-	router.writeEvidenceJSON(w, s, pageDTO[payloadDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
-}
 func (router *Router) traceAnalysisGaps(w http.ResponseWriter, r *http.Request, _ string) {
 	var b analysisRequest
 	if !router.decodeAnalysis(w, r, &b) {
@@ -332,9 +329,13 @@ func (router *Router) traceAnalysisSearch(w http.ResponseWriter, r *http.Request
 	}
 	items := make([]searchDTO, 0, len(v.Items))
 	for _, x := range v.Items {
-		items = append(items, searchDTO{Sequence: x.Sequence, RecordType: x.RecordType, FrameID: x.FrameID, MatchOffset: x.MatchOffset, MatchLength: x.MatchLength, SearchedField: x.SearchedField})
+		items = append(items, searchDTO{Sequence: x.Sequence, RecordType: x.RecordType, FrameID: x.FrameID, MatchOffset: x.MatchOffset, MatchLength: x.MatchLength, SearchedField: x.SearchedField, ContentRef: x.ContentRef})
 	}
-	router.writeEvidenceJSON(w, s, pageDTO[searchDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)})
+	limitations := make([]searchLimitationDTO, 0, len(v.SearchLimitations))
+	for _, limitation := range v.SearchLimitations {
+		limitations = append(limitations, searchLimitationDTO{Code: limitation.Code, Message: limitation.Message})
+	}
+	router.writeEvidenceJSON(w, s, searchPageDTO{pageDTO: pageDTO[searchDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)}, Search: searchCoverageDTO{Query: b.Text, CaseSensitive: true, Representation: "LOGICAL", SearchedFields: []string{"metadata", "content"}, SemanticContentCoverage: "AVAILABLE_COMPLETE_TEXT", WorkComplete: !v.HasMore, Limitations: limitations}})
 }
 func (router *Router) traceAnalysisPayloadRange(w http.ResponseWriter, r *http.Request, _ string) {
 	router.traceAnalysisRange(w, r, true)
@@ -345,7 +346,7 @@ func (router *Router) traceAnalysisRawRecordRange(w http.ResponseWriter, r *http
 func (router *Router) traceAnalysisRange(w http.ResponseWriter, r *http.Request, payload bool) {
 	var b struct {
 		analysisRequest
-		PayloadID      string `json:"payloadId"`
+		ContentRef     string `json:"contentRef"`
 		RecordSequence int64  `json:"recordSequence"`
 		Start          int64  `json:"start"`
 		MaxBytes       int    `json:"maxBytes"`
@@ -359,17 +360,17 @@ func (router *Router) traceAnalysisRange(w http.ResponseWriter, r *http.Request,
 	if !ok {
 		return
 	}
-	q := traceanalysis.RangeRequest{Handle: h, PayloadID: b.PayloadID, RecordSequence: b.RecordSequence, Start: b.Start, MaxBytes: b.MaxBytes, ContinueCursor: b.ContinueCursor}
+	q := traceanalysis.RangeRequest{Handle: h, ContentRef: b.ContentRef, RecordSequence: b.RecordSequence, Start: b.Start, MaxBytes: b.MaxBytes, ContinueCursor: b.ContinueCursor}
 	var v traceanalysis.ByteRangeResult
 	var d *consolecore.Error
 	if payload {
-		if b.PayloadID == "" || b.RecordSequence != 0 {
-			writeError(w, 400, "INVALID_REQUEST", "A payload ID is required.")
+		if b.ContentRef == "" || b.RecordSequence != 0 {
+			writeError(w, 400, "INVALID_REQUEST", "A content reference is required.")
 			return
 		}
-		v, d = router.options.TraceAnalysis.ReadPayloadRange(r.Context(), s, q)
+		v, d = router.options.TraceAnalysis.ReadContentRange(r.Context(), s, q)
 	} else {
-		if b.RecordSequence < 1 || b.PayloadID != "" {
+		if b.RecordSequence < 1 || b.ContentRef != "" {
 			writeError(w, 400, "INVALID_REQUEST", "A record sequence is required.")
 			return
 		}
@@ -433,20 +434,67 @@ type frameDTO struct {
 	RetrySequenceIDs        []string      `json:"retrySequenceIds"`
 	ValidationStatuses      []string      `json:"validationStatuses"`
 	FailureIDs              []string      `json:"failureIds"`
+	GapKinds                []string      `json:"gapKinds"`
+	UncertaintyKinds        []string      `json:"uncertaintyKinds"`
+	DirectAttemptCount      int           `json:"directAttemptCount"`
+	DirectRetryCount        int           `json:"directRetryCount"`
+	DirectValidationCount   int           `json:"directValidationCount"`
+	DirectFailureCount      int           `json:"directFailureCount"`
+	GapCount                int           `json:"gapCount"`
+	UncertaintyCount        int           `json:"uncertaintyCount"`
+	compact                 bool
 }
+
+func (value frameDTO) MarshalJSON() ([]byte, error) {
+	type alias frameDTO
+	body, err := json.Marshal(alias(value))
+	if err != nil || !value.compact {
+		return body, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	for _, name := range []string{"inclusiveDurationMillis", "selfDurationMillis", "directUsage", "directUsageComplete", "descendantUsage", "descendantUsageComplete", "inclusiveUsage", "inclusiveUsageComplete", "skillNames", "attemptIds", "retrySequenceIds", "validationStatuses", "failureIds", "gapKinds", "uncertaintyKinds"} {
+		delete(fields, name)
+	}
+	return json.Marshal(fields)
+}
+
 type recordDTO struct {
+	Sequence        int64                 `json:"sequence"`
+	Type            string                `json:"type"`
+	FrameID         string                `json:"frameId"`
+	ParentFrameID   string                `json:"parentFrameId"`
+	FrameType       string                `json:"frameType"`
+	Route           string                `json:"route"`
+	ThreadName      string                `json:"threadName"`
+	TimestampMillis int64                 `json:"timestampMillis"`
+	Representation  string                `json:"representation"`
+	IsChunk         bool                  `json:"isChunk"`
+	IsEnvelope      bool                  `json:"isEnvelope"`
+	Content         *contentDescriptorDTO `json:"content,omitempty"`
+	Plan            *planLandmarkDTO      `json:"plan,omitempty"`
+}
+type contentDescriptorDTO struct {
+	Role              string `json:"role"`
+	ContentType       string `json:"contentType"`
+	Encoding          string `json:"encoding"`
+	RetainedBytes     int64  `json:"retainedBytes"`
+	Available         bool   `json:"available"`
+	Complete          bool   `json:"complete"`
+	InlineEligibility bool   `json:"inlineEligibility"`
+	InlineOmission    string `json:"inlineOmission,omitempty"`
+	ContentRef        string `json:"contentRef,omitempty"`
+	InlineContent     string `json:"inlineContent,omitempty"`
+}
+type planLandmarkDTO struct {
+	PlanID          string `json:"planId"`
 	Sequence        int64  `json:"sequence"`
-	Type            string `json:"type"`
-	FrameID         string `json:"frameId"`
-	ParentFrameID   string `json:"parentFrameId"`
-	FrameType       string `json:"frameType"`
-	Route           string `json:"route"`
-	ThreadName      string `json:"threadName"`
-	TimestampMillis int64  `json:"timestampMillis"`
-	Representation  string `json:"representation"`
-	IsChunk         bool   `json:"isChunk"`
-	IsEnvelope      bool   `json:"isEnvelope"`
-	PayloadID       string `json:"payloadId"`
+	RootFrameID     string `json:"rootFrameId"`
+	PlanningFrameID string `json:"planningFrameId"`
+	AttemptID       string `json:"attemptId,omitempty"`
+	RetrySequenceID string `json:"retrySequenceId,omitempty"`
 }
 type pageDTO[T any] struct {
 	Source        evidence.Source `json:"source"`
@@ -488,7 +536,7 @@ type attemptDTO struct {
 	HTTPStatus            int64         `json:"httpStatus,omitempty"`
 	ProviderErrorType     string        `json:"providerErrorType,omitempty"`
 	ProviderErrorCode     string        `json:"providerErrorCode,omitempty"`
-	PayloadID             string        `json:"payloadId,omitempty"`
+	ContentRef            string        `json:"contentRef,omitempty"`
 	Usage                 usageValueDTO `json:"usage"`
 	UsageComplete         bool          `json:"usageComplete"`
 }
@@ -552,13 +600,6 @@ func configuredLimitsDTOValue(v *traceanalysis.ConfiguredLimits) *configuredLimi
 		MaxProviderAttempts: v.MaxProviderAttempts, MaxUsageUnits: v.MaxUsageUnits}
 }
 
-type payloadDTO struct {
-	PayloadID   string `json:"payloadId"`
-	Sequence    int64  `json:"sequence"`
-	ContentType string `json:"contentType"`
-	ChunkCount  int    `json:"chunkCount"`
-	StoreLength int64  `json:"storeLength"`
-}
 type gapDTO struct {
 	Kind      string `json:"kind"`
 	FrameID   string `json:"frameId"`
@@ -575,6 +616,24 @@ type searchDTO struct {
 	MatchOffset   int64  `json:"matchOffset"`
 	MatchLength   int    `json:"matchLength"`
 	SearchedField string `json:"searchedField"`
+	ContentRef    string `json:"contentRef,omitempty"`
+}
+type searchLimitationDTO struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+type searchCoverageDTO struct {
+	Query                   string                `json:"query"`
+	CaseSensitive           bool                  `json:"caseSensitive"`
+	Representation          string                `json:"representation"`
+	SearchedFields          []string              `json:"searchedFields"`
+	SemanticContentCoverage string                `json:"semanticContentCoverage"`
+	WorkComplete            bool                  `json:"workComplete"`
+	Limitations             []searchLimitationDTO `json:"limitations"`
+}
+type searchPageDTO struct {
+	pageDTO[searchDTO]
+	Search searchCoverageDTO `json:"search"`
 }
 
 func nullCursor(v string) *string {

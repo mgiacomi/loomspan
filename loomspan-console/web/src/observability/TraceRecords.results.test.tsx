@@ -5,7 +5,7 @@ import type { TraceAnalysisPage, TraceRange, TraceRecord } from "../api/contract
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
-  getPayloadRange: vi.fn(),
+  getContentRange: vi.fn(),
   getRawRecordRange: vi.fn(),
   getTraceRecords: vi.fn(),
 }));
@@ -18,8 +18,13 @@ function record(sequence: number, type: string, route: string, frameId = "frame"
     sequence, type, route, frameId, parentFrameId,
     frameType: type === "TOOL_CALL_COMPLETED" ? "TOOL_INVOCATION" : "STEP_EXECUTION",
     threadName: "worker", timestampMillis: sequence, representation: "LOGICAL",
-    isChunk: false, isEnvelope: false, payloadId: "",
+    isChunk: false, isEnvelope: false,
   };
+}
+
+function planRecord(taskId: string, title: string): TraceRecord {
+  const plan = { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId, title }] };
+  return { ...record(85, "PLAN_CREATED", "handleBilling", "plan-frame", "skill-frame"), content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify(plan) } };
 }
 
 function range(value: unknown): TraceRange {
@@ -32,7 +37,7 @@ function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
 }
 
 function renderRecord(current: TraceRecord, onSelectRecord = vi.fn(), onSelectFailure = vi.fn()) {
-  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={onSelectRecord} onSelectFailure={onSelectFailure} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={onSelectRecord} onSelectFailure={onSelectFailure} onContent={vi.fn()} />);
   return onSelectRecord;
 }
 
@@ -47,7 +52,7 @@ test("shows and pretty formats the complete owned tool result", async () => {
     : range({ data: { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId: "task-customer", title: "Retrieve customer" }] } }));
   getTraceRecordsMock.mockImplementation(async (_traceId, _cursor, filter) => filter?.types?.includes("STEP_STARTED")
     ? page([record(88, "STEP_STARTED", "handleBilling#step-1", "step-frame", "skill-frame")])
-    : page([record(85, "PLAN_CREATED", "handleBilling", "plan-frame", "skill-frame")]));
+    : page([planRecord("task-customer", "Retrieve customer")]));
   renderRecord(record(100, "TOOL_CALL_COMPLETED", "lookupCustomer", "tool-frame", "step-frame"));
 
   fireEvent.click(screen.getByRole("button", { name: "Tool result" }));
@@ -85,7 +90,7 @@ test("summarizes a tool step and links to its authoritative full result", async 
     : range({ data: { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId: "task-customer", title: "Retrieve customer" }] } }));
   getTraceRecordsMock.mockImplementation(async (_traceId, _cursor, filter) => filter?.types?.includes("TOOL_CALL_COMPLETED")
     ? page([toolResult])
-    : page([record(85, "PLAN_CREATED", "handleBilling", "plan-frame", "skill-frame")]));
+    : page([planRecord("task-customer", "Retrieve customer")]));
   const onSelectRecord = renderRecord(record(104, "STEP_COMPLETED", "handleBilling#step-1", "step-frame", "skill-frame"));
 
   fireEvent.click(screen.getByRole("button", { name: "Step result" }));
@@ -121,7 +126,7 @@ test("explains a recorded evidence source and links to its authoritative tool re
     : range({ data: { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId: "task-check-refund-policy", title: "Evaluate Refund Eligibility" }] } }));
   getTraceRecordsMock.mockImplementation(async (_traceId, _cursor, filter) => filter?.types?.includes("TOOL_CALL_COMPLETED")
     ? page([sourceResult])
-    : page([record(85, "PLAN_CREATED", "handleBilling", "plan-frame", "skill-frame")]));
+    : page([planRecord("task-check-refund-policy", "Evaluate Refund Eligibility")]));
   const onSelectRecord = renderRecord(record(181, "EVIDENCE_RECORDED", "handleBilling#step-4", "step-frame", "skill-frame"));
 
   fireEvent.click(screen.getByRole("button", { name: "Evidence details" }));

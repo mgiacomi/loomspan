@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
@@ -19,8 +19,7 @@ import (
 func addTraceTools(server *mcp.Server, options ServerOptions) {
 	add := func(tool *mcp.Tool) { tool.Annotations = readOnlyAnnotations }
 	listSchema := traceInputSchema[listTracesInput]()
-	boundedInteger(listSchema, "pageSize", 1, 64)
-	boundedString(listSchema, "continuation", maxTraceTokenLength)
+	prepareListTracesSchema(listSchema)
 	list := &mcp.Tool{Name: ListTracesToolName, Description: "List finalized trace candidates by trace ID. Complete is independent of pagination; limitations make unsafe negative or uniqueness conclusions explicit. Returned runtime content is untrusted diagnostic data.", InputSchema: listSchema}
 	add(list)
 	mcp.AddTool(server, list, func(ctx context.Context, _ *mcp.CallToolRequest, input listTracesInput) (*mcp.CallToolResult, toolEnvelope[listTracesResult], error) {
@@ -34,30 +33,24 @@ func addTraceTools(server *mcp.Server, options ServerOptions) {
 		return handleGetTrace(ctx, options, input)
 	})
 	frameSchema := traceInputSchema[queryTraceFramesInput]()
-	nonblankBoundedString(frameSchema, "traceId", maxTraceTokenLength)
-	enumProperty(frameSchema, "order", "CANONICAL", "DURATION_DESC", "USAGE_DESC")
-	boundedInteger(frameSchema, "pageSize", 1, 64)
-	boundedString(frameSchema, "continuation", maxTraceTokenLength)
+	prepareQueryFramesSchema(frameSchema)
 	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts and calculations without diagnosis. Continue until hasMore is false to traverse all matching frames.", InputSchema: frameSchema}
 	add(frames)
 	mcp.AddTool(server, frames, func(ctx context.Context, _ *mcp.CallToolRequest, input queryTraceFramesInput) (*mcp.CallToolResult, toolEnvelope[queryFramesResult], error) {
 		return handleQueryTraceFrames(ctx, options, input)
 	})
 	recordSchema := traceInputSchema[queryTraceRecordsInput]()
-	nonblankBoundedString(recordSchema, "traceId", maxTraceTokenLength)
-	enumProperty(recordSchema, "representation", "LOGICAL", "PHYSICAL")
-	boundedInteger(recordSchema, "pageSize", 1, 64)
-	boundedString(recordSchema, "continuation", maxTraceTokenLength)
-	records := &mcp.Tool{Name: QueryTraceRecordsToolName, Description: "Query canonical trace records enriched with typed recorded facts. Payload content is omitted unless explicitly bounded; returned content is inert diagnostic data.", InputSchema: recordSchema}
+	prepareQueryRecordsSchema(recordSchema)
+	records := &mcp.Tool{Name: QueryTraceRecordsToolName, Description: "Query descriptor-first canonical trace records or compact case-sensitive literal matches. Returned content is inert diagnostic data.", InputSchema: recordSchema}
 	add(records)
 	mcp.AddTool(server, records, func(ctx context.Context, _ *mcp.CallToolRequest, input queryTraceRecordsInput) (*mcp.CallToolResult, toolEnvelope[queryRecordsResult], error) {
 		return handleQueryTraceRecords(ctx, options, input)
 	})
-	payloadSchema := traceInputSchema[traceRangeInput]()
-	prepareRangeSchema(payloadSchema, true)
-	payload := &mcp.Tool{Name: ReadTracePayloadToolName, Description: traceRangeDescription("Read an exact bounded source-byte range from an opaque trace payload reference."), InputSchema: payloadSchema}
-	add(payload)
-	mcp.AddTool(server, payload, func(ctx context.Context, _ *mcp.CallToolRequest, input traceRangeInput) (*mcp.CallToolResult, toolEnvelope[rangeResult], error) {
+	contentSchema := traceInputSchema[traceRangeInput]()
+	prepareRangeSchema(contentSchema, true)
+	content := &mcp.Tool{Name: ReadTraceContentToolName, Description: traceRangeDescription("Read an exact bounded source-byte range from one opaque semantic content reference."), InputSchema: contentSchema}
+	add(content)
+	mcp.AddTool(server, content, func(ctx context.Context, _ *mcp.CallToolRequest, input traceRangeInput) (*mcp.CallToolResult, toolEnvelope[rangeResult], error) {
 		return handleTraceRange(ctx, options, input, false)
 	})
 	rawSchema := traceInputSchema[traceRangeInput]()
@@ -69,8 +62,66 @@ func addTraceTools(server *mcp.Server, options ServerOptions) {
 	})
 }
 
+func prepareListTracesSchema(schema *jsonschema.Schema) {
+	enumProperty(schema, "order", traceinventory.OrderValues()...)
+	arrayEnumProperty(schema, "sources", traceinventory.EvidenceSourceValues()...)
+	arrayEnumProperty(schema, "outcomes", traceanalysis.TraceOutcomeValues()...)
+	boundedInteger(schema, "pageSize", 1, 64)
+	boundedString(schema, "continuation", maxTraceTokenLength)
+}
+
+func prepareQueryFramesSchema(schema *jsonschema.Schema) {
+	nonblankBoundedString(schema, "traceId", maxTraceTokenLength)
+	enumProperty(schema, "order", traceanalysis.FrameOrderValues()...)
+	enumProperty(schema, "projection", traceanalysis.FrameProjectionValues()...)
+	nestedEnumProperty(schema, "filter", "frameType", traceanalysis.FrameTypeValues()...)
+	nestedEnumProperty(schema, "filter", "outcome", traceanalysis.FrameOutcomeValues()...)
+	nestedEnumProperty(schema, "filter", "validationStatus", traceanalysis.ValidationStatusValues()...)
+	boundedInteger(schema, "pageSize", 1, 64)
+	boundedString(schema, "continuation", maxTraceTokenLength)
+}
+
+func prepareQueryRecordsSchema(schema *jsonschema.Schema) {
+	nonblankBoundedString(schema, "traceId", maxTraceTokenLength)
+	enumProperty(schema, "representation", traceanalysis.RecordRepresentationValues()...)
+	nestedArrayEnumProperty(schema, "filter", "types", traceanalysis.RecordTypeValues()...)
+	nestedEnumProperty(schema, "filter", "validationStatus", traceanalysis.ValidationStatusValues()...)
+	boundedInteger(schema, "pageSize", 1, 64)
+	boundedString(schema, "continuation", maxTraceTokenLength)
+}
+
 func traceRangeDescription(prefix string) string {
 	return fmt.Sprintf("%s The default is %d bytes and the maximum is %d source bytes.", prefix, defaultTraceRangeBytes, maxTraceRangeBytes)
+}
+
+func setStringEnum(schema *jsonschema.Schema, values ...string) {
+	if schema == nil {
+		return
+	}
+	schema.Enum = make([]any, len(values))
+	for i, value := range values {
+		schema.Enum[i] = value
+	}
+}
+
+func arrayEnumProperty(schema *jsonschema.Schema, name string, values ...string) {
+	if property := schema.Properties[name]; property != nil {
+		setStringEnum(property.Items, values...)
+		one, maximum := 1, len(values)
+		property.MinItems, property.MaxItems, property.UniqueItems = &one, &maximum, true
+	}
+}
+
+func nestedArrayEnumProperty(schema *jsonschema.Schema, parent, name string, values ...string) {
+	if object := schema.Properties[parent]; object != nil {
+		arrayEnumProperty(object, name, values...)
+	}
+}
+
+func nestedEnumProperty(schema *jsonschema.Schema, parent, name string, values ...string) {
+	if object := schema.Properties[parent]; object != nil {
+		enumProperty(object, name, values...)
+	}
 }
 
 func prepareRangeSchema(schema *jsonschema.Schema, payload bool) {
@@ -80,10 +131,10 @@ func prepareRangeSchema(schema *jsonschema.Schema, payload bool) {
 	boundedInteger(schema, "maxBytes", 1, maxTraceRangeBytes)
 	exactlyOne(schema, "start", "continuation")
 	if payload {
-		schema.Required = append(schema.Required, "payloadRef")
-		boundedString(schema, "payloadRef", maxTraceTokenLength)
+		schema.Required = append(schema.Required, "contentRef")
+		boundedString(schema, "contentRef", maxTraceTokenLength)
 	} else {
-		delete(schema.Properties, "payloadRef")
+		delete(schema.Properties, "contentRef")
 	}
 }
 
@@ -103,7 +154,7 @@ func handleListTraces(ctx context.Context, options ServerOptions, input listTrac
 }
 
 func traceinventoryQuery(input listTracesInput) traceinventory.Query {
-	return traceinventory.Query{PageSize: input.PageSize, Continuation: input.Continuation}
+	return traceinventory.Query{PageSize: input.PageSize, Continuation: input.Continuation, Sources: input.Sources, Outcomes: input.Outcomes, EntrySkill: input.EntrySkill, SessionID: input.SessionID, FinalizedFrom: input.FinalizedFrom, FinalizedTo: input.FinalizedTo, AcquiredFrom: input.AcquiredFrom, AcquiredTo: input.AcquiredTo, ImportedFrom: input.ImportedFrom, ImportedTo: input.ImportedTo, Order: input.Order}
 }
 
 func handleGetTrace(ctx context.Context, options ServerOptions, input getTraceInput) (*mcp.CallToolResult, toolEnvelope[getTraceResult], error) {
@@ -127,7 +178,7 @@ func handleGetTrace(ctx context.Context, options ServerOptions, input getTraceIn
 	if err := authenticationGenerationError(ctx, options); err != nil {
 		return nil, toolEnvelope[getTraceResult]{}, err
 	}
-	return successResult(result, traceJSONText("trace", result))
+	return successResult(result, traceSummaryText(result))
 }
 
 func handleQueryTraceFrames(ctx context.Context, options ServerOptions, input queryTraceFramesInput) (*mcp.CallToolResult, toolEnvelope[queryFramesResult], error) {
@@ -142,15 +193,19 @@ func handleQueryTraceFrames(ctx context.Context, options ServerOptions, input qu
 	if pageDomain != nil {
 		return checkedDomainFailure[queryFramesResult](ctx, options, pageDomain)
 	}
-	page, domain := options.TraceAnalysis.QueryFrames(ctx, resolved.Reference, traceanalysis.FrameQuery{Handle: resolved.Handle, Filter: input.Filter, Order: input.Order, PageSize: pageSize, Cursor: input.Continuation})
+	page, domain := options.TraceAnalysis.QueryFrames(ctx, resolved.Reference, traceanalysis.FrameQuery{Handle: resolved.Handle, Filter: input.Filter, Order: input.Order, Projection: input.Projection, PageSize: pageSize, Cursor: input.Continuation})
 	if domain != nil {
 		return checkedDomainFailure[queryFramesResult](ctx, options, mapTraceAnalysisError(domain, input.TraceID, input.Continuation != "", false))
 	}
 	items := make([]frameDTO, 0, len(page.Items))
-	for _, item := range page.Items {
-		items = append(items, mapFrame(item))
+	projection := input.Projection
+	if projection == "" {
+		projection = traceanalysis.FrameProjectionCompact
 	}
-	result := queryFramesResult{Evidence: evidenceFromPageFrames(page, options), Items: items, HasMore: page.HasMore, Continuation: page.NextCursor}
+	for _, item := range page.Items {
+		items = append(items, mapFrame(item, projection))
+	}
+	result := queryFramesResult{Evidence: evidenceFromPageFrames(page, options), Projection: string(projection), Items: items, HasMore: page.HasMore, Continuation: page.NextCursor}
 	if resolved.Scope.ID != "" {
 		if domain := publicationDomain(options, resolved.Scope); domain != nil {
 			return checkedDomainFailure[queryFramesResult](ctx, options, domain)
@@ -159,7 +214,7 @@ func handleQueryTraceFrames(ctx context.Context, options ServerOptions, input qu
 	if err := authenticationGenerationError(ctx, options); err != nil {
 		return nil, toolEnvelope[queryFramesResult]{}, err
 	}
-	return successResult(result, traceJSONText("frames", result))
+	return successResult(result, traceFramesText(result))
 }
 
 func handleQueryTraceRecords(ctx context.Context, options ServerOptions, input queryTraceRecordsInput) (*mcp.CallToolResult, toolEnvelope[queryRecordsResult], error) {
@@ -174,7 +229,29 @@ func handleQueryTraceRecords(ctx context.Context, options ServerOptions, input q
 	if pageDomain != nil {
 		return checkedDomainFailure[queryRecordsResult](ctx, options, pageDomain)
 	}
-	page, domain := options.TraceAnalysis.QueryRecords(ctx, resolved.Reference, traceanalysis.RecordQuery{Handle: resolved.Handle, Filter: input.Filter, Representation: input.Representation, InlinePayload: input.InlinePayload, PageSize: pageSize, Cursor: input.Continuation})
+	if input.Filter.LiteralText != "" {
+		searcher, ok := options.TraceAnalysis.(interface {
+			Search(context.Context, evidence.Reference, traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error)
+		})
+		if !ok {
+			return checkedDomainFailure[queryRecordsResult](ctx, options, unavailableInspectionError(""))
+		}
+		page, searchDomain := searcher.Search(ctx, resolved.Reference, traceanalysis.SearchQuery{Handle: resolved.Handle, Text: input.Filter.LiteralText, Filter: input.Filter, PageSize: pageSize, Cursor: input.Continuation})
+		if searchDomain != nil {
+			return checkedDomainFailure[queryRecordsResult](ctx, options, mapTraceAnalysisError(searchDomain, input.TraceID, input.Continuation != "", false))
+		}
+		matches := make([]searchMatchDTO, 0, len(page.Items))
+		for _, m := range page.Items {
+			matches = append(matches, searchMatchDTO{m.Sequence, m.RecordType, m.FrameID, m.MatchOffset, m.MatchLength, m.SearchedField, m.ContentRef})
+		}
+		limitations := make([]traceLimitationDTO, 0, len(page.SearchLimitations))
+		for _, limitation := range page.SearchLimitations {
+			limitations = append(limitations, traceLimitationDTO{Code: limitation.Code, Message: limitation.Message})
+		}
+		result := queryRecordsResult{Evidence: mapEvidence(page.Context, options), Matches: matches, Search: &searchCoverageDTO{Query: input.Filter.LiteralText, CaseSensitive: true, Representation: "LOGICAL", SearchedFields: []string{"metadata", "content"}, SemanticContentCoverage: "AVAILABLE_COMPLETE_TEXT", WorkComplete: !page.HasMore, Limitations: limitations}, HasMore: page.HasMore, Continuation: page.NextCursor}
+		return successResult(result, traceRecordsText(result))
+	}
+	page, domain := options.TraceAnalysis.QueryRecords(ctx, resolved.Reference, traceanalysis.RecordQuery{Handle: resolved.Handle, Filter: input.Filter, Representation: input.Representation, InlineContent: input.InlineContent, PageSize: pageSize, Cursor: input.Continuation})
 	if domain != nil {
 		return checkedDomainFailure[queryRecordsResult](ctx, options, mapTraceAnalysisError(domain, input.TraceID, input.Continuation != "", false))
 	}
@@ -191,7 +268,7 @@ func handleQueryTraceRecords(ctx context.Context, options ServerOptions, input q
 	if err := authenticationGenerationError(ctx, options); err != nil {
 		return nil, toolEnvelope[queryRecordsResult]{}, err
 	}
-	return successResult(result, traceJSONText("records", result))
+	return successResult(result, traceRecordsText(result))
 }
 
 func handleTraceRange(ctx context.Context, options ServerOptions, input traceRangeInput, raw bool) (*mcp.CallToolResult, toolEnvelope[rangeResult], error) {
@@ -215,18 +292,18 @@ func handleTraceRange(ctx context.Context, options ServerOptions, input traceRan
 			return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("Range start must not be negative."))
 		}
 	}
-	req := traceanalysis.RangeRequest{Handle: resolved.Handle, Start: start, ContinueCursor: input.Continuation, MaxBytes: input.MaxBytes, PayloadRef: input.PayloadRef}
+	req := traceanalysis.RangeRequest{Handle: resolved.Handle, Start: start, ContinueCursor: input.Continuation, MaxBytes: input.MaxBytes, ContentRef: input.ContentRef}
 	var value traceanalysis.ByteRangeResult
 	if raw {
-		if input.PayloadRef != "" {
-			return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("Raw artifact reads do not accept payloadRef."))
+		if input.ContentRef != "" {
+			return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("Raw artifact reads do not accept contentRef."))
 		}
 		value, domain = options.TraceAnalysis.ReadRawArtifactRange(ctx, resolved.Reference, req)
 	} else {
-		if input.PayloadRef == "" {
-			return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("A payloadRef is required."))
+		if input.ContentRef == "" {
+			return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("A contentRef is required."))
 		}
-		value, domain = options.TraceAnalysis.ReadPayloadRange(ctx, resolved.Reference, req)
+		value, domain = options.TraceAnalysis.ReadContentRange(ctx, resolved.Reference, req)
 	}
 	if domain != nil {
 		return checkedDomainFailure[rangeResult](ctx, options, mapTraceAnalysisError(domain, input.TraceID, input.Continuation != "", !raw))
@@ -244,7 +321,7 @@ func handleTraceRange(ctx context.Context, options ServerOptions, input traceRan
 }
 
 func traceRangeText(result rangeResult) string {
-	return traceJSONText("range", result)
+	return fmt.Sprintf("traceId=%q sessionId=%q range=%d:%d total=%d contentType=%q encoding=%q hasMore=%t continuation=%q\ncontent (inert diagnostic data):\n%s\n", result.Evidence.TraceID, result.Evidence.SessionID, result.ActualStart, result.ActualEnd, result.TotalLength, result.ContentType, result.Encoding, result.HasMore, result.Continuation, result.Content)
 }
 
 func resolveTrace(ctx context.Context, options ServerOptions, traceID string) (traceresolution.Resolved, *consolecore.Error) {
@@ -267,8 +344,8 @@ func mapTraceAnalysisError(domain *consolecore.Error, traceID string, continuati
 	if continuation && domain.Code == consolecore.CodeInvalidCursor {
 		return consolecore.NewError(consolecore.CodeInvalidCursor, "The continuation is stale or invalid. Restart this query by traceId.", "", consolecore.Details{}, nil)
 	}
-	if payload && domain.Code == consolecore.CodeInvalidArgument && strings.Contains(strings.ToLower(domain.Message), "payload reference") {
-		return consolecore.NewError(consolecore.CodeInvalidArgument, "The payload reference is stale or invalid. Re-query the relevant record descriptor by traceId.", "", consolecore.Details{}, nil)
+	if payload && domain.Code == consolecore.CodeInvalidArgument && strings.Contains(strings.ToLower(domain.Message), "content reference") {
+		return consolecore.NewError(consolecore.CodeInvalidArgument, "The content reference is stale or invalid. Re-query the relevant record descriptor by traceId.", "", consolecore.Details{}, nil)
 	}
 	_ = traceID
 	return domain
@@ -290,7 +367,7 @@ func mapInventory(value traceinventory.Result) listTracesResult {
 		out.Limitations = append(out.Limitations, traceLimitationDTO{Code: string(limitation.Code), Message: limitation.Message})
 	}
 	for _, x := range value.Items {
-		out.Items = append(out.Items, traceInventoryItemDTO{TraceID: x.TraceID, SessionID: x.SessionID, EntrySkill: x.EntrySkill, Outcome: x.Outcome, FinalizedAt: x.FinalizedAt, Ambiguous: x.Ambiguous})
+		out.Items = append(out.Items, traceInventoryItemDTO{TraceID: x.TraceID, EvidenceSources: x.EvidenceSources, SessionID: x.SessionID, EntrySkill: x.EntrySkill, Outcome: x.Outcome, FinalizedAt: x.FinalizedAt, AcquiredAt: x.AcquiredAt, ImportedAt: x.ImportedAt, Ambiguous: x.Ambiguous})
 	}
 	return out
 }
@@ -300,13 +377,52 @@ func mapEvidence(value traceanalysis.TraceContext, options ServerOptions) eviden
 func mapSummary(x traceanalysis.TraceSummary) traceSummaryDTO {
 	return traceSummaryDTO{Outcome: x.Outcome, TerminalFailureID: x.TerminalFailureID, ConfiguredLimits: x.ConfiguredLimits, RecordCount: x.RecordCount, FrameCount: x.FrameCount, AttemptCount: x.AttemptCount, RetryCount: x.RetryCount, ValidationCount: x.ValidationCount, FailureCount: x.FailureCount, PayloadCount: x.PayloadCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, RootFrameIDs: nonNil(x.RootFrameIDs), AttributedUsage: usageValue(x.AttributedUsage), TerminalUsage: usageValue(x.TerminalUsage), UnattributedUsage: usageValue(x.UnattributedUsage), UnframedAttributedUsage: usageValue(x.UnframedAttributed), UsageComplete: x.UsageComplete}
 }
-func mapFrame(x traceanalysis.FrameSummary) frameDTO {
-	return frameDTO{x.FrameID, x.ParentFrameID, nonNil(x.ChildFrameIDs), x.FrameType, x.Route, x.OpenedTimestampMillis, x.ClosedTimestampMillis, x.InclusiveDurationMillis, x.SelfDurationMillis, usageValue(x.DirectUsage), x.DirectUsageComplete, usageValue(x.DescendantUsage), x.DescendantUsageComplete, usageValue(x.InclusiveUsage), x.InclusiveUsageComplete, nonNil(x.SkillNames), nonNil(x.Outcomes), nonNil(x.AttemptIDs), nonNil(x.RetrySequenceIDs), nonNil(x.ValidationStatuses), nonNil(x.FailureIDs), nonNil(x.GapKinds), nonNil(x.UncertaintyKinds)}
+func mapFrame(x traceanalysis.FrameSummary, projection traceanalysis.FrameProjection) frameDTO {
+	out := frameDTO{FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, ChildFrameIDs: nonNil(x.ChildFrameIDs), FrameType: x.FrameType, Route: x.Route, OpenedTimestampMillis: x.OpenedTimestampMillis, ClosedTimestampMillis: x.ClosedTimestampMillis, InclusiveDurationMillis: x.InclusiveDurationMillis, SelfDurationMillis: x.SelfDurationMillis, DirectUsageComplete: x.DirectUsageComplete, DescendantUsageComplete: x.DescendantUsageComplete, InclusiveUsageComplete: x.InclusiveUsageComplete, Outcomes: nonNil(x.Outcomes), DirectAttemptCount: x.DirectAttemptCount, DirectRetryCount: x.DirectRetryCount, DirectValidationCount: x.DirectValidationCount, DirectFailureCount: x.DirectFailureCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, detailed: projection == traceanalysis.FrameProjectionDetailed}
+	if projection == traceanalysis.FrameProjectionDetailed {
+		out.SkillNames, out.AttemptIDs, out.RetrySequenceIDs = nonNil(x.SkillNames), nonNil(x.AttemptIDs), nonNil(x.RetrySequenceIDs)
+		out.ValidationStatuses, out.FailureIDs = nonNil(x.ValidationStatuses), nonNil(x.FailureIDs)
+		out.GapKinds, out.UncertaintyKinds = nonNil(x.GapKinds), nonNil(x.UncertaintyKinds)
+	}
+	if projection == traceanalysis.FrameProjectionDetailed {
+		d, u, i := usageValue(x.DirectUsage), usageValue(x.DescendantUsage), usageValue(x.InclusiveUsage)
+		out.DirectUsage = &d
+		out.DescendantUsage = &u
+		out.InclusiveUsage = &i
+	}
+	return out
+}
+
+func (value frameDTO) MarshalJSON() ([]byte, error) {
+	type alias frameDTO
+	if !value.detailed {
+		return json.Marshal(alias(value))
+	}
+	body, err := json.Marshal(alias(value))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	fields["skillNames"] = nonNil(value.SkillNames)
+	fields["attemptIds"] = nonNil(value.AttemptIDs)
+	fields["retrySequenceIds"] = nonNil(value.RetrySequenceIDs)
+	fields["validationStatuses"] = nonNil(value.ValidationStatuses)
+	fields["failureIds"] = nonNil(value.FailureIDs)
+	fields["gapKinds"] = nonNil(value.GapKinds)
+	fields["uncertaintyKinds"] = nonNil(value.UncertaintyKinds)
+	return json.Marshal(fields)
 }
 func mapRecord(x traceanalysis.RecordSummary) recordDTO {
-	facts := recordFactsDTO{Attempts: []attemptDTO{}, Retries: []retryDTO{}, Validations: []validationDTO{}, Failures: []failureDTO{}, Payloads: []payloadDTO{}, SearchMatches: []searchMatchDTO{}}
+	facts := recordFactsDTO{Attempts: []attemptDTO{}, Retries: []retryDTO{}, Validations: []validationDTO{}, Failures: []failureDTO{}, SearchMatches: []searchMatchDTO{}}
+	if x.Facts.Plan != nil {
+		p := x.Facts.Plan
+		facts.Plan = &planLandmarkDTO{p.PlanID, p.Sequence, p.RootFrameID, p.PlanningFrameID, p.AttemptID, p.RetrySequenceID}
+	}
 	for _, a := range x.Facts.Attempts {
-		facts.Attempts = append(facts.Attempts, attemptDTO{a.RetrySequenceID, a.AttemptID, a.AttemptNumber, a.AttemptReason, a.ProviderAttemptNumber, a.Outcome, a.FailureClassification, a.FailureCategory, a.RetryDecision, a.RetryDelayMillis, a.RetryDelaySource, a.HTTPStatus, a.ProviderErrorType, a.ProviderErrorCode, a.PayloadRef, usageValue(a.Usage), a.UsageComplete})
+		facts.Attempts = append(facts.Attempts, attemptDTO{a.RetrySequenceID, a.AttemptID, a.AttemptNumber, a.AttemptReason, a.ProviderAttemptNumber, a.Outcome, a.FailureClassification, a.FailureCategory, a.RetryDecision, a.RetryDelayMillis, a.RetryDelaySource, a.HTTPStatus, a.ProviderErrorType, a.ProviderErrorCode, a.ContentRef, usageValue(a.Usage), a.UsageComplete})
 	}
 	for _, r := range x.Facts.Retries {
 		facts.Retries = append(facts.Retries, retryDTO{r.RetrySequenceID, usageValue(r.Usage), r.UsageComplete})
@@ -317,28 +433,24 @@ func mapRecord(x traceanalysis.RecordSummary) recordDTO {
 	for _, f := range x.Facts.Failures {
 		facts.Failures = append(facts.Failures, mapFailure(f))
 	}
-	for _, p := range x.Facts.Payloads {
-		facts.Payloads = append(facts.Payloads, payloadDTO{p.PayloadRef, p.Sequence, p.ContentType, p.ChunkCount, p.StoreLength})
-	}
 	for _, m := range x.Facts.SearchMatches {
-		facts.SearchMatches = append(facts.SearchMatches, searchMatchDTO{m.Sequence, m.RecordType, m.FrameID, m.MatchOffset, m.MatchLength, m.SearchedField})
+		facts.SearchMatches = append(facts.SearchMatches, searchMatchDTO{m.Sequence, m.RecordType, m.FrameID, m.MatchOffset, m.MatchLength, m.SearchedField, m.ContentRef})
 	}
 	out := recordDTO{Sequence: x.Sequence, Type: x.Type, FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, FrameType: x.FrameType, Route: x.Route, ThreadName: x.ThreadName, TimestampMillis: x.TimestampMillis, Representation: x.Representation, IsChunk: x.IsChunk, IsEnvelope: x.IsEnvelope, Raw: x.Raw, Facts: facts}
-	if x.InlinePayload != nil {
-		encoding := "TEXT"
-		content := string(x.InlinePayload.Bytes)
-		if !utf8.Valid(x.InlinePayload.Bytes) {
-			encoding = "BASE64"
-			content = base64.StdEncoding.EncodeToString(x.InlinePayload.Bytes)
+	if x.Content != nil {
+		c := x.Content
+		inline := string(c.InlineContent)
+		if c.Encoding == traceanalysis.ContentEncodingBinary && len(c.InlineContent) > 0 {
+			inline = base64.StdEncoding.EncodeToString(c.InlineContent)
 		}
-		out.InlinePayload = &inlinePayloadDTO{x.InlinePayload.ContentType, encoding, content}
+		out.Content = &contentDescriptorDTO{Role: string(c.Role), ContentType: c.ContentType, Encoding: string(c.Encoding), RetainedBytes: c.RetainedBytes, Available: c.Available, Complete: c.Complete, InlineEligibility: c.InlineEligibility, InlineOmission: string(c.InlineOmission), ContentRef: c.ContentRef, InlineContent: inline}
 	}
 	return out
 }
 func mapFailure(f traceanalysis.FailureSummary) failureDTO {
 	out := failureDTO{FailureID: f.FailureID, Terminal: f.Terminal, Sequence: f.Sequence, TimestampMillis: f.TimestampMillis, RecordType: f.RecordType, FrameID: f.FrameID, Route: f.Route, AttemptID: f.AttemptID, RetrySequenceID: f.RetrySequenceID, ValidationStatus: f.ValidationStatus, ExceptionType: f.ExceptionType, ContextSummary: f.ContextSummary, Diagnostics: []diagnosticDTO{}}
 	for _, d := range f.Diagnostics {
-		out.Diagnostics = append(out.Diagnostics, diagnosticDTO{d.Ordinal, d.Kind, d.ContentType, d.Truncated, d.CaptureLimitBytes, d.DecodedBytes, d.PayloadRef})
+		out.Diagnostics = append(out.Diagnostics, diagnosticDTO{d.Ordinal, d.Kind, d.ContentType, d.Truncated, d.CaptureLimitBytes, d.DecodedBytes, d.ContentRef})
 	}
 	return out
 }
@@ -351,8 +463,66 @@ func nonNil(values []string) []string {
 func evidenceFromPageFrames(page traceanalysis.Page[traceanalysis.FrameSummary], options ServerOptions) evidenceDTO {
 	return mapEvidence(page.Context, options)
 }
-func traceJSONText(label string, value any) string {
-	data, _ := json.Marshal(value)
-	return label + ": " + string(data) + "\n"
+func traceListText(value listTracesResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "traces count=%d complete=%t hasMore=%t continuation=%q limitations=%d\n", len(value.Items), value.Complete, value.HasMore, fallbackField(value.Continuation), len(value.Limitations))
+	for _, limitation := range value.Limitations {
+		fmt.Fprintf(&b, "limitation code=%q message=%q\n", limitation.Code, fallbackField(limitation.Message))
+	}
+	for _, x := range value.Items {
+		fmt.Fprintf(&b, "traceId=%q sources=%v outcome=%v finalizedAt=%v acquiredAt=%v importedAt=%v ambiguous=%t\n", fallbackField(x.TraceID), x.EvidenceSources, x.Outcome, x.FinalizedAt, x.AcquiredAt, x.ImportedAt, x.Ambiguous)
+	}
+	return boundedNavigationText(b.String())
 }
-func traceListText(value listTracesResult) string { return traceJSONText("traces", value) }
+func traceSummaryText(value getTraceResult) string {
+	s := value.Summary
+	return fmt.Sprintf("traceId=%q sessionId=%q outcome=%q records=%d frames=%d attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d usageComplete=%t\n", value.Evidence.TraceID, value.Evidence.SessionID, s.Outcome, s.RecordCount, s.FrameCount, s.AttemptCount, s.RetryCount, s.ValidationCount, s.FailureCount, s.GapCount, s.UncertaintyCount, s.UsageComplete)
+}
+func traceFramesText(value queryFramesResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "traceId=%q projection=%q count=%d hasMore=%t continuation=%q\n", fallbackField(value.Evidence.TraceID), value.Projection, len(value.Items), value.HasMore, fallbackField(value.Continuation))
+	for _, x := range value.Items {
+		fmt.Fprintf(&b, "frameId=%q parentFrameId=%v type=%q route=%q outcomes=%v attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), x.ParentFrameID, x.FrameType, fallbackField(x.Route), x.Outcomes, x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
+	}
+	return boundedNavigationText(b.String())
+}
+func traceRecordsText(value queryRecordsResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "traceId=%q records=%d matches=%d hasMore=%t continuation=%q\n", fallbackField(value.Evidence.TraceID), len(value.Items), len(value.Matches), value.HasMore, fallbackField(value.Continuation))
+	if value.Search != nil {
+		fmt.Fprintf(&b, "search query=%q caseSensitive=%t workComplete=%t fields=%v coverage=%q limitations=%d\n", value.Search.Query, value.Search.CaseSensitive, value.Search.WorkComplete, value.Search.SearchedFields, value.Search.SemanticContentCoverage, len(value.Search.Limitations))
+		for _, limitation := range value.Search.Limitations {
+			fmt.Fprintf(&b, "limitation code=%q message=%q\n", limitation.Code, fallbackField(limitation.Message))
+		}
+	}
+	for _, x := range value.Items {
+		ref := ""
+		bytes := int64(0)
+		if x.Content != nil {
+			ref = x.Content.ContentRef
+			bytes = x.Content.RetainedBytes
+		}
+		fmt.Fprintf(&b, "sequence=%d type=%q frameId=%q representation=%q contentRef=%q retainedBytes=%d\n", x.Sequence, x.Type, fallbackField(x.FrameID), x.Representation, fallbackField(ref), bytes)
+	}
+	for _, m := range value.Matches {
+		fmt.Fprintf(&b, "sequence=%d type=%q frameId=%q field=%q offset=%d length=%d\n", m.Sequence, m.RecordType, m.FrameID, m.SearchedField, m.MatchOffset, m.MatchLength)
+	}
+	return boundedNavigationText(b.String())
+}
+
+func fallbackField(value string) string {
+	const maximum = 512
+	if len(value) <= maximum {
+		return value
+	}
+	return value[:maximum] + "…"
+}
+
+func boundedNavigationText(value string) string {
+	maximum := traceanalysis.MaxCompactResponseBytes
+	if len(value) <= maximum {
+		return value
+	}
+	suffix := "\n… additional structured items omitted from text fallback\n"
+	return value[:maximum-len(suffix)] + suffix
+}

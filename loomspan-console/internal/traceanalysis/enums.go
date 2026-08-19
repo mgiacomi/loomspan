@@ -41,21 +41,28 @@ const (
 	RecordTraceCompleted           TraceRecordType = "TRACE_COMPLETED"
 )
 
+// RecordTypeValues returns the closed current-release vocabulary used by
+// service validation and outward adapter schemas.
+func RecordTypeValues() []string {
+	return []string{
+		string(RecordTraceStarted), string(RecordTraceCapturePolicy), string(RecordFrameOpened), string(RecordFrameMetadata),
+		string(RecordPayloadChunkAppended), string(RecordModelRequestPrepared), string(RecordModelRequestSent),
+		string(RecordAdvisorRequestMutation), string(RecordModelResponseReceived), string(RecordModelAttemptFailed),
+		string(RecordAdvisorResponseMutation), string(RecordModelThoughtCaptured), string(RecordPlanCreated), string(RecordPlanUpdated),
+		string(RecordPlanValidationFailed), string(RecordPlanRetryRequested), string(RecordPlanQualityWarning),
+		string(RecordToolCallStarted), string(RecordToolCallCompleted), string(RecordToolCallFailed), string(RecordEvidenceRecorded),
+		string(RecordEvidenceValidationFailed), string(RecordEvidenceValidationPassed), string(RecordLinterRecorded),
+		string(RecordStructuredOutputRecorded), string(RecordStepStarted), string(RecordStepActionProposed),
+		string(RecordStepActionValidated), string(RecordStepActionRejected), string(RecordStepCompleted), string(RecordErrorRecorded),
+		string(RecordFrameClosed), string(RecordTraceCompleted),
+	}
+}
+
 // knownRecordType reports whether value is one of the current-release record
 // types.
 func knownRecordType(value string) (TraceRecordType, bool) {
-	rt := TraceRecordType(value)
-	switch rt {
-	case RecordTraceStarted, RecordTraceCapturePolicy, RecordFrameOpened, RecordFrameMetadata,
-		RecordPayloadChunkAppended, RecordModelRequestPrepared, RecordModelRequestSent,
-		RecordAdvisorRequestMutation, RecordModelResponseReceived, RecordModelAttemptFailed, RecordAdvisorResponseMutation,
-		RecordModelThoughtCaptured, RecordPlanCreated, RecordPlanUpdated, RecordPlanValidationFailed,
-		RecordPlanRetryRequested, RecordPlanQualityWarning, RecordToolCallStarted,
-		RecordToolCallCompleted, RecordToolCallFailed, RecordEvidenceRecorded, RecordEvidenceValidationFailed,
-		RecordEvidenceValidationPassed, RecordLinterRecorded, RecordStructuredOutputRecorded, RecordStepStarted,
-		RecordStepActionProposed, RecordStepActionValidated, RecordStepActionRejected, RecordStepCompleted,
-		RecordErrorRecorded, RecordFrameClosed, RecordTraceCompleted:
-		return rt, true
+	if containsClosedValue(RecordTypeValues(), value) {
+		return TraceRecordType(value), true
 	}
 	return "", false
 }
@@ -74,14 +81,15 @@ const (
 	FrameStepExecution  TraceFrameType = "STEP_EXECUTION"
 )
 
+func FrameTypeValues() []string {
+	return []string{string(FrameRootMission), string(FrameSkillExecution), string(FrameModelCall), string(FrameToolInvocation), string(FrameRetry), string(FramePlanning), string(FrameStepExecution)}
+}
+
 // knownFrameType reports whether value is one of the current-release frame
 // types.
 func knownFrameType(value string) (TraceFrameType, bool) {
-	ft := TraceFrameType(value)
-	switch ft {
-	case FrameRootMission, FrameSkillExecution, FrameModelCall, FrameToolInvocation,
-		FrameRetry, FramePlanning, FrameStepExecution:
-		return ft, true
+	if containsClosedValue(FrameTypeValues(), value) {
+		return TraceFrameType(value), true
 	}
 	return "", false
 }
@@ -96,14 +104,41 @@ const (
 	OutcomeAborted   TraceOutcome = "ABORTED"
 )
 
+func TraceOutcomeValues() []string {
+	return []string{string(OutcomeSucceeded), string(OutcomeFailed), string(OutcomeAborted)}
+}
+
+func FrameOutcomeValues() []string { return []string{"completed", "failed", "aborted"} }
+
+func ValidationStatusValues() []string { return []string{"retrying", "passed", "exhausted"} }
+
+func FrameOrderValues() []string {
+	return []string{string(FrameOrderCanonical), string(FrameOrderDurationDesc), string(FrameOrderUsageDesc)}
+}
+
+func FrameProjectionValues() []string {
+	return []string{string(FrameProjectionCompact), string(FrameProjectionDetailed)}
+}
+
+func RecordRepresentationValues() []string {
+	return []string{string(RecordRepresentationLogical), string(RecordRepresentationPhysical)}
+}
+
 // knownOutcome reports whether value is one of the current-release outcomes.
 func knownOutcome(value string) (TraceOutcome, bool) {
-	o := TraceOutcome(value)
-	switch o {
-	case OutcomeSucceeded, OutcomeFailed, OutcomeAborted:
-		return o, true
+	if containsClosedValue(TraceOutcomeValues(), value) {
+		return TraceOutcome(value), true
 	}
 	return "", false
+}
+
+func containsClosedValue(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 // UsagePrecision enumerates the canonical current-release usage precision

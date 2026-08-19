@@ -19,6 +19,7 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/profile"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -28,6 +29,10 @@ type authTransport struct {
 }
 
 func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testing.T) {
+	const (
+		prePR28ToolsListResponseBytes  = 34371
+		expectedToolsListResponseBytes = 37788
+	)
 	credentials := fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 4}, key: "secret"}
 	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
 		if strings.Contains(endpoint, "/skills?") {
@@ -45,6 +50,7 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	server := NewServer(options)
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
+	lastResponseBytes := 0
 	post := func(payload string) map[string]any {
 		t.Helper()
 		request, err := http.NewRequest(http.MethodPost, httpServer.URL, bytes.NewBufferString(payload))
@@ -65,6 +71,7 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 		if err != nil || response.StatusCode != http.StatusOK {
 			t.Fatalf("status=%d body=%s err=%v", response.StatusCode, body, err)
 		}
+		lastResponseBytes = len(body)
 		var decoded map[string]any
 		if err := json.Unmarshal(body, &decoded); err != nil {
 			t.Fatalf("decode %s: %v", body, err)
@@ -77,8 +84,15 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 		t.Fatalf("negotiated protocol = %v", result["protocolVersion"])
 	}
 	listed := post(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	toolsListBytes := lastResponseBytes
+	if toolsListBytes > traceanalysis.MaxCompactResponseBytes {
+		t.Fatalf("tools/list response=%d bytes max=%d", toolsListBytes, traceanalysis.MaxCompactResponseBytes)
+	}
+	if toolsListBytes != expectedToolsListResponseBytes {
+		t.Fatalf("tools/list serialized response=%d bytes expected=%d pre-PR28=%d", toolsListBytes, expectedToolsListResponseBytes, prePR28ToolsListResponseBytes)
+	}
 	tools := listed["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 12 || !rawToolNamesContain(tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName, ReadTraceArtifactToolName) {
+	if len(tools) != 12 || !rawToolNamesContain(tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTraceContentToolName, ReadTraceArtifactToolName) {
 		t.Fatalf("tools = %+v", tools)
 	}
 	called := post(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"LOOMSPAN_get_runtime","arguments":{}}}`)
@@ -155,7 +169,7 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 12 || !toolNamesContain(tools.Tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName, ReadTraceArtifactToolName) {
+	if len(tools.Tools) != 12 || !toolNamesContain(tools.Tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTraceContentToolName, ReadTraceArtifactToolName) {
 		t.Fatalf("tools = %+v", tools.Tools)
 	}
 	for _, tool := range tools.Tools {

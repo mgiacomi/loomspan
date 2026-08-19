@@ -225,10 +225,10 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID evidence.Refe
 		return Page[AttemptSummary]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[attemptResult, AttemptSummary](ctx, lease, scopeID, ComponentAttemptIndex, startIdx, pageSize, func(a attemptResult) (AttemptSummary, error) {
-		payloadRef := ""
+		contentRef := ""
 		if a.PayloadID != "" {
 			var err error
-			payloadRef, err = encodeContentReference(scopeID, query.Handle, contentKindPayload, a.PayloadID, nil)
+			contentRef, err = encodeEnvelopeContentReference(scopeID, query.Handle, a.PayloadID)
 			if err != nil {
 				return AttemptSummary{}, err
 			}
@@ -249,8 +249,7 @@ func (service *Service) QueryAttempts(ctx context.Context, scopeID evidence.Refe
 			HTTPStatus:            a.HTTPStatus,
 			ProviderErrorType:     a.ProviderErrorType,
 			ProviderErrorCode:     a.ProviderErrorCode,
-			PayloadID:             a.PayloadID,
-			PayloadRef:            payloadRef,
+			ContentRef:            contentRef,
 			Usage:                 a.Usage,
 			UsageComplete:         a.UsageComplete,
 		}, nil
@@ -433,7 +432,7 @@ func (service *Service) QueryFailures(ctx context.Context, scopeID evidence.Refe
 		for index := range diagnostics {
 			ordinal := diagnostics[index].Ordinal
 			var err error
-			diagnostics[index].PayloadRef, err = encodeContentReference(scopeID, query.Handle, contentKindFailureDiagnostic, f.FailureID, &ordinal)
+			diagnostics[index].ContentRef, err = encodeDiagnosticContentReference(scopeID, query.Handle, f.FailureID, ordinal)
 			if err != nil {
 				return FailureSummary{}, err
 			}
@@ -517,14 +516,14 @@ func (service *Service) QueryPayloads(ctx context.Context, scopeID evidence.Refe
 		return Page[PayloadDescriptor]{}, storageError(scopeID.ID(), err)
 	}
 	items, nextPosition, hasMore, domain := collectFactPage[payloadIndexRow, PayloadDescriptor](ctx, lease, scopeID, ComponentPayloadIndex, startIdx, pageSize, func(r payloadIndexRow) (PayloadDescriptor, error) {
-		payloadRef, err := encodeContentReference(scopeID, query.Handle, contentKindPayload, r.PayloadID, nil)
+		contentRef, err := encodeEnvelopeContentReference(scopeID, query.Handle, r.PayloadID)
 		if err != nil {
 			return PayloadDescriptor{}, err
 		}
 		return PayloadDescriptor{
 			Context:     traceCtx,
 			PayloadID:   r.PayloadID,
-			PayloadRef:  payloadRef,
+			ContentRef:  contentRef,
 			Sequence:    r.Sequence,
 			ContentType: r.ContentType,
 			ChunkCount:  r.ChunkCount,

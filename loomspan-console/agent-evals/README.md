@@ -5,6 +5,12 @@ This directory contains repository release evidence for the portable
 fixtures rather than copying trace NDJSON. Records are sanitized development
 evidence, not a Loomspan runtime interchange format.
 
+PR-28 cases cover primary-plan and accepted-attempt lineage, failure before
+acceptance, tool/model/structured semantic content, positive and complete
+negative literal search, imported-time discovery, and compact large-trace
+orientation. They forbid ordinary raw reads for semantic questions and unsafe
+conclusions from incomplete discovery or search work.
+
 From `loomspan-console/`, start one isolated production-adapter MCP case:
 
 ```text

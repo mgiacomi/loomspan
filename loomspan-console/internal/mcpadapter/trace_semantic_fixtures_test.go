@@ -219,6 +219,7 @@ func fixtureTraceParity(t *testing.T) {
 	browserPost := newSemanticBrowserPost(t, h)
 	traceID := h.acquired.Metadata.TraceID
 	body := `{"source":"IMPORTED","traceId":"` + traceID + `","pageSize":64}`
+	frameBody := `{"source":"IMPORTED","traceId":"` + traceID + `","pageSize":64,"projection":"DETAILED"}`
 	browserSummary := browserPost("/api/console/v1/traces/analysis/summary", body)
 	encodedMCP, _ := json.Marshal(mcpEnvelope.Result.Summary)
 	var mcpSummary map[string]any
@@ -240,11 +241,11 @@ func fixtureTraceParity(t *testing.T) {
 		t.Fatalf("browser/MCP summary mismatch\nbrowser=%#v\nmcp=%#v", browserSummary, mcpSummary)
 	}
 
-	_, frameEnvelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
+	_, frameEnvelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64, Projection: traceanalysis.FrameProjectionDetailed})
 	if err != nil || frameEnvelope.Result == nil {
 		t.Fatalf("MCP frames=%#v err=%v", frameEnvelope, err)
 	}
-	framePage, domain := h.analysis.QueryFrames(context.Background(), evidence.ForImported(), traceanalysis.FrameQuery{Handle: h.acquired.Handle, PageSize: 64})
+	framePage, domain := h.analysis.QueryFrames(context.Background(), evidence.ForImported(), traceanalysis.FrameQuery{Handle: h.acquired.Handle, PageSize: 64, Projection: traceanalysis.FrameProjectionDetailed})
 	if domain != nil || len(framePage.Items) != len(frameEnvelope.Result.Items) {
 		t.Fatalf("authoritative frames=%#v domain=%v MCP=%#v", framePage, domain, frameEnvelope.Result.Items)
 	}
@@ -253,13 +254,13 @@ func fixtureTraceParity(t *testing.T) {
 			t.Fatalf("MCP frame %d omitted semantic facts: source gaps=%#v uncertainty=%#v MCP=%#v", i, framePage.Items[i].GapKinds, framePage.Items[i].UncertaintyKinds, frameEnvelope.Result.Items[i])
 		}
 	}
-	assertAdapterItemsEqual(t, browserPost("/api/console/v1/traces/analysis/frames", body)["items"], frameEnvelope.Result.Items, "gapKinds", "uncertaintyKinds")
+	assertAdapterItemsEqual(t, browserPost("/api/console/v1/traces/analysis/frames", frameBody)["items"], frameEnvelope.Result.Items)
 
 	_, recordEnvelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
 	if err != nil || recordEnvelope.Result == nil {
 		t.Fatalf("MCP records=%#v err=%v", recordEnvelope, err)
 	}
-	assertAdapterItemsEqual(t, browserPost("/api/console/v1/traces/analysis/records", body)["items"], recordEnvelope.Result.Items, "raw", "inlinePayload", "facts")
+	assertAdapterItemsEqual(t, browserPost("/api/console/v1/traces/analysis/records", body)["items"], recordEnvelope.Result.Items, "raw", "facts")
 	coverage := assertIndependentSemanticFacts(t, browserPost, body, options, h.acquired.Handle, frameEnvelope.Result.Items, recordEnvelope.Result.Items)
 
 	invalidCursorBody := `{"source":"IMPORTED","traceId":"` + traceID + `","pageSize":64,"cursor":"%%%"}`
@@ -298,7 +299,7 @@ func fixtureTraceParity(t *testing.T) {
 			coverage[family] += count
 		}
 	}
-	for _, family := range []string{"attempts", "retries", "validations", "failures", "payloads", "gaps", "uncertainties"} {
+	for _, family := range []string{"attempts", "retries", "validations", "failures", "gaps", "uncertainties"} {
 		if coverage[family] == 0 {
 			t.Fatalf("semantic parity corpus did not exercise %s", family)
 		}
@@ -366,11 +367,11 @@ func assertSemanticFactFixture(t *testing.T, name string) map[string]int {
 	options := newMCPTestOptions(t, nil)
 	options.TraceAnalysis = h.analysis
 	options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
-	_, frames, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
+	_, frames, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64, Projection: traceanalysis.FrameProjectionDetailed})
 	if err != nil || frames.Result == nil {
 		t.Fatalf("MCP frames=%#v err=%v", frames, err)
 	}
-	_, records, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64})
+	_, records, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: h.acquired.Metadata.TraceID, PageSize: 64, Representation: traceanalysis.RecordRepresentationPhysical})
 	if err != nil || records.Result == nil {
 		t.Fatalf("MCP records=%#v err=%v", records, err)
 	}
@@ -396,7 +397,7 @@ func assertIndependentSemanticFacts(t *testing.T, browserPost func(string, strin
 	}
 
 	coverage := map[string]int{}
-	for _, family := range []string{"attempts", "retries", "validations", "failures", "payloads"} {
+	for _, family := range []string{"attempts", "retries", "validations", "failures"} {
 		endpoint := family
 		if family == "validations" {
 			endpoint = "validation-links"
@@ -464,26 +465,6 @@ func assertAddressableSemanticContent(t *testing.T, browserPost func(string, str
 	}
 	start := int64(0)
 	switch family {
-	case "payloads":
-		for index := range browserItems {
-			payloadID, _ := browserItems[index]["payloadId"].(string)
-			payloadRef, _ := mcpItems[index]["payloadRef"].(string)
-			if payloadID == "" || payloadRef == "" {
-				t.Fatalf("payload %d is not independently addressable: browser=%#v MCP=%#v", index, browserItems[index], mcpItems[index])
-			}
-			browserRequest := cloneSemanticRequest(request)
-			browserRequest["payloadId"] = payloadID
-			browserRequest["maxBytes"] = maxTraceRangeBytes
-			browserBody, _ := json.Marshal(browserRequest)
-			browserRange := browserPost("/api/console/v1/traces/analysis/payload-range", string(browserBody))
-			result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: request["traceId"].(string), PayloadRef: payloadRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
-			if err != nil || result.IsError || envelope.Result == nil {
-				t.Fatalf("MCP payload %d read=%#v err=%v", index, envelope, err)
-			}
-			if browserRange["content"] != envelope.Result.Content || int64(browserRange["actualStart"].(float64)) != envelope.Result.ActualStart || int64(browserRange["actualEnd"].(float64)) != envelope.Result.ActualEnd {
-				t.Fatalf("payload %d bytes differ: browser=%#v MCP=%#v", index, browserRange, envelope.Result)
-			}
-		}
 	case "failures":
 		for index := range browserItems {
 			failureID, _ := browserItems[index]["failureId"].(string)
@@ -494,8 +475,8 @@ func assertAddressableSemanticContent(t *testing.T, browserPost func(string, str
 			}
 			for ordinal := range browserDiagnostics {
 				mcpDiagnostic := mcpDiagnostics[ordinal].(map[string]any)
-				payloadRef, _ := mcpDiagnostic["payloadRef"].(string)
-				if failureID == "" || payloadRef == "" {
+				contentRef, _ := mcpDiagnostic["contentRef"].(string)
+				if failureID == "" || contentRef == "" {
 					t.Fatalf("diagnostic %d/%d is not independently addressable", index, ordinal)
 				}
 				browserRequest := cloneSemanticRequest(request)
@@ -503,7 +484,7 @@ func assertAddressableSemanticContent(t *testing.T, browserPost func(string, str
 				browserRequest["ordinal"] = ordinal
 				browserBody, _ := json.Marshal(browserRequest)
 				browserDiagnostic := browserPost("/api/console/v1/traces/analysis/failure-diagnostic", string(browserBody))
-				result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: request["traceId"].(string), PayloadRef: payloadRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
+				result, envelope, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: request["traceId"].(string), ContentRef: contentRef, Start: &start, MaxBytes: maxTraceRangeBytes}, false)
 				if err != nil || result.IsError || envelope.Result == nil || browserDiagnostic["text"] != envelope.Result.Content {
 					t.Fatalf("diagnostic %d/%d differs: browser=%#v MCP=%#v err=%v", index, ordinal, browserDiagnostic, envelope, err)
 				}
@@ -534,30 +515,18 @@ func semanticItems(t *testing.T, value any) []map[string]any {
 	return items
 }
 
-func normalizeSemanticFactItems(family string, items []map[string]any, browser bool) {
+func normalizeSemanticFactItems(family string, items []map[string]any, _ bool) {
 	for _, item := range items {
 		switch family {
 		case "attempts":
-			if browser {
-				delete(item, "payloadId")
-			} else {
-				delete(item, "payloadRef")
-			}
+			delete(item, "contentRef")
 		case "failures":
 			if diagnostics, ok := item["diagnostics"].([]any); ok {
 				for _, raw := range diagnostics {
 					if diagnostic, ok := raw.(map[string]any); ok {
-						delete(diagnostic, "payloadRef")
+						delete(diagnostic, "contentRef")
 					}
 				}
-			}
-		case "payloads":
-			if browser {
-				delete(item, "payloadId")
-				item["totalLength"] = item["storeLength"]
-				delete(item, "storeLength")
-			} else {
-				delete(item, "payloadRef")
 			}
 		}
 		normalizeSemanticMap(item)
@@ -616,7 +585,6 @@ func assertAdapterItemsEqual(t *testing.T, browser any, mcpItems any, mcpOnly ..
 			delete(value, key)
 		}
 		browserValue := browserValues[i].(map[string]any)
-		delete(browserValue, "payloadId")
 		for key, item := range browserValue {
 			if item == nil || item == "" {
 				if _, present := value[key]; !present {
@@ -661,7 +629,7 @@ func fixtureLifecycle(t *testing.T) {
 	if domain != nil || !afterSuccess.LastUsedAt.After(before.LastUsedAt) {
 		t.Fatalf("successful MCP read did not refresh shared TTL: before=%s after=%s domain=%v", before.LastUsedAt, afterSuccess.LastUsedAt, domain)
 	}
-	failed, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTracePayloadToolName, Arguments: map[string]any{"traceId": h.acquired.Metadata.TraceID, "payloadRef": "malformed", "start": 0}})
+	failed, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ReadTraceContentToolName, Arguments: map[string]any{"traceId": h.acquired.Metadata.TraceID, "contentRef": "malformed", "start": 0}})
 	if err != nil || failed == nil || !failed.IsError {
 		t.Fatalf("invalid payload reference result=%#v err=%v", failed, err)
 	}

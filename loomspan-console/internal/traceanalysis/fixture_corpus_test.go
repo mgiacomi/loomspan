@@ -140,6 +140,99 @@ func TestFixtureCorpusMatchesJavaExpectedSemantics(t *testing.T) {
 	}
 }
 
+func TestFixtureCorpusExposesCurrentEntrySkillPlanIdentityAndAcceptedAttempt(t *testing.T) {
+	traceBytes, err := os.ReadFile(filepath.Join(fixtureRoot(t), "traces", "current-plan-semantic-evidence.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &fakeSink{}
+	processed, domain := newProcessorForVersion(fixtureCompatibilityVersion).Process(artifact.ProcessRequest{Context: context.Background(), Raw: bytesReader(traceBytes), Sink: sink})
+	if domain != nil {
+		t.Fatalf("process fixture: %v", domain)
+	}
+	if processed.Metadata.EntrySkill != "test.entry" {
+		t.Fatalf("entrySkill=%q", processed.Metadata.EntrySkill)
+	}
+	h := newServiceTestHarnessForVersion(t, "trace-current-plan-semantic-evidence", string(traceBytes), fixtureCompatibilityVersion)
+	page, queryDomain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationLogical, InlineContent: true, PageSize: 1000})
+	if queryDomain != nil {
+		t.Fatalf("query records: %v", queryDomain)
+	}
+	primaryCreated, nestedCreated, updates, aggregateOmissions, explicitNull := 0, 0, 0, 0, 0
+	for _, record := range page.Items {
+		if record.Content != nil && record.Content.InlineOmission == InlineOmissionAggregate {
+			aggregateOmissions++
+		}
+		if record.Type == string(RecordEvidenceRecorded) && record.Content != nil && string(record.Content.InlineContent) == "null" {
+			explicitNull++
+		}
+		if record.Facts.Plan == nil {
+			continue
+		}
+		plan := record.Facts.Plan
+		switch plan.PlanID {
+		case "framework-primary-plan":
+			if record.Type == string(RecordPlanCreated) {
+				primaryCreated++
+				if plan.RootFrameID != "mission-root" || plan.PlanningFrameID != "planning-primary" || plan.AttemptID != "attempt-accepted" || plan.RetrySequenceID != "retry-primary" {
+					t.Fatalf("primary lineage=%+v", plan)
+				}
+			} else {
+				updates++
+				if plan.AttemptID != "" || plan.RetrySequenceID != "" {
+					t.Fatalf("update synthesized lineage: %+v", plan)
+				}
+			}
+		case "framework-nested-plan":
+			nestedCreated++
+			if plan.RootFrameID != "mission-root" || plan.PlanningFrameID != "planning-nested" || plan.AttemptID != "attempt-nested" {
+				t.Fatalf("nested lineage=%+v", plan)
+			}
+		default:
+			t.Fatalf("unexpected inferred plan: %+v", plan)
+		}
+	}
+	if primaryCreated != 1 || nestedCreated != 1 || updates != 11 || aggregateOmissions == 0 || explicitNull != 1 {
+		t.Fatalf("primary=%d nested=%d updates=%d aggregateOmissions=%d explicitNull=%d", primaryCreated, nestedCreated, updates, aggregateOmissions, explicitNull)
+	}
+	search, searchDomain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "INC-2401", PageSize: 10})
+	if searchDomain != nil {
+		t.Fatalf("search fixture: %v", searchDomain)
+	}
+	if len(search.Items) != 2 || search.HasMore || len(search.SearchLimitations) != 0 {
+		t.Fatalf("search=%+v", search)
+	}
+	seenSequences := map[int64]bool{}
+	for _, match := range search.Items {
+		if match.SearchedField != "content" || match.ContentRef == "" || seenSequences[match.Sequence] {
+			t.Fatalf("non-compact or duplicate semantic match: %+v", match)
+		}
+		seenSequences[match.Sequence] = true
+	}
+}
+
+func TestProcessorPublishesOnlyValidatedTraceStartedEntrySkill(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "valid", raw: `{"entrySkill":"actual.skill"}`, want: "actual.skill"},
+		{name: "missing", raw: `{"misleading":"filename.skill"}`},
+		{name: "blank", raw: `{"entrySkill":"  "}`},
+		{name: "non-string", raw: `{"entrySkill":{"name":"model.skill"}}`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			record := &Record{Metadata: json.RawMessage(test.raw)}
+			got, ok := extractEntrySkill(record)
+			if got != test.want || ok != (test.want != "") {
+				t.Fatalf("entrySkill=%q present=%t", got, ok)
+			}
+		})
+	}
+}
+
 func TestToolLifecycleFixturesExposeOneCanonicalStartAndTerminalRecord(t *testing.T) {
 	root := fixtureRoot(t)
 	cases := []struct {

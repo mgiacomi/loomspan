@@ -14,6 +14,7 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 )
 
@@ -111,6 +112,32 @@ func TestAcquireReturnsSameHandleForAlreadyInstalledTrace(t *testing.T) {
 	}
 	if opener.callCount() != openerCalls {
 		t.Fatalf("already-installed lookup should not open stream, got %d additional calls", opener.callCount()-openerCalls)
+	}
+}
+
+func TestAcquireTimestampIsImmutableOnReuseAndRenewedAfterRemoval(t *testing.T) {
+	data := []byte("test artifact bytes")
+	loader := newFakeLoader(testTraceMetadata("trace-1", int64(len(data))))
+	opener := newFakeOpener(data, int64(len(data)))
+	clock := newManualClock(time.UnixMilli(1_000_000))
+	svc := newTestServiceWithDeps(t, Config{MaxBytes: 1 << 20, IdleTTL: time.Hour}, loader, opener, &manualTimerFactory{}, clock, nil)
+	scope, cancelScope := testScope("scope-1")
+	defer cancelScope()
+	svc.ActivateActivity(scope)
+
+	first := acquireSync(t, svc, context.Background(), scope, "trace-1")
+	clock.advance(time.Minute)
+	second := acquireSync(t, svc, context.Background(), scope, "trace-1")
+	if !second.AcquiredAt.Equal(first.AcquiredAt) {
+		t.Fatalf("reuse changed acquiredAt: first=%s second=%s", first.AcquiredAt, second.AcquiredAt)
+	}
+	if domain := svc.Remove(evidence.ForTarget(scope.ID), "trace-1"); domain != nil {
+		t.Fatalf("remove failed: %v", domain)
+	}
+	clock.advance(time.Minute)
+	third := acquireSync(t, svc, context.Background(), scope, "trace-1")
+	if !third.AcquiredAt.After(first.AcquiredAt) {
+		t.Fatalf("new installation did not renew acquiredAt: first=%s third=%s", first.AcquiredAt, third.AcquiredAt)
 	}
 }
 

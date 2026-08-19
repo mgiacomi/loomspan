@@ -130,6 +130,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 
 	var completionRec *Record
 	var configuredLimits *ConfiguredLimits
+	var entrySkill string
 	var lastSeq int64
 	var sawStart bool
 
@@ -163,6 +164,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 			if !valid {
 				return invalidityError(CategoryUnsupportedValue, scopeID)
 			}
+			entrySkill, _ = extractEntrySkill(rec)
 		}
 
 		// Record-address index row.
@@ -441,10 +443,27 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 		ComponentSizes: sizes,
 		Metadata: artifact.TraceMetadata{
 			TraceID: validator.traceID, SessionID: validator.sessionID,
-			Outcome: string(outcome), FinalizedAt: completionRec.Timestamp,
+			EntrySkill: entrySkill,
+			Outcome:    string(outcome), FinalizedAt: completionRec.Timestamp,
 			PersistencePolicy: completionRec.metadataStringOrEmpty("persistencePolicy"),
 		},
 	}, nil
+}
+
+func extractEntrySkill(rec *Record) (string, bool) {
+	fields, ok := decodeUniqueObject(rec.Metadata)
+	if !ok {
+		return "", false
+	}
+	raw, ok := fields["entrySkill"]
+	if !ok || bytes.Equal(raw, nullBytes) {
+		return "", false
+	}
+	var value string
+	if json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value) == "" {
+		return "", false
+	}
+	return value, true
 }
 
 func extractCompatibilityVersion(rec *Record) (string, bool) {

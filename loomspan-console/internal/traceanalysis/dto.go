@@ -79,6 +79,12 @@ type FrameSummary struct {
 	FailureIDs              []string
 	GapKinds                []string
 	UncertaintyKinds        []string
+	DirectAttemptCount      int
+	DirectRetryCount        int
+	DirectValidationCount   int
+	DirectFailureCount      int
+	GapCount                int
+	UncertaintyCount        int
 }
 
 // RecordSummary is one physical or logical record's neutral descriptor. It
@@ -108,19 +114,66 @@ type RecordSummary struct {
 	Raw RawAddress
 	// InlinePayload is present only when the caller explicitly requested an
 	// inline payload and the payload is at most maxInlinePayloadBytes.
-	InlinePayload *InlinePayload
-	Facts         RecordFacts
+	Content *ContentDescriptor
+	Facts   RecordFacts
+}
+
+type ContentRole string
+
+const (
+	ContentRoleData          ContentRole = "DATA"
+	ContentRoleReconstructed ContentRole = "RECONSTRUCTED"
+	ContentRoleDiagnostic    ContentRole = "DIAGNOSTIC"
+)
+
+type ContentEncoding string
+
+const (
+	ContentEncodingUTF8   ContentEncoding = "UTF8"
+	ContentEncodingBinary ContentEncoding = "BINARY"
+)
+
+type InlineOmissionReason string
+
+const (
+	InlineOmissionPerValue    InlineOmissionReason = "PER_VALUE_LIMIT"
+	InlineOmissionAggregate   InlineOmissionReason = "AGGREGATE_LIMIT"
+	InlineOmissionUnavailable InlineOmissionReason = "UNAVAILABLE"
+	InlineOmissionIncomplete  InlineOmissionReason = "INCOMPLETE"
+)
+
+type ContentDescriptor struct {
+	Role              ContentRole
+	ContentType       string
+	Encoding          ContentEncoding
+	RetainedBytes     int64
+	Available         bool
+	Complete          bool
+	InlineEligibility bool
+	InlineOmission    InlineOmissionReason
+	ContentRef        string
+	InlineContent     []byte
 }
 
 // RecordFacts contains typed facts whose recorded identifiers belong to this
 // canonical record. Arrays are always non-nil so absence remains explicit.
 type RecordFacts struct {
+	Plan          *PlanLandmark
 	Attempts      []AttemptSummary
 	Retries       []RetrySummary
 	Validations   []ValidationSummary
 	Failures      []FailureSummary
 	Payloads      []PayloadDescriptor
 	SearchMatches []SearchResult
+}
+
+type PlanLandmark struct {
+	PlanID          string
+	Sequence        int64
+	RootFrameID     string
+	PlanningFrameID string
+	AttemptID       string
+	RetrySequenceID string
 }
 
 // InlinePayload is a small reconstructed logical payload inlined into a record
@@ -151,8 +204,7 @@ type AttemptSummary struct {
 	HTTPStatus            int64
 	ProviderErrorType     string
 	ProviderErrorCode     string
-	PayloadID             string
-	PayloadRef            string
+	ContentRef            string
 	Usage                 Usage
 	UsageComplete         bool
 }
@@ -233,7 +285,7 @@ type Uncertainty struct {
 type PayloadDescriptor struct {
 	Context     TraceContext
 	PayloadID   string
-	PayloadRef  string
+	ContentRef  string
 	Sequence    int64
 	ContentType string
 	ChunkCount  int
@@ -259,6 +311,16 @@ type Page[T any] struct {
 	Items      []T
 	NextCursor string
 	HasMore    bool
+	// SearchLimitations is populated by literal search when semantic values
+	// cannot safely participate in exact text matching.
+	SearchLimitations []SearchLimitation
+}
+
+// SearchLimitation explains a class of semantic content excluded from a
+// literal search. The code is stable for adapters; the message is descriptive.
+type SearchLimitation struct {
+	Code    string
+	Message string
 }
 
 // ByteRangeResult is a bounded byte range from a payload, raw record, or raw
@@ -282,8 +344,8 @@ type ByteRangeResult struct {
 type RangeSource string
 
 const (
-	// RangeSourcePayload is a reconstructed logical payload range.
-	RangeSourcePayload RangeSource = "PAYLOAD"
+	// RangeSourceContent is one selected semantic content value.
+	RangeSourceContent RangeSource = "CONTENT"
 	// RangeSourceRawRecord is a raw physical record range inside the raw
 	// NDJSON artifact.
 	RangeSourceRawRecord RangeSource = "RAW_RECORD"
@@ -315,4 +377,6 @@ type SearchResult struct {
 	MatchLength int
 	// SearchedField reports which field the match was found in.
 	SearchedField string
+	// ContentRef identifies the semantic content value for content matches.
+	ContentRef string
 }

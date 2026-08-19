@@ -542,6 +542,7 @@ type fakeProcessor struct {
 	derivedName   ComponentName
 	cancelAfter   int // if > 0, fail the nth Create call with the ctx error
 	createCount   int
+	metadata      *TraceMetadata
 }
 
 func newFakeProcessor() *fakeProcessor {
@@ -600,11 +601,15 @@ func (p *fakeProcessor) Process(req ProcessRequest) (ProcessResult, *consolecore
 		return ProcessResult{}, consolecore.NewError(consolecore.CodeLocalStorageUnavailable,
 			"Local artifact storage is unavailable.", "", consolecore.Details{}, err)
 	}
+	metadata := req.Metadata
+	if p.metadata != nil {
+		metadata = *p.metadata
+	}
 	return ProcessResult{
 		ComponentSizes: map[ComponentName]int64{
 			name: int64(len(p.derivedBytes)),
 		},
-		Metadata: req.Metadata,
+		Metadata: metadata,
 	}, nil
 }
 

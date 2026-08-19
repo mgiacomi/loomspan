@@ -5,7 +5,7 @@ import type { TraceRange, TraceRecord } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
-  getPayloadRange: vi.fn(),
+  getContentRange: vi.fn(),
   getRawRecordRange: vi.fn(),
   getTraceRecords: vi.fn(),
 }));
@@ -25,7 +25,7 @@ function record(type = "FRAME_OPENED"): TraceRecord {
     representation: "LOGICAL",
     isChunk: false,
     isEnvelope: false,
-    payloadId: "",
+
   };
 }
 
@@ -46,7 +46,7 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderRecord(value: TraceRecord) {
-  render(<TraceRecords traceId="trace-1" records={[value]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[value]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
 }
 
 beforeEach(() => getRawRecordRangeMock.mockReset());
@@ -71,7 +71,9 @@ test("loads all ranges and pretty prints the complete raw record envelope", asyn
 test("switches from the response view to the raw envelope on the same row", async () => {
   const rawRecord = JSON.stringify({ traceId: "trace-1", sequence: 7, recordType: "MODEL_RESPONSE_RECEIVED", data: { content: "model output" } });
   getRawRecordRangeMock.mockResolvedValue(range(rawRecord));
-  renderRecord(record("MODEL_RESPONSE_RECEIVED"));
+  const value = record("MODEL_RESPONSE_RECEIVED");
+  value.content = { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify({ content: "model output" }) };
+  renderRecord(value);
 
   fireEvent.click(screen.getByRole("button", { name: "Response" }));
   expect(await screen.findByRole("region", { name: "Model response for record 7" })).toHaveTextContent("model output");

@@ -1,6 +1,7 @@
 package traceanalysis
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -62,6 +63,10 @@ func deriveSessionID(traceID string) string {
 // traceanalysis.Service + artifact.Service composition and returns a harness
 // ready for query tests.
 func newServiceTestHarness(t *testing.T, traceID, ndjson string) *serviceTestHarness {
+	return newServiceTestHarnessForVersion(t, traceID, ndjson, "")
+}
+
+func newServiceTestHarnessForVersion(t *testing.T, traceID, ndjson, compatibilityVersion string) *serviceTestHarness {
 	t.Helper()
 	body := []byte(ndjson)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +112,9 @@ func newServiceTestHarness(t *testing.T, traceID, ndjson string) *serviceTestHar
 	t.Cleanup(targetContext.Close)
 
 	traceAnalysisService := NewService(nil)
+	if compatibilityVersion != "" {
+		traceAnalysisService = NewServiceForCompatibilityVersion(nil, compatibilityVersion)
+	}
 	artifactSvc, err := artifact.New(artifact.Config{
 		MaxBytes: 128 << 20,
 		IdleTTL:  time.Hour,
@@ -199,8 +207,9 @@ func TestServiceGetSummary(t *testing.T) {
 func TestServiceQueryFramesEmpty(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle:   h.handle,
-		PageSize: 10,
+		Handle:     h.handle,
+		Projection: FrameProjectionDetailed,
+		PageSize:   10,
 	})
 	if domain != nil {
 		t.Fatalf("QueryFrames failed: %v", domain)
@@ -216,8 +225,7 @@ func TestServiceQueryFramesEmpty(t *testing.T) {
 func TestServiceQueryFramesWithFrames(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
 	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle:   h.handle,
-		PageSize: 10,
+		Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10,
 	})
 	if domain != nil {
 		t.Fatalf("QueryFrames failed: %v", domain)
@@ -240,6 +248,158 @@ func TestServiceQueryFramesWithFrames(t *testing.T) {
 		}
 		if got := *frame.ClosedTimestampMillis - frame.OpenedTimestampMillis; frame.InclusiveDurationMillis == nil || got != *frame.InclusiveDurationMillis {
 			t.Fatalf("returned frame boundaries do not match processor duration: %+v", frame)
+		}
+	}
+}
+
+func TestLogicalRecordDataIsRepresentedAsReadableSemanticContent(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
+	page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
+		Handle: h.handle, Representation: RecordRepresentationLogical,
+		Filter: RecordFilter{Types: []string{string(RecordModelResponseReceived)}}, PageSize: 10,
+	})
+	if domain != nil || len(page.Items) != 1 {
+		t.Fatalf("query: page=%+v domain=%v", page, domain)
+	}
+	record := page.Items[0]
+	if record.Representation != "logical" || record.Content == nil || !record.Content.Available || !record.Content.Complete || record.Content.ContentType != "application/json" || record.Content.ContentRef == "" {
+		t.Fatalf("ordinary data descriptor is not truthful: %+v", record)
+	}
+	first, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: record.Content.ContentRef, Start: 0, MaxBytes: 7})
+	if domain != nil || !first.HasMore || first.TotalLength != record.Content.RetainedBytes {
+		t.Fatalf("first range=%+v domain=%v", first, domain)
+	}
+	content := append([]byte{}, first.Content...)
+	next := first
+	for next.HasMore {
+		next, domain = h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: record.Content.ContentRef, ContinueCursor: next.NextCursor, MaxBytes: 7})
+		if domain != nil {
+			t.Fatalf("continued range=%+v domain=%v", next, domain)
+		}
+		content = append(content, next.Content...)
+	}
+	if got := string(content); got != `{"content":"fixture response"}` {
+		t.Fatalf("selected value=%q", got)
+	}
+}
+
+func TestOrdinarySemanticContentPreservesAbsentNullAndEveryJSONShape(t *testing.T) {
+	original := `"data":{"content":"fixture response"}`
+	for _, test := range []struct {
+		name        string
+		replacement string
+		want        string
+		available   bool
+	}{
+		{name: "absent", replacement: ``, available: false},
+		{name: "explicit-null", replacement: `"data":null`, want: `null`, available: true},
+		{name: "scalar-number", replacement: `"data":42`, want: `42`, available: true},
+		{name: "scalar-boolean", replacement: `"data":true`, want: `true`, available: true},
+		{name: "string", replacement: `"data":"value"`, want: `"value"`, available: true},
+		{name: "array", replacement: `"data":[1,"two"]`, want: `[1,"two"]`, available: true},
+		{name: "object", replacement: `"data":{"value":1}`, want: `{"value":1}`, available: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			replacement := test.replacement
+			trace := minimalValidTrace
+			if test.name == "absent" {
+				trace = strings.Replace(trace, `,`+original, ``, 1)
+			} else {
+				trace = strings.Replace(trace, original, replacement, 1)
+			}
+			if test.name == "explicit-null" {
+				trace = strings.Replace(trace, `"usage":{"promptUnits"`, `"semanticContentPresent":true,"usage":{"promptUnits"`, 1)
+			}
+			h := newServiceTestHarness(t, "trace-t", trace)
+			page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{
+				Handle: h.handle, Representation: RecordRepresentationLogical, InlineContent: true,
+				Filter: RecordFilter{Types: []string{string(RecordModelResponseReceived)}}, PageSize: 1,
+			})
+			if domain != nil || len(page.Items) != 1 {
+				t.Fatalf("page=%+v domain=%v", page, domain)
+			}
+			descriptor := page.Items[0].Content
+			if !test.available {
+				if descriptor != nil {
+					t.Fatalf("absent data produced descriptor=%+v", descriptor)
+				}
+				return
+			}
+			if descriptor == nil || !descriptor.Available || !descriptor.Complete || descriptor.ContentRef == "" || string(descriptor.InlineContent) != test.want {
+				t.Fatalf("descriptor=%+v want=%q", descriptor, test.want)
+			}
+			read, readDomain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: descriptor.ContentRef, MaxBytes: MaxRangeBytes})
+			if readDomain != nil || read.HasMore || string(read.Content) != test.want {
+				t.Fatalf("read=%+v domain=%v want=%q", read, readDomain, test.want)
+			}
+		})
+	}
+}
+
+func TestInlineContentPerValueAndAggregateBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		size int
+		want InlineOmissionReason
+	}{
+		{"below", MaxInlineContentBytes - 1, ""},
+		{"at", MaxInlineContentBytes, ""},
+		{"above", MaxInlineContentBytes + 1, InlineOmissionPerValue},
+	} {
+		t.Run("per-value-"+test.name, func(t *testing.T) {
+			desc := &ContentDescriptor{ContentRef: "still-readable"}
+			aggregate := int64(0)
+			inlineOrdinaryDescriptor(desc, bytes.Repeat([]byte{'x'}, test.size), &aggregate)
+			if desc.InlineOmission != test.want || desc.ContentRef == "" || (test.want == "" && len(desc.InlineContent) != test.size) || (test.want != "" && len(desc.InlineContent) != 0) {
+				t.Fatalf("descriptor=%+v inline=%d aggregate=%d", desc, len(desc.InlineContent), aggregate)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name  string
+		start int64
+		want  InlineOmissionReason
+	}{
+		{"below", MaxAggregateInlineContentBytes - 2, ""},
+		{"at", MaxAggregateInlineContentBytes - 1, ""},
+		{"above", MaxAggregateInlineContentBytes, InlineOmissionAggregate},
+	} {
+		t.Run("aggregate-"+test.name, func(t *testing.T) {
+			desc := &ContentDescriptor{ContentRef: "still-readable"}
+			aggregate := test.start
+			inlineOrdinaryDescriptor(desc, []byte{'x'}, &aggregate)
+			if desc.InlineOmission != test.want || desc.ContentRef == "" || (test.want != "" && len(desc.InlineContent) != 0) {
+				t.Fatalf("descriptor=%+v aggregate=%d", desc, aggregate)
+			}
+		})
+	}
+}
+
+func TestFrameContinuationCannotCrossProjection(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
+	first, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionCompact, PageSize: 1})
+	if domain != nil || first.NextCursor == "" {
+		t.Fatalf("first=%+v domain=%v", first, domain)
+	}
+	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 1, Cursor: first.NextCursor})
+	if domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+		t.Fatalf("domain=%v", domain)
+	}
+}
+
+func TestCompactFrameProjectionRetainsHierarchyAndOmitsDetailedEvidence(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 10})
+	if domain != nil || len(page.Items) < 2 {
+		t.Fatalf("page=%+v domain=%v", page, domain)
+	}
+	root := page.Items[0]
+	if !reflect.DeepEqual(root.ChildFrameIDs, []string{"skill"}) {
+		t.Fatalf("compact hierarchy lost children: %+v", root.ChildFrameIDs)
+	}
+	for _, frame := range page.Items {
+		if frame.InclusiveDurationMillis != nil || frame.SelfDurationMillis != nil || frame.DirectUsage != (Usage{}) || frame.DescendantUsage != (Usage{}) || frame.InclusiveUsage != (Usage{}) || len(frame.SkillNames) != 0 || len(frame.AttemptIDs) != 0 || len(frame.RetrySequenceIDs) != 0 || len(frame.ValidationStatuses) != 0 || len(frame.FailureIDs) != 0 || len(frame.GapKinds) != 0 || len(frame.UncertaintyKinds) != 0 {
+			t.Fatalf("compact frame retained detailed evidence: %+v", frame)
 		}
 	}
 }
@@ -268,7 +428,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 	h := newServiceTestHarness(t, "t", raw)
 
 	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle: h.handle,
+		Handle: h.handle, Projection: FrameProjectionDetailed,
 		Filter: FrameFilter{
 			SkillName: "skill.alpha", Outcome: "completed", AttemptID: "attempt-1",
 			RetrySequenceID: "retry-1", ValidationStatus: "passed", FailureID: "failure-1",
@@ -303,7 +463,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 		t.Fatalf("direct failure relationships were not preserved: %+v", failure)
 	}
 
-	all, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 1})
+	all, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 1})
 	if domain != nil || !all.HasMore {
 		t.Fatalf("first frame page: page=%+v domain=%v", all, domain)
 	}
@@ -315,7 +475,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 		t.Fatalf("fact continuation must store a byte offset, got %d", decoded.Position)
 	}
 	second, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle: h.handle, PageSize: 1, Cursor: all.NextCursor,
+		Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 1, Cursor: all.NextCursor,
 	})
 	if domain != nil || len(second.Items) != 1 || second.Items[0].FrameID != "child" {
 		t.Fatalf("second frame page: page=%+v domain=%v", second, domain)
@@ -375,10 +535,11 @@ func TestServiceQueryFramesCursorFingerprintMismatch(t *testing.T) {
 		PageSize: 1,
 	})
 	_, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle:   h.handle,
-		PageSize: 1,
-		Order:    FrameOrderDurationDesc,
-		Cursor:   page1.NextCursor,
+		Handle:     h.handle,
+		PageSize:   1,
+		Order:      FrameOrderDurationDesc,
+		Projection: FrameProjectionDetailed,
+		Cursor:     page1.NextCursor,
 	})
 	if domain == nil {
 		t.Fatal("expected fingerprint mismatch error")
@@ -391,7 +552,7 @@ func TestServiceQueryFramesCursorFingerprintMismatch(t *testing.T) {
 func TestServiceQueryFramesFilterByFrameType(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
 	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle: h.handle,
+		Handle: h.handle, Projection: FrameProjectionDetailed,
 		Filter: FrameFilter{FrameType: "SKILL_EXECUTION"},
 	})
 	if domain != nil {
@@ -560,19 +721,19 @@ func TestServiceGetFailureDiagnostic(t *testing.T) {
 	if domain != nil || len(page.Items) != 1 || len(page.Items[0].Diagnostics) != 1 {
 		t.Fatalf("failure descriptors: page=%+v domain=%v", page, domain)
 	}
-	ref := page.Items[0].Diagnostics[0].PayloadRef
+	ref := page.Items[0].Diagnostics[0].ContentRef
 	if ref == "" {
 		t.Fatal("diagnostic payload reference is empty")
 	}
-	first, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, Start: 0, MaxBytes: 2})
+	first, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: ref, Start: 0, MaxBytes: 2})
 	if domain != nil || string(first.Content) != "st" || !first.HasMore || first.NextCursor == "" {
 		t.Fatalf("first diagnostic range=%#v domain=%v", first, domain)
 	}
-	second, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, ContinueCursor: first.NextCursor, MaxBytes: 2})
+	second, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: ref, ContinueCursor: first.NextCursor, MaxBytes: 2})
 	if domain != nil || string(second.Content) != "ac" || !second.HasMore {
 		t.Fatalf("second diagnostic range=%#v domain=%v", second, domain)
 	}
-	third, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, ContinueCursor: second.NextCursor, MaxBytes: 2})
+	third, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: ref, ContinueCursor: second.NextCursor, MaxBytes: 2})
 	if domain != nil || string(third.Content) != "k" || third.HasMore {
 		t.Fatalf("third diagnostic range=%#v domain=%v", third, domain)
 	}
@@ -615,13 +776,13 @@ func TestDiagnosticRangeFailureDoesNotRefreshArtifactLastUse(t *testing.T) {
 	if domain != nil || len(failures.Items) == 0 || len(failures.Items[0].Diagnostics) == 0 {
 		t.Fatalf("failures=%#v domain=%v", failures, domain)
 	}
-	ref := failures.Items[0].Diagnostics[0].PayloadRef
+	ref := failures.Items[0].Diagnostics[0].ContentRef
 	before, snapshotDomain := h.artifacts.StorageSnapshot()
 	if snapshotDomain != nil || len(before.Entries) != 1 {
 		t.Fatalf("before=%#v domain=%v", before, snapshotDomain)
 	}
 	time.Sleep(time.Millisecond)
-	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, PayloadRef: ref, Start: 1 << 20, MaxBytes: 1})
+	_, domain = h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, ContentRef: ref, Start: 1 << 20, MaxBytes: 1})
 	if domain == nil || domain.Code != consolecore.CodeInvalidArgument {
 		t.Fatalf("out-of-bounds diagnostic range domain=%v", domain)
 	}
@@ -788,7 +949,7 @@ func TestFramesAttachAttemptAttributedMissingResponseGap(t *testing.T) {
 		frameRecord(5, "frame", "", false, "ROOT_MISSION", false), completionRecord(6, "SUCCEEDED", 0, 0, 0, ""),
 	}, "\n") + "\n"
 	h := newServiceTestHarness(t, "t", raw)
-	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 10})
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10})
 	if domain != nil {
 		t.Fatal(domain)
 	}
@@ -860,7 +1021,7 @@ func TestFactRowScanObservesCancellationBetweenRows(t *testing.T) {
 func TestFramesAttachDirectGapKindsWithoutPropagation(t *testing.T) {
 	raw := startedRecord(1) + "\n" + frameRecord(2, "open", "", false, "ROOT_MISSION", true) + "\n" + completionRecord(3, "SUCCEEDED", 0, 0, 0, "") + "\n"
 	h := newServiceTestHarness(t, "t", raw)
-	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, PageSize: 10})
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10})
 	if domain != nil {
 		t.Fatal(domain)
 	}

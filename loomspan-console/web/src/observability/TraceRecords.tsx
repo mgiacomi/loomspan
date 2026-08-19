@@ -1,13 +1,13 @@
 import { Fragment, useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { getPayloadRange, getRawRecordRange, getTraceRecords } from "../api/client";
+import { getContentRange, getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRange, TraceSource } from "../api/contracts";
 import type { TraceFailure, TraceRecord } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
 import { comparePlans, toPlanSnapshot } from "./planComparison";
 import type { PlanComparison, PlanSnapshot } from "./planComparison";
 
-type Props = { traceId?: string; source?: TraceSource; records: TraceRecord[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onPayload: (payloadId: string) => void };
+type Props = { traceId?: string; source?: TraceSource; records: TraceRecord[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onContent: (contentRef: string) => void };
 
 type PlanCacheEntry = {
   loading: boolean;
@@ -177,11 +177,11 @@ async function readCompleteRecord(traceId: string, sequence: number, source: Tra
   return new TextDecoder("utf-8", { fatal: true }).decode(joinBytes(parts)).trim();
 }
 
-async function readCompletePayload(traceId: string, payloadId: string, source: TraceSource): Promise<string> {
+async function readCompleteContent(traceId: string, contentRef: string, source: TraceSource): Promise<string> {
   const parts: Uint8Array[] = [];
   let cursor: string | undefined;
   do {
-    const range = await getPayloadRange(traceId, payloadId, cursor, source);
+    const range = await getContentRange(traceId, contentRef, cursor, source);
     parts.push(decodeBytes(range));
     if (!range.hasMore) break;
     if (!range.nextCursor || range.nextCursor === cursor) throw new Error("Content continuation was invalid.");
@@ -384,11 +384,13 @@ function parsePlanRecord(rawRecord: string): PlanSnapshot {
 }
 
 async function readPlanSnapshot(traceId: string, record: TraceRecord, source: TraceSource): Promise<PlanSnapshot> {
-  if (record.payloadId) {
-    const raw = await readCompletePayload(traceId, record.payloadId, source);
-    return toPlanSnapshot(parseJsonObject(raw, "Plan payload"));
+  if (record.content?.inlineContent) {
+    return toPlanSnapshot(JSON.parse(record.content.inlineContent));
   }
-  return parsePlanRecord(await readCompleteRecord(traceId, record.sequence, source));
+  if (record.content?.contentRef) {
+    return toPlanSnapshot(JSON.parse(await readCompleteContent(traceId, record.content.contentRef, source)));
+  }
+  throw new Error("Plan content is unavailable.");
 }
 
 async function findPreviousPlan(traceId: string, sequence: number, planId: string, source: TraceSource): Promise<{ sequence: number; snapshot: PlanSnapshot } | undefined> {
@@ -949,7 +951,7 @@ function PlanChanges({ comparison, previousSequence }: { comparison: PlanCompari
   </section>;
 }
 
-export function TraceRecords({ traceId, source = "TARGET", records, failures, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onPayload }: Props) {
+export function TraceRecords({ traceId, source = "TARGET", records, failures, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onContent }: Props) {
   const related = onRelatedFrame ?? (() => undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cache, setCache] = useState<Record<string, PlanCacheEntry>>({});
@@ -1017,9 +1019,11 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
     if (existing?.detail || existing?.loading) return;
     const kind = record.type === "MODEL_RESPONSE_RECEIVED" ? "response" : "request";
     setModelCache((previous) => ({ ...previous, [key]: { loading: true } }));
-	const detailSource = record.payloadId
-      ? readCompletePayload(traceId, record.payloadId, source).then((raw) => parseJsonObject(raw, "Model payload"))
-      : readCompleteRecord(traceId, record.sequence, source).then(recordData);
+	const detailSource = record.content?.inlineContent
+      ? Promise.resolve().then(() => JSON.parse(record.content!.inlineContent!) as unknown)
+      : record.content?.contentRef
+        ? readCompleteContent(traceId, record.content.contentRef, source).then((raw) => JSON.parse(raw) as unknown)
+        : Promise.reject(new Error("Model content is unavailable."));
 	void detailSource
       .then((value) => {
         const detail = parseModelDetail(kind, value);
@@ -1189,7 +1193,7 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
             <td>{record.timestampMillis}</td>
             <td>
               <button type="button" aria-expanded={isRawExpanded} aria-controls={`raw-detail-${record.sequence}`} onClick={() => handleToggleRaw(record)}>{isRawExpanded ? "Hide raw record" : "Read raw record"}</button>
-              {record.payloadId && !isModelRecord && <button type="button" onClick={() => onPayload(record.payloadId)}>Read payload</button>}
+              {record.content?.contentRef && !isModelRecord && <button type="button" onClick={() => onContent(record.content!.contentRef!)}>Read content</button>}
               {linkedFailure && <button className="trace-error-action" type="button" aria-pressed={selectedFailureId === linkedFailure.failureId} onClick={() => onSelectFailure(linkedFailure.failureId)}>View error</button>}
               {isPlanRecord && traceId && (
                 <button type="button" aria-expanded={isPlanExpanded} aria-controls={`plan-detail-${record.sequence}`} onClick={() => handleTogglePlan(record)}>

@@ -75,10 +75,11 @@ func TestCursorErrorPrecedenceIsTargetChangedThenArtifactExpiredThenInvalidCurso
 	//    fingerprint does not match the request (different order) returns
 	//    INVALID_CURSOR. This is checked after lease acquisition succeeds.
 	_, domain = h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-		Handle:   h.handle,
-		PageSize: 1,
-		Order:    FrameOrderDurationDesc,
-		Cursor:   page1.NextCursor, // bound to CANONICAL order
+		Handle:     h.handle,
+		PageSize:   1,
+		Order:      FrameOrderDurationDesc,
+		Projection: FrameProjectionDetailed,
+		Cursor:     page1.NextCursor, // bound to CANONICAL order
 	})
 	if domain == nil {
 		t.Fatal("expected an error for fingerprint mismatch, got nil")
@@ -151,11 +152,16 @@ func TestPaginationHasNoDuplicatesOrOmissionsAcrossEverySupportedOrder(t *testin
 			seen := make(map[string]bool)
 			cursor := ""
 			for i := 0; i < 20; i++ { // bounded to prevent infinite loops
+				projection := FrameProjectionCompact
+				if order != FrameOrderCanonical {
+					projection = FrameProjectionDetailed
+				}
 				page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
-					Handle:   h.handle,
-					PageSize: 1,
-					Order:    order,
-					Cursor:   cursor,
+					Handle:     h.handle,
+					PageSize:   1,
+					Order:      order,
+					Projection: projection,
+					Cursor:     cursor,
 				})
 				if domain != nil {
 					t.Fatalf("QueryFrames order %s page %d failed: %v", order, i, domain)
@@ -199,7 +205,7 @@ func TestSearchContinuationFindsBoundarySpanningLiteralWithoutDuplicates(t *test
 	for {
 		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 			Handle:   h.handle,
-			Text:     "traceId",
+			Text:     "attempt-1",
 			PageSize: 1,
 			Cursor:   cursor,
 		})
@@ -230,9 +236,9 @@ func TestSearchContinuationFindsBoundarySpanningLiteralWithoutDuplicates(t *test
 			t.Fatal("too many pages, possible infinite loop")
 		}
 	}
-	// "traceId" appears in all 5 records.
-	if len(seen) != 5 {
-		t.Fatalf("expected matches across 5 records, got %d (%v)", len(seen), seen)
+	// The attempt identifier appears in request preparation, send, and response metadata.
+	if len(seen) != 3 {
+		t.Fatalf("expected matches across 3 records, got %d (%v)", len(seen), seen)
 	}
 }
 
@@ -240,7 +246,7 @@ func TestSearchContinuationFindsBoundarySpanningLiteralWithoutDuplicates(t *test
 // single call would collect more matches than the page size, the search stops
 // at the page size and resumes without duplicates or omissions.
 func TestSearchStopsAtPageSizeAndResumesWithoutDuplicates(t *testing.T) {
-	// "traceId" appears in every record of minimalValidTrace (5 records).
+	// The attempt identifier appears in three records.
 	// With pageSize=2, page 1 must return exactly 2 matches and a cursor;
 	// continuation must return the remaining matches without re-returning
 	// the first 2.
@@ -252,7 +258,7 @@ func TestSearchStopsAtPageSizeAndResumesWithoutDuplicates(t *testing.T) {
 	for {
 		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 			Handle:   h.handle,
-			Text:     "traceId",
+			Text:     "attempt-1",
 			PageSize: 2,
 			Cursor:   cursor,
 		})
@@ -260,7 +266,10 @@ func TestSearchStopsAtPageSizeAndResumesWithoutDuplicates(t *testing.T) {
 			t.Fatalf("Search page %d failed: %v", pageNum, domain)
 		}
 		if len(page.Items) == 0 {
-			t.Fatalf("page %d returned 0 matches unexpectedly", pageNum)
+			if !page.HasMore {
+				break
+			}
+			t.Fatalf("page %d returned no matches while work remained", pageNum)
 		}
 		for _, m := range page.Items {
 			if seen[m.Sequence] {
@@ -283,9 +292,8 @@ func TestSearchStopsAtPageSizeAndResumesWithoutDuplicates(t *testing.T) {
 			t.Fatal("too many pages, possible infinite loop")
 		}
 	}
-	// "traceId" appears in all 5 records.
-	if len(seen) != 5 {
-		t.Fatalf("expected matches across 5 records, got %d (%v)", len(seen), seen)
+	if len(seen) != 3 {
+		t.Fatalf("expected matches across 3 records, got %d (%v)", len(seen), seen)
 	}
 }
 
@@ -462,15 +470,15 @@ func TestAllFixtureFramesRecordsAndPayloadsAreReachableThroughFiniteCalls(t *tes
 
 	// Each payload must be readable via a range call.
 	for pid := range payloadIDs {
-		_, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-			Handle:    h.handle,
-			Source:    RangeSourcePayload,
-			PayloadID: pid,
-			Start:     0,
-			MaxBytes:  100,
+		_, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+			Handle:     h.handle,
+			Source:     RangeSourceContent,
+			ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, pid),
+			Start:      0,
+			MaxBytes:   100,
 		})
 		if domain != nil {
-			t.Fatalf("ReadPayloadRange for %s failed: %v", pid, domain)
+			t.Fatalf("ReadContentRange for %s failed: %v", pid, domain)
 		}
 	}
 }
@@ -520,36 +528,36 @@ func TestPayloadRangeAppliesDefaultExactMaximumAndOneOverLimit(t *testing.T) {
 	h := newServiceTestHarness(t, "t", ndjson)
 
 	// Zero defaults to defaultRangeBytes and succeeds.
-	_, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-		Handle:    h.handle,
-		Source:    RangeSourcePayload,
-		PayloadID: "payload-1",
-		Start:     0,
-		MaxBytes:  0,
+	_, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+		Handle:     h.handle,
+		Source:     RangeSourceContent,
+		ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
+		Start:      0,
+		MaxBytes:   0,
 	})
 	if domain != nil {
 		t.Fatalf("MaxBytes=0 should default, got %v", domain)
 	}
 
 	// Exact max succeeds.
-	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-		Handle:    h.handle,
-		Source:    RangeSourcePayload,
-		PayloadID: "payload-1",
-		Start:     0,
-		MaxBytes:  maxRangeBytes,
+	_, domain = h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+		Handle:     h.handle,
+		Source:     RangeSourceContent,
+		ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
+		Start:      0,
+		MaxBytes:   maxRangeBytes,
 	})
 	if domain != nil {
 		t.Fatalf("MaxBytes=maxRangeBytes should succeed, got %v", domain)
 	}
 
 	// One over max is LIMIT_EXCEEDED.
-	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-		Handle:    h.handle,
-		Source:    RangeSourcePayload,
-		PayloadID: "payload-1",
-		Start:     0,
-		MaxBytes:  maxRangeBytes + 1,
+	_, domain = h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+		Handle:     h.handle,
+		Source:     RangeSourceContent,
+		ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
+		Start:      0,
+		MaxBytes:   maxRangeBytes + 1,
 	})
 	if domain == nil || domain.Code != consolecore.CodeLimitExceeded {
 		t.Fatalf("expected LIMIT_EXCEEDED for over-max range, got %v", domain)
@@ -579,10 +587,10 @@ func TestPayloadRawRecordAndRawArtifactReferencesCannotBeInterchanged(t *testing
 	// Reuse the raw-artifact cursor for a payload range: must fail with
 	// INVALID_CURSOR (op mismatch) since the cursor op is RAW_ARTIFACT_RANGE
 	// but the call expects PAYLOAD_RANGE.
-	_, domain = h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+	_, domain = h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
-		Source:         RangeSourcePayload,
-		PayloadID:      "payload-1",
+		Source:         RangeSourceContent,
+		ContentRef:     mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
 		ContinueCursor: artifactPage.NextCursor,
 		MaxBytes:       50,
 	})
@@ -683,7 +691,7 @@ func TestSearchRejectsTextOverByteOrCodePointLimit(t *testing.T) {
 }
 
 // TestRangeCursorErrorPrecedenceMatchesQueryCursorPrecedence proves that range
-// methods (ReadRawArtifactRange, ReadPayloadRange, ReadRawRecordRange) apply the
+// methods (ReadRawArtifactRange, ReadContentRange, ReadRawRecordRange) apply the
 // same cursor error precedence as query methods: INVALID_CURSOR (malformed/op)
 // and TARGET_CHANGED (scope mismatch) are checked before lease acquisition, so
 // they take precedence over ARTIFACT_EXPIRED (L2).
@@ -740,10 +748,10 @@ func TestRangeCursorErrorPrecedenceMatchesQueryCursorPrecedence(t *testing.T) {
 	if domain != nil {
 		t.Fatalf("ReadRawArtifactRange for op-mismatch test failed: %v", domain)
 	}
-	_, domain = h2.service.ReadPayloadRange(context.Background(), targetEvidence(h2.scopeID), RangeRequest{
+	_, domain = h2.service.ReadContentRange(context.Background(), targetEvidence(h2.scopeID), RangeRequest{
 		Handle:         h2.handle,
-		Source:         RangeSourcePayload,
-		PayloadID:      "payload-1",
+		Source:         RangeSourceContent,
+		ContentRef:     mustEnvelopeContentRef(t, h2.scopeID, h2.handle, "payload-1"),
 		ContinueCursor: artifactPage.NextCursor,
 		MaxBytes:       50,
 	})

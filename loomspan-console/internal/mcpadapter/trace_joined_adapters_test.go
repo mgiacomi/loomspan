@@ -47,7 +47,7 @@ func (echoSummaryAnalysis) QueryFrames(context.Context, evidence.Reference, trac
 func (echoSummaryAnalysis) QueryRecords(context.Context, evidence.Reference, traceanalysis.RecordQuery) (traceanalysis.Page[traceanalysis.RecordSummary], *consolecore.Error) {
 	return traceanalysis.Page[traceanalysis.RecordSummary]{}, nil
 }
-func (echoSummaryAnalysis) ReadPayloadRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
+func (echoSummaryAnalysis) ReadContentRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
 	return traceanalysis.ByteRangeResult{}, nil
 }
 func (echoSummaryAnalysis) ReadRawArtifactRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {

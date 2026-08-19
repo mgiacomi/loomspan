@@ -22,6 +22,13 @@ const (
 	FrameOrderUsageDesc FrameOrder = "USAGE_DESC"
 )
 
+type FrameProjection string
+
+const (
+	FrameProjectionCompact  FrameProjection = "COMPACT"
+	FrameProjectionDetailed FrameProjection = "DETAILED"
+)
+
 // FrameFilter selects which frames a frame query returns. Cross-reference
 // fields match facts explicitly recorded against that exact frame; they are
 // never inferred from adjacency or propagated from descendants. Empty fields
@@ -42,20 +49,22 @@ type FrameFilter struct {
 
 // FrameQuery is a bounded, continuable frame query.
 type FrameQuery struct {
-	Handle   artifact.Handle
-	Filter   FrameFilter `json:"filter"`
-	Order    FrameOrder  `json:"order"`
-	PageSize int         `json:"pageSize"`
-	Cursor   string      `json:"cursor,omitempty"`
+	Handle     artifact.Handle
+	Filter     FrameFilter     `json:"filter"`
+	Order      FrameOrder      `json:"order"`
+	Projection FrameProjection `json:"projection"`
+	PageSize   int             `json:"pageSize"`
+	Cursor     string          `json:"cursor,omitempty"`
 }
 
 // frameQueryCanonical is the canonical projection of a FrameQuery used for
 // fingerprinting. It omits the handle and cursor (which are per-call
 // identity/progress, not query meaning).
 type frameQueryCanonical struct {
-	Filter   FrameFilter `json:"filter"`
-	Order    FrameOrder  `json:"order"`
-	PageSize int         `json:"pageSize"`
+	Filter     FrameFilter     `json:"filter"`
+	Order      FrameOrder      `json:"order"`
+	Projection FrameProjection `json:"projection"`
+	PageSize   int             `json:"pageSize"`
 }
 
 // QueryFrames returns a finite, continuable page of frame summaries matching
@@ -69,6 +78,15 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 	if query.Order == "" {
 		query.Order = FrameOrderCanonical
 	}
+	if query.Projection == "" {
+		query.Projection = FrameProjectionCompact
+	}
+	if query.Projection != FrameProjectionCompact && query.Projection != FrameProjectionDetailed {
+		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The frame projection is not supported.", scopeID.ID(), consolecore.Details{}, nil)
+	}
+	if query.Projection == FrameProjectionCompact && query.Order != FrameOrderCanonical {
+		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument, "Compact frames require canonical order.", scopeID.ID(), consolecore.Details{}, nil)
+	}
 	if _, valid := frameIndexForOrder(query.Order); !valid {
 		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
 			"The frame order is not supported.", scopeID.ID(), consolecore.Details{}, nil)
@@ -79,6 +97,14 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 				"The frame type filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
 		}
 	}
+	if query.Filter.Outcome != "" {
+		if !containsClosedValue(FrameOutcomeValues(), query.Filter.Outcome) {
+			return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The frame outcome filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
+		}
+	}
+	if query.Filter.ValidationStatus != "" && !knownValidationStatus(query.Filter.ValidationStatus) {
+		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The validation status filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
+	}
 	for _, frameID := range query.Filter.FrameIDs {
 		if frameID == "" {
 			return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
@@ -87,9 +113,10 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 	}
 	query.Filter.FrameIDs = normalizeStringSet(query.Filter.FrameIDs)
 	fingerprint, err := canonicalizeRequest(frameQueryCanonical{
-		Filter:   query.Filter,
-		Order:    query.Order,
-		PageSize: pageSize,
+		Filter:     query.Filter,
+		Order:      query.Order,
+		Projection: query.Projection,
+		PageSize:   pageSize,
 	})
 	if err != nil {
 		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeConsoleError,
@@ -152,6 +179,10 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 		summary := frameResultToSummary(frame.frameResult, traceCtx)
 		summary.GapKinds = append([]string{}, frame.GapKinds...)
 		summary.UncertaintyKinds = append([]string{}, frame.UncertaintyKinds...)
+		populateFrameCounts(&summary)
+		if query.Projection == FrameProjectionCompact {
+			compactFrameSummary(&summary)
+		}
 		items = append(items, summary)
 		nextPosition = next
 		return false
@@ -176,6 +207,33 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
+}
+
+func populateFrameCounts(summary *FrameSummary) {
+	summary.DirectAttemptCount = len(summary.AttemptIDs)
+	summary.DirectRetryCount = len(summary.RetrySequenceIDs)
+	summary.DirectValidationCount = len(summary.ValidationStatuses)
+	summary.DirectFailureCount = len(summary.FailureIDs)
+	summary.GapCount = len(summary.GapKinds)
+	summary.UncertaintyCount = len(summary.UncertaintyKinds)
+}
+
+func compactFrameSummary(summary *FrameSummary) {
+	summary.InclusiveDurationMillis = nil
+	summary.SelfDurationMillis = nil
+	summary.DirectUsage = Usage{}
+	summary.DirectUsageComplete = false
+	summary.DescendantUsage = Usage{}
+	summary.DescendantUsageComplete = false
+	summary.InclusiveUsage = Usage{}
+	summary.InclusiveUsageComplete = false
+	summary.SkillNames = nil
+	summary.AttemptIDs = nil
+	summary.RetrySequenceIDs = nil
+	summary.ValidationStatuses = nil
+	summary.FailureIDs = nil
+	summary.GapKinds = nil
+	summary.UncertaintyKinds = nil
 }
 
 // frameMatchesFilter reports whether a frame matches all set filter fields.

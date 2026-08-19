@@ -30,7 +30,7 @@ func TestCapabilityDescriptorsMatchInstalledToolFamilies(t *testing.T) {
 		{ID: SkillInspectionCapability, RequiredTools: []string{ListSkillsToolName, GetSkillToolName}},
 		{ID: ActiveExecutionInspectionCapability, RequiredTools: []string{ListExecutionsToolName, GetExecutionToolName}},
 		{ID: RecentActivityInspectionCapability, RequiredTools: []string{GetExecutionActivityToolName}},
-		{ID: TraceInspectionCapability, RequiredTools: []string{ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName}, RequiredSemanticFixtures: traceSemanticFixtures},
+		{ID: TraceInspectionCapability, RequiredTools: []string{ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTraceContentToolName}, RequiredSemanticFixtures: traceSemanticFixtures},
 		{ID: RawArtifactInspectionCapability, RequiredTools: []string{ReadTraceArtifactToolName}, RequiredSemanticFixtures: rawArtifactSemanticFixtures},
 	}
 	if !reflect.DeepEqual(capabilityDescriptors, want) {

@@ -6,7 +6,7 @@ import type { TraceAnalysisPage, TraceRange, TraceRecord } from "../api/contract
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
-  getPayloadRange: vi.fn(),
+  getContentRange: vi.fn(),
   getRawRecordRange: vi.fn(),
   getTraceRecords: vi.fn(),
 }));
@@ -27,9 +27,14 @@ function record(sequence = 100, overrides: Partial<TraceRecord> = {}): TraceReco
     representation: "LOGICAL",
     isChunk: false,
     isEnvelope: false,
-    payloadId: "",
+
     ...overrides,
   };
+}
+
+function planRecord(): TraceRecord {
+  const plan = { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId: "task-customer", title: "Retrieve customer" }] };
+  return { ...record(85, { type: "PLAN_CREATED", route: "handleBilling", frameId: "plan-frame" }), content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify(plan) } };
 }
 
 function rangeContent(content: string, overrides: Partial<TraceRange> = {}): TraceRange {
@@ -57,7 +62,7 @@ function page(items: TraceRecord[], overrides: Partial<TraceAnalysisPage<TraceRe
 }
 
 function renderToolInput(current = record()) {
-  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
 }
 
 beforeEach(() => {
@@ -80,7 +85,7 @@ test("shows planned tool input only after explicit selection", async () => {
     : range({ data: { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId: "task-customer", title: "Retrieve customer" }] } }));
   getTraceRecordsMock.mockImplementation(async (_traceId, _cursor, filter) => filter?.types?.includes("STEP_STARTED")
     ? page([record(88, { type: "STEP_STARTED", route: "handleBilling#step-1", frameId: "step-frame", parentFrameId: "skill-frame" })])
-    : page([record(85, { type: "PLAN_CREATED", route: "handleBilling", frameId: "plan-frame" })]));
+    : page([planRecord()]));
 
   renderToolInput();
   const action = screen.getByRole("button", { name: "Tool input" });
@@ -123,7 +128,7 @@ test("resolves a planned task title through an ordinary mission model frame", as
         frameType: "MODEL_CALL",
       })]);
     }
-    return page([record(85, { type: "PLAN_CREATED", route: "handleBilling", frameId: "plan-frame" })]);
+    return page([planRecord()]);
   });
 
   renderToolInput(record(100, { parentFrameId: "model-frame" }));

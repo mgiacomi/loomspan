@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { getPayloadRange, getRawRecordRange } from "../api/client";
+import { getContentRange, getRawRecordRange } from "../api/client";
 import type { TraceRange, TraceRecord } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
-  getPayloadRange: vi.fn(),
+  getContentRange: vi.fn(),
   getRawRecordRange: vi.fn(),
   getTraceRecords: vi.fn(),
 }));
 
-const getPayloadRangeMock = vi.mocked(getPayloadRange);
+const getContentRangeMock = vi.mocked(getContentRange);
 const getRawRecordRangeMock = vi.mocked(getRawRecordRange);
 
-function record(sequence: number, type: string, payloadId = ""): TraceRecord {
+function record(sequence: number, type: string, contentRef = ""): TraceRecord {
   return {
     sequence,
     type,
@@ -25,8 +25,8 @@ function record(sequence: number, type: string, payloadId = ""): TraceRecord {
     timestampMillis: sequence,
     representation: "LOGICAL",
     isChunk: false,
-    isEnvelope: payloadId !== "",
-    payloadId,
+    isEnvelope: contentRef !== "",
+    content: contentRef ? { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef } : undefined,
   };
 }
 
@@ -47,11 +47,11 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderRecords(records: TraceRecord[]) {
-  render(<TraceRecords traceId="trace-1" records={records} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={records} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
 }
 
 beforeEach(() => {
-  getPayloadRangeMock.mockReset();
+  getContentRangeMock.mockReset();
   getRawRecordRangeMock.mockReset();
 });
 
@@ -63,12 +63,12 @@ test("reconstructs a chunked model request and presents messages by role", async
     ],
   });
   const split = 45;
-  getPayloadRangeMock
+  getContentRangeMock
     .mockResolvedValueOnce(range(request.slice(0, split), { actualEnd: split, totalLength: request.length, hasMore: true, nextCursor: "next" }))
     .mockResolvedValueOnce(range(request.slice(split), { actualStart: split, actualEnd: request.length, totalLength: request.length }));
   renderRecords([record(9, "MODEL_REQUEST_SENT", "payload-1")]);
 
-  expect(screen.queryByRole("button", { name: "Read payload" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Read content" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Request" }));
 
   const detail = await screen.findByRole("region", { name: "Model request for record 9" });
@@ -76,8 +76,8 @@ test("reconstructs a chunked model request and presents messages by role", async
   expect(detail).toHaveTextContent("Follow the system instructions.");
   expect(within(detail).getByRole("heading", { name: "user" })).toBeVisible();
   expect(detail).toHaveTextContent("Resolve this support case.");
-  expect(getPayloadRangeMock).toHaveBeenNthCalledWith(1, "trace-1", "payload-1", undefined, "TARGET");
-  expect(getPayloadRangeMock).toHaveBeenNthCalledWith(2, "trace-1", "payload-1", "next", "TARGET");
+  expect(getContentRangeMock).toHaveBeenNthCalledWith(1, "trace-1", "payload-1", undefined, "TARGET");
+  expect(getContentRangeMock).toHaveBeenNthCalledWith(2, "trace-1", "payload-1", "next", "TARGET");
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 });
 
@@ -85,23 +85,24 @@ test("presents a prepared request inline instead of exposing the generic payload
   const request = JSON.stringify({
     messages: [{ messageType: "USER", text: "Prepared model input" }],
   });
-  getPayloadRangeMock.mockResolvedValue(range(request));
+  getContentRangeMock.mockResolvedValue(range(request));
   renderRecords([record(8, "MODEL_REQUEST_PREPARED", "prepared-payload")]);
 
-  expect(screen.queryByRole("button", { name: "Read payload" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Read content" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Prepared model request for record 8" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Prepared request" }));
 
   const detail = await screen.findByRole("region", { name: "Prepared model request for record 8" });
   expect(within(detail).getByRole("heading", { name: "user" })).toBeVisible();
   expect(detail).toHaveTextContent("Prepared model input");
-  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "prepared-payload", undefined, "TARGET");
+  expect(getContentRangeMock).toHaveBeenCalledWith("trace-1", "prepared-payload", undefined, "TARGET");
 });
 
 test("extracts and pretty prints JSON content from an inline model response", async () => {
   const content = { stepAction: "CALL_TOOL", toolName: "understandIntent", toolArguments: { customerId: "CUST-1001" } };
-  getRawRecordRangeMock.mockResolvedValue(range(JSON.stringify({ traceId: "trace-1", recordType: "MODEL_RESPONSE_RECEIVED", data: { content: `\n${JSON.stringify(content)}` } })));
-  renderRecords([record(12, "MODEL_RESPONSE_RECEIVED")]);
+  const value = record(12, "MODEL_RESPONSE_RECEIVED");
+  value.content = { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify({ content: `\n${JSON.stringify(content)}` }) };
+  renderRecords([value]);
 
   fireEvent.click(screen.getByRole("button", { name: "Response" }));
 
@@ -112,8 +113,9 @@ test("extracts and pretty prints JSON content from an inline model response", as
 });
 
 test("preserves a plain-text model response", async () => {
-  getRawRecordRangeMock.mockResolvedValue(range(JSON.stringify({ data: { content: "Plain model response" } })));
-  renderRecords([record(13, "MODEL_RESPONSE_RECEIVED")]);
+  const value = record(13, "MODEL_RESPONSE_RECEIVED");
+  value.content = { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify({ content: "Plain model response" }) };
+  renderRecords([value]);
 
   fireEvent.click(screen.getByRole("button", { name: "Response" }));
 
@@ -121,8 +123,9 @@ test("preserves a plain-text model response", async () => {
 });
 
 test("reports malformed model content without displaying a partial fallback", async () => {
-  getRawRecordRangeMock.mockResolvedValue(range("{not-json"));
-  renderRecords([record(14, "MODEL_RESPONSE_RECEIVED")]);
+  const value = record(14, "MODEL_RESPONSE_RECEIVED");
+  value.content = { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: "{not-json" };
+  renderRecords([value]);
 
   fireEvent.click(screen.getByRole("button", { name: "Response" }));
 

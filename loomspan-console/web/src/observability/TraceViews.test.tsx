@@ -6,6 +6,7 @@ import { TraceTimeline } from "./TraceTimeline";
 import { TraceUsage } from "./TraceUsage";
 import { TraceRecords } from "./TraceRecords";
 import { TraceEvidenceDetail } from "./TraceEvidenceDetail";
+import type { TraceRecord } from "../api/contracts";
 
 const frame = {
   frameId: "frame-1",
@@ -164,7 +165,7 @@ test("usage preserves returned values and record-row evidence actions remain del
             representation: "logical",
             isChunk: false,
             isEnvelope: true,
-            payloadId: "payload-1",
+            content: { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "payload-1" },
           },
         ]}
         failures={[
@@ -183,7 +184,7 @@ test("usage preserves returned values and record-row evidence actions remain del
         ]}
         onSelectRecord={selectRecord}
         onSelectFailure={selectFailure}
-        onPayload={payload}
+        onContent={payload}
       />
     </>,
   );
@@ -191,7 +192,7 @@ test("usage preserves returned values and record-row evidence actions remain del
     "3",
   );
   fireEvent.click(screen.getByRole("button", { name: "Read raw record" }));
-  fireEvent.click(screen.getByRole("button", { name: "Read payload" }));
+  fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   expect(screen.getByRole("status")).toHaveTextContent(
     "Trace context unavailable",
   );
@@ -405,9 +406,9 @@ test("usage operation links identify the exact model response record", () => {
     terminal: { promptUnits: 2, completionUnits: 2, totalUnits: 4 },
   };
   const contributor = { ...frame, frameId: "model-frame", route: "handleIncident#planning-model", directUsage: usage.attributed };
-  const response = { sequence: 23, type: "MODEL_RESPONSE_RECEIVED", frameId: "model-frame", parentFrameId: "root", frameType: "MODEL_CALL", route: contributor.route, threadName: "main", timestampMillis: 20, representation: "LOGICAL", isChunk: false, isEnvelope: false, payloadId: "response-payload" };
+  const response: TraceRecord = { sequence: 23, type: "MODEL_RESPONSE_RECEIVED", frameId: "model-frame", parentFrameId: "root", frameType: "MODEL_CALL", route: contributor.route, threadName: "main", timestampMillis: 20, representation: "LOGICAL", isChunk: false, isEnvelope: false, content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "response-content" } };
 
-  const recordHref = (record: typeof response) => `?view=records&frameId=${record.frameId}&recordSequence=${record.sequence}`;
+  const recordHref = (record: TraceRecord) => `?view=records&frameId=${record.frameId}&recordSequence=${record.sequence}`;
   const { rerender } = render(<MemoryRouter><TraceUsage usage={usage} contributors={[contributor]} responseRecords={[response]} recordHref={recordHref} /></MemoryRouter>);
 
   expect(screen.getByRole("link", { name: "handleIncident · planning · model" })).toHaveAttribute("href", "/?view=records&frameId=model-frame&recordSequence=23");

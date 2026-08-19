@@ -22,18 +22,22 @@ func newImportTestService(t *testing.T, config Config, processor *fakeProcessor)
 
 func TestImportPublishesImportedEvidenceWithProcessorMetadata(t *testing.T) {
 	processor := newFakeProcessor()
+	processor.metadata = &TraceMetadata{TraceID: "trace-import", SessionID: "session-import", EntrySkill: "validated.entry", Outcome: "SUCCEEDED", FinalizedAt: time.Unix(42, 0).UTC()}
 	svc := newImportTestService(t, Config{Unlimited: true, NeverExpire: true}, processor)
 
 	got, domain := svc.Import(context.Background(), bytes.NewReader([]byte("raw-import")), -1)
 	if domain != nil {
 		t.Fatalf("Import failed: %v", domain)
 	}
-	if got.Owner.Source() != evidence.SourceImported || got.Metadata.TraceID != "trace-import" || got.Metadata.SessionID != "session-import" {
+	if got.Owner.Source() != evidence.SourceImported || got.Metadata.TraceID != "trace-import" || got.Metadata.SessionID != "session-import" || got.Metadata.EntrySkill != "validated.entry" {
 		t.Fatalf("unexpected imported artifact: %+v", got)
 	}
 	lookup, domain := svc.Lookup(evidence.ForImported(), "trace-import")
 	if domain != nil || !lookup.LocalAvailable || lookup.Handle != got.Handle {
 		t.Fatalf("imported lookup=%+v error=%v", lookup, domain)
+	}
+	if lookup.Metadata.EntrySkill != "validated.entry" {
+		t.Fatalf("validated entry skill was not published: %+v", lookup.Metadata)
 	}
 	snapshot, domain := svc.StorageSnapshot()
 	if domain != nil || len(snapshot.Entries) != 1 || snapshot.Entries[0].Source != evidence.SourceImported || snapshot.Entries[0].TargetScopeID != "" || snapshot.Entries[0].ApplicationTraceExpiresAt != nil {
@@ -55,6 +59,35 @@ func TestImportRejectsDuplicateBeforeStagingOrCapacityWork(t *testing.T) {
 	after, _ := svc.StorageSnapshot()
 	if after.AcquiredCount != 1 || after.ChargedBytes != before.ChargedBytes {
 		t.Fatalf("duplicate changed storage: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestImportTimestampIsRenewedOnlyAfterRemovalAndReimport(t *testing.T) {
+	processor := newFakeProcessor()
+	clock := newManualClock(time.UnixMilli(1_000_000))
+	svc := newTestServiceWithProcessor(t, Config{Unlimited: true, NeverExpire: true},
+		newFakeLoader(testTraceMetadata("unused", 0)), newFakeOpener(nil, 0),
+		&manualTimerFactory{}, clock, nil, processor)
+
+	first, domain := svc.Import(context.Background(), bytes.NewReader([]byte("first")), -1)
+	if domain != nil {
+		t.Fatalf("first import failed: %v", domain)
+	}
+	clock.advance(time.Minute)
+	if _, domain = svc.Import(context.Background(), bytes.NewReader([]byte("duplicate")), -1); domain == nil || domain.Code != consolecore.CodeArtifactAlreadyExists {
+		t.Fatalf("duplicate import domain=%v", domain)
+	}
+	lookup, domain := svc.Lookup(evidence.ForImported(), first.Metadata.TraceID)
+	if domain != nil || !lookup.AcquiredAt.Equal(first.AcquiredAt) {
+		t.Fatalf("duplicate import changed imported timestamp: lookup=%+v domain=%v", lookup, domain)
+	}
+	if domain = svc.Remove(evidence.ForImported(), first.Metadata.TraceID); domain != nil {
+		t.Fatalf("remove failed: %v", domain)
+	}
+	clock.advance(time.Minute)
+	second, domain := svc.Import(context.Background(), bytes.NewReader([]byte("second")), -1)
+	if domain != nil || !second.AcquiredAt.After(first.AcquiredAt) {
+		t.Fatalf("reimport did not renew imported timestamp: first=%+v second=%+v domain=%v", first, second, domain)
 	}
 }
 

@@ -66,6 +66,7 @@ type cursor struct {
 type searchCursorState struct {
 	Phase           string `json:"phase"`
 	RecordPosition  int64  `json:"recordPosition"`
+	RecordField     string `json:"recordField,omitempty"`
 	PayloadPosition int64  `json:"payloadPosition"`
 	// PayloadIndexOffset is the length-prefixed row offset for
 	// PayloadPosition. It lets payload continuations seek directly to the
@@ -73,6 +74,7 @@ type searchCursorState struct {
 	PayloadIndexOffset int64 `json:"payloadIndexOffset"`
 	ByteOffset         int64 `json:"byteOffset"`
 	KMPPartial         int   `json:"kmpPartial"`
+	ExcludedBinary     bool  `json:"excludedBinary,omitempty"`
 }
 
 // canonicalizeRequest produces a deterministic JSON encoding of the query

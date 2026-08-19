@@ -210,6 +210,12 @@ func (service *Service) installStream(entry *entry, stream inputStream, metadata
 	validatedMetadata := metadata
 	validatedMetadata.TraceID = processResult.Metadata.TraceID
 	validatedMetadata.SessionID = processResult.Metadata.SessionID
+	// Target acquisition retains the catalog's source fact. A target-free
+	// import has no catalog metadata, so its entry skill comes only from the
+	// validated TRACE_STARTED record published by the processor.
+	if entry.key.owner.Source() == evidence.SourceImported {
+		validatedMetadata.EntrySkill = processResult.Metadata.EntrySkill
+	}
 	validatedMetadata.Outcome = processResult.Metadata.Outcome
 	validatedMetadata.FinalizedAt = processResult.Metadata.FinalizedAt
 	validatedMetadata.PersistencePolicy = processResult.Metadata.PersistencePolicy
@@ -234,7 +240,7 @@ func (service *Service) installStream(entry *entry, stream inputStream, metadata
 		Handle:        entry.handle,
 		Metadata:      validatedMetadata,
 		LocalBytes:    aggregate,
-		AcquiredAt:    entry.acquisitionTime,
+		AcquiredAt:    time.Time{},
 		LastUsedAt:    now,
 		ExpiresAt:     expiresAt,
 		HasIdleExpiry: !service.ttlNeverExpire,
@@ -523,6 +529,8 @@ func (service *Service) publishAcquisitionSuccess(entry *entry, artifact Acquire
 		return
 	}
 	entry.state = stateInstalled
+	entry.acquisitionTime = service.clock().UTC()
+	artifact.AcquiredAt = entry.acquisitionTime
 	entry.lastUsedAt = artifact.LastUsedAt
 	if entry.scopeStop != nil {
 		entry.scopeStop()

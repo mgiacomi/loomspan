@@ -18,10 +18,16 @@ this document explicitly proposes reconsideration. This catalog adds the
 LLM-mediated general-understanding and content-retrieval workflows that the
 earlier failure/latency/usage/path set did not cover.
 
-The accepted first-pass interface changes are implementation-scoped in the
-[LLM-facing MCP trace interface cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md).
-Remaining workflow questions are intentionally deferred until the cleaned
-server is exercised through live MCP walkthroughs.
+The first LLM-facing interface cleanup is complete: finalized inspection uses
+`traceId`, while Console keeps evidence ownership and artifact lifecycle
+internal. Remaining workflow questions are intentionally deferred until this
+cleaned server is exercised through live MCP walkthroughs.
+
+The MCP and Console contracts remain unreleased. Future work should change
+them in place and update all callers, tests, fixtures, skill guidance, and docs
+together. Do not add compatibility shims or parallel legacy behavior for an
+earlier development revision. The supported Java API remains governed
+separately by its closed allowlist.
 
 ## Product north star
 

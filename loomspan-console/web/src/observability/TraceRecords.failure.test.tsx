@@ -29,7 +29,7 @@ function record(sequence: number, type: string): TraceRecord {
     representation: "LOGICAL",
     isChunk: false,
     isEnvelope: true,
-    payloadId: "",
+
   };
 }
 
@@ -46,7 +46,7 @@ test("distinguishes recoverable warnings from failure records and removes detach
       selectedFailureId="failure-15"
       onSelectRecord={vi.fn()}
       onSelectFailure={selectFailure}
-      onPayload={vi.fn()}
+      onContent={vi.fn()}
     />,
   );
 

@@ -15,7 +15,17 @@ import (
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/target"
 )
+
+func mustEnvelopeContentRef(t *testing.T, scopeID target.ScopeID, handle artifact.Handle, payloadID string) string {
+	t.Helper()
+	ref, err := encodeEnvelopeContentReference(targetEvidence(scopeID), handle, payloadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
 
 func TestRangeCandidateExactnessAtOneFourSixteenAndThirtyTwoMiB(t *testing.T) {
 	for _, size := range []int{1 << 20, 4 << 20, 16 << 20, 32 << 20} {
@@ -42,7 +52,7 @@ func TestSixteenMiBPayloadRangeExactConcurrentCancellableAndDeadlineBound(t *tes
 	const size = 16 << 20
 	h := newServiceTestHarness(t, "t", chunkedPayloadTrace(size, 64))
 	read := func(ctx context.Context) ([]byte, *consolecore.Error) {
-		result, domain := h.service.ReadPayloadRange(ctx, targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, Source: RangeSourcePayload, PayloadID: "payload-1", Start: 0, MaxBytes: size})
+		result, domain := h.service.ReadContentRange(ctx, targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, Source: RangeSourceContent, ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"), Start: 0, MaxBytes: size})
 		return result.Content, domain
 	}
 	want := sha256.Sum256(bytes.Repeat([]byte("x"), size))
@@ -247,21 +257,21 @@ func TestServiceReadRawRecordRangeNotFound(t *testing.T) {
 	}
 }
 
-func TestServiceReadPayloadRange(t *testing.T) {
+func TestServiceReadContentRange(t *testing.T) {
 	ndjson := chunkedPayloadTrace(256, 2)
 	h := newServiceTestHarness(t, "t", ndjson)
 	// Read the first 50 bytes of payload-1.
-	result, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-		Handle:    h.handle,
-		Source:    RangeSourcePayload,
-		PayloadID: "payload-1",
-		Start:     0,
-		MaxBytes:  50,
+	result, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+		Handle:     h.handle,
+		Source:     RangeSourceContent,
+		ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
+		Start:      0,
+		MaxBytes:   50,
 	})
 	if domain != nil {
-		t.Fatalf("ReadPayloadRange failed: %v", domain)
+		t.Fatalf("ReadContentRange failed: %v", domain)
 	}
-	if result.Source != RangeSourcePayload {
+	if result.Source != RangeSourceContent {
 		t.Fatalf("expected source PAYLOAD, got %q", result.Source)
 	}
 	if result.ContentType != "text/plain" {
@@ -278,29 +288,29 @@ func TestServiceReadPayloadRange(t *testing.T) {
 	}
 }
 
-func TestServiceReadPayloadRangeNotFound(t *testing.T) {
+func TestServiceReadContentRangeNotFound(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	_, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-		Handle:    h.handle,
-		Source:    RangeSourcePayload,
-		PayloadID: "nonexistent",
-		Start:     0,
-		MaxBytes:  100,
+	_, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+		Handle:     h.handle,
+		Source:     RangeSourceContent,
+		ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "nonexistent"),
+		Start:      0,
+		MaxBytes:   100,
 	})
 	if domain == nil {
 		t.Fatal("expected error for nonexistent payload")
 	}
 }
 
-func TestServiceReadPayloadRangeContinuation(t *testing.T) {
+func TestServiceReadContentRangeContinuation(t *testing.T) {
 	ndjson := chunkedPayloadTrace(256, 2)
 	h := newServiceTestHarness(t, "t", ndjson)
-	page1, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
-		Handle:    h.handle,
-		Source:    RangeSourcePayload,
-		PayloadID: "payload-1",
-		Start:     0,
-		MaxBytes:  100,
+	page1, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+		Handle:     h.handle,
+		Source:     RangeSourceContent,
+		ContentRef: mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
+		Start:      0,
+		MaxBytes:   100,
 	})
 	if domain != nil {
 		t.Fatalf("page 1 failed: %v", domain)
@@ -308,10 +318,10 @@ func TestServiceReadPayloadRangeContinuation(t *testing.T) {
 	if !page1.HasMore {
 		t.Fatal("expected hasMore on page 1")
 	}
-	page2, domain := h.service.ReadPayloadRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
+	page2, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{
 		Handle:         h.handle,
-		Source:         RangeSourcePayload,
-		PayloadID:      "payload-1",
+		Source:         RangeSourceContent,
+		ContentRef:     mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1"),
 		ContinueCursor: page1.NextCursor,
 		MaxBytes:       100,
 	})

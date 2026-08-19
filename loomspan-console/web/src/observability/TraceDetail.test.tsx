@@ -13,8 +13,8 @@ vi.mock("../api/client", () => ({
   acquireArtifact: vi.fn(),
   getTraceAnalysisSummary: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "SUCCEEDED", terminalFailureId: null, recordCount: 0, frameCount: 0, rootFrameIds: [], usageComplete: true }),
   getTraceFrames: vi.fn().mockResolvedValue({ targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
-  getTraceRecords: vi.fn(), getTraceUsage: vi.fn(), getPayloadRange: vi.fn(), getRawRecordRange: vi.fn(),
-  getTraceAttempts: vi.fn(), getTraceFailures: vi.fn(), getTraceValidationLinks: vi.fn(), getTraceGaps: vi.fn(), getTraceUncertainties: vi.fn(), getTracePayloads: vi.fn(),
+  getTraceRecords: vi.fn(), getTraceUsage: vi.fn(), getContentRange: vi.fn(), getRawRecordRange: vi.fn(),
+  getTraceAttempts: vi.fn(), getTraceFailures: vi.fn(), getTraceValidationLinks: vi.fn(), getTraceGaps: vi.fn(), getTraceUncertainties: vi.fn(),
   searchTraceEvidence: vi.fn(),
   rawArtifactDownloadURL: (traceId: string) => `/api/console/v1/artifacts/${encodeURIComponent(traceId)}/raw`,
   BrowserAPIError: class BrowserAPIError extends Error {

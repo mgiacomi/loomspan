@@ -45,12 +45,11 @@ type TraceAnalysisService interface {
 	QueryValidationLinks(context.Context, evidence.Reference, traceanalysis.ValidationQuery) (traceanalysis.Page[traceanalysis.ValidationSummary], *consolecore.Error)
 	QueryFailures(context.Context, evidence.Reference, traceanalysis.FailureQuery) (traceanalysis.Page[traceanalysis.FailureSummary], *consolecore.Error)
 	GetFailureDiagnostic(context.Context, evidence.Reference, traceanalysis.FailureDiagnosticRequest) (traceanalysis.FailureDiagnostic, *consolecore.Error)
-	QueryPayloads(context.Context, evidence.Reference, traceanalysis.PayloadQuery) (traceanalysis.Page[traceanalysis.PayloadDescriptor], *consolecore.Error)
 	QueryGaps(context.Context, evidence.Reference, traceanalysis.GapQuery) (traceanalysis.Page[traceanalysis.Gap], *consolecore.Error)
 	QueryUncertainties(context.Context, evidence.Reference, traceanalysis.UncertaintyQuery) (traceanalysis.Page[traceanalysis.Uncertainty], *consolecore.Error)
 	GetUsageBreakdown(context.Context, evidence.Reference, artifact.Handle) (traceanalysis.UsageBreakdown, *consolecore.Error)
 	Search(context.Context, evidence.Reference, traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error)
-	ReadPayloadRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
+	ReadContentRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
 	ReadRawRecordRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
 }
 
@@ -183,15 +182,13 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 		router.withSession(response, request, false, router.traceAnalysisFailures)
 	case "/api/console/v1/traces/analysis/failure-diagnostic":
 		router.withSession(response, request, false, router.traceAnalysisFailureDiagnostic)
-	case "/api/console/v1/traces/analysis/payloads":
-		router.withSession(response, request, false, router.traceAnalysisPayloads)
 	case "/api/console/v1/traces/analysis/gaps":
 		router.withSession(response, request, false, router.traceAnalysisGaps)
 	case "/api/console/v1/traces/analysis/uncertainties":
 		router.withSession(response, request, false, router.traceAnalysisUncertainties)
 	case "/api/console/v1/traces/analysis/search":
 		router.withSession(response, request, false, router.traceAnalysisSearch)
-	case "/api/console/v1/traces/analysis/payload-range":
+	case "/api/console/v1/traces/analysis/content-range":
 		router.withSession(response, request, false, router.traceAnalysisPayloadRange)
 	case "/api/console/v1/traces/analysis/raw-record-range":
 		router.withSession(response, request, false, router.traceAnalysisRawRecordRange)

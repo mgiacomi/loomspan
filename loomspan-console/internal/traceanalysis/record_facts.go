@@ -131,16 +131,25 @@ func (reader *recordFactReader) Read(ctx context.Context, position int64) (persi
 
 func materializeRecordFacts(stored persistedRecordFacts, rec *Record, filter RecordFilter, ref evidence.Reference, handle artifact.Handle, traceCtx TraceContext) (RecordFacts, error) {
 	facts := RecordFacts{Attempts: []AttemptSummary{}, Retries: []RetrySummary{}, Validations: []ValidationSummary{}, Failures: []FailureSummary{}, Payloads: []PayloadDescriptor{}, SearchMatches: []SearchResult{}}
+	if rec.Type == RecordPlanCreated || rec.Type == RecordPlanUpdated {
+		if planID, present, err := rec.metadataString("planId"); present && err == nil && planID != "" {
+			facts.Plan = &PlanLandmark{PlanID: planID, Sequence: rec.Sequence, PlanningFrameID: rec.FrameID}
+			if rec.Type == RecordPlanCreated {
+				facts.Plan.AttemptID, _, _ = rec.metadataString("attemptId")
+				facts.Plan.RetrySequenceID, _, _ = rec.metadataString("retrySequenceId")
+			}
+		}
+	}
 	for _, a := range stored.Attempts {
-		payloadRef := ""
+		contentRef := ""
 		if a.PayloadID != "" {
 			var err error
-			payloadRef, err = encodeContentReference(ref, handle, contentKindPayload, a.PayloadID, nil)
+			contentRef, err = encodeEnvelopeContentReference(ref, handle, a.PayloadID)
 			if err != nil {
 				return RecordFacts{}, err
 			}
 		}
-		facts.Attempts = append(facts.Attempts, AttemptSummary{Context: traceCtx, RetrySequenceID: a.RetrySequenceID, AttemptID: a.AttemptID, AttemptNumber: a.AttemptNumber, AttemptReason: a.AttemptReason, ProviderAttemptNumber: a.ProviderAttemptNumber, Outcome: a.Outcome, FailureClassification: a.FailureClassification, FailureCategory: a.FailureCategory, RetryDecision: a.RetryDecision, RetryDelayMillis: a.RetryDelayMillis, RetryDelaySource: a.RetryDelaySource, HTTPStatus: a.HTTPStatus, ProviderErrorType: a.ProviderErrorType, ProviderErrorCode: a.ProviderErrorCode, PayloadID: a.PayloadID, PayloadRef: payloadRef, Usage: a.Usage, UsageComplete: a.UsageComplete})
+		facts.Attempts = append(facts.Attempts, AttemptSummary{Context: traceCtx, RetrySequenceID: a.RetrySequenceID, AttemptID: a.AttemptID, AttemptNumber: a.AttemptNumber, AttemptReason: a.AttemptReason, ProviderAttemptNumber: a.ProviderAttemptNumber, Outcome: a.Outcome, FailureClassification: a.FailureClassification, FailureCategory: a.FailureCategory, RetryDecision: a.RetryDecision, RetryDelayMillis: a.RetryDelayMillis, RetryDelaySource: a.RetryDelaySource, HTTPStatus: a.HTTPStatus, ProviderErrorType: a.ProviderErrorType, ProviderErrorCode: a.ProviderErrorCode, ContentRef: contentRef, Usage: a.Usage, UsageComplete: a.UsageComplete})
 	}
 	for _, r := range stored.Retries {
 		facts.Retries = append(facts.Retries, RetrySummary{Context: traceCtx, RetrySequenceID: r.RetrySequenceID, Usage: r.Usage, UsageComplete: r.UsageComplete})
@@ -153,7 +162,7 @@ func materializeRecordFacts(stored persistedRecordFacts, rec *Record, filter Rec
 		for i := range diagnostics {
 			ordinal := diagnostics[i].Ordinal
 			var err error
-			diagnostics[i].PayloadRef, err = encodeContentReference(ref, handle, contentKindFailureDiagnostic, f.FailureID, &ordinal)
+			diagnostics[i].ContentRef, err = encodeDiagnosticContentReference(ref, handle, f.FailureID, ordinal)
 			if err != nil {
 				return RecordFacts{}, err
 			}
@@ -161,11 +170,11 @@ func materializeRecordFacts(stored persistedRecordFacts, rec *Record, filter Rec
 		facts.Failures = append(facts.Failures, FailureSummary{Context: traceCtx, FailureID: f.FailureID, Terminal: f.Terminal, Sequence: f.Sequence, TimestampMillis: f.TimestampMillis, RecordType: f.RecordType, FrameID: f.FrameID, Route: f.Route, AttemptID: f.AttemptID, RetrySequenceID: f.RetrySequenceID, ValidationStatus: f.ValidationStatus, ExceptionType: f.ExceptionType, ContextSummary: f.ContextSummary, Diagnostics: diagnostics})
 	}
 	for _, p := range stored.Payloads {
-		payloadRef, err := encodeContentReference(ref, handle, contentKindPayload, p.PayloadID, nil)
+		contentRef, err := encodeEnvelopeContentReference(ref, handle, p.PayloadID)
 		if err != nil {
 			return RecordFacts{}, err
 		}
-		facts.Payloads = append(facts.Payloads, PayloadDescriptor{Context: traceCtx, PayloadID: p.PayloadID, PayloadRef: payloadRef, Sequence: p.Sequence, ContentType: p.ContentType, ChunkCount: p.ChunkCount, StoreOffset: p.StoreOffset, StoreLength: p.StoreLength})
+		facts.Payloads = append(facts.Payloads, PayloadDescriptor{Context: traceCtx, PayloadID: p.PayloadID, ContentRef: contentRef, Sequence: p.Sequence, ContentType: p.ContentType, ChunkCount: p.ChunkCount, StoreOffset: p.StoreOffset, StoreLength: p.StoreLength})
 	}
 	if filter.LiteralText != "" {
 		needle := []byte(filter.LiteralText)

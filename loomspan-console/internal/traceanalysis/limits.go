@@ -24,7 +24,11 @@ const (
 
 	// maxInlinePayloadBytes is the maximum logical payload size that may be
 	// inlined automatically, and only when explicitly requested.
-	maxInlinePayloadBytes = 8 << 10 // 8 KiB
+	maxInlinePayloadBytes          = 8 << 10 // 8 KiB
+	MaxInlineContentBytes          = 8 << 10
+	MaxAggregateInlineContentBytes = 32 << 10
+	MaxCompactResponseBytes        = 64 << 10
+	MaxDescriptorResponseBytes     = 128 << 10
 
 	// defaultRangeBytes is the default byte range size for payload/raw ranges.
 	DefaultRangeBytes = 64 << 10 // 64 KiB

@@ -78,6 +78,7 @@ class ConsoleTraceFixtureCorpusTest
             "chunked-json-payload",
             "nested-frame-usage",
             "repeated-skill-invocations",
+            "current-plan-semantic-evidence",
             "planned-tool-success",
             "unplanned-tool-failure",
             "incomplete-frame-duration",
@@ -169,6 +170,47 @@ class ConsoleTraceFixtureCorpusTest
                     .as(name)
                     .isEqualTo(expectedVersion);
         }
+    }
+
+    @Test
+    @Order(2)
+    void currentPlanSemanticEvidenceFixtureContainsDistinctJoinableChains() throws Exception
+    {
+        List<JsonNode> records = parseLines(fixtureRoot().resolve("traces/current-plan-semantic-evidence.ndjson"));
+        assertThat(records.getFirst().at("/metadata/entrySkill").asText()).isEqualTo("test.entry");
+
+        List<JsonNode> creations = records.stream()
+                .filter(node -> "PLAN_CREATED".equals(node.path("recordType").asText()))
+                .toList();
+        assertThat(creations).hasSize(2);
+        assertThat(creations).extracting(node -> node.at("/metadata/planId").asText())
+                .containsExactly("framework-primary-plan", "framework-nested-plan");
+        JsonNode primary = creations.getFirst();
+        assertThat(primary.path("frameId").asText()).isEqualTo("planning-primary");
+        assertThat(primary.at("/metadata/attemptId").asText()).isEqualTo("attempt-accepted");
+        assertThat(primary.at("/metadata/retrySequenceId").asText()).isEqualTo("retry-primary");
+        assertThat(creations).noneSatisfy(node ->
+                assertThat(node.at("/metadata/attemptId").asText()).isEqualTo("attempt-rejected"));
+
+        List<JsonNode> updates = records.stream()
+                .filter(node -> "PLAN_UPDATED".equals(node.path("recordType").asText()))
+                .toList();
+        assertThat(updates).hasSize(11);
+        assertThat(updates).allSatisfy(node ->
+                assertThat(node.at("/metadata/planId").asText()).isEqualTo("framework-primary-plan"));
+        assertThat(updates).allSatisfy(node -> assertThat(node.path("frameId").asText()).isEqualTo("planning-primary"));
+
+        assertThat(records).anySatisfy(node ->
+        {
+            assertThat(node.path("recordType").asText()).isEqualTo("STRUCTURED_OUTPUT_RECORDED");
+            assertThat(node.at("/data/incident").asText()).isEqualTo("INC-2401");
+        });
+        assertThat(records).anySatisfy(node ->
+        {
+            assertThat(node.path("recordType").asText()).isEqualTo("EVIDENCE_RECORDED");
+            assertThat(node.path("data").isNull()).isTrue();
+            assertThat(node.at("/metadata/semanticContentPresent").asBoolean()).isTrue();
+        });
     }
 
     @Test
@@ -700,6 +742,11 @@ class ConsoleTraceFixtureCorpusTest
                 appendFrame(handle, TraceRecordType.FRAME_CLOSED, rootFrame, CLOCK.instant().plusSeconds(7));
                 attributed = terminal = new Usage(5, 3);
             }
+            case "current-plan-semantic-evidence" ->
+            {
+                executeCurrentPlanSemanticFixture(handle);
+                attributed = terminal = new Usage(6, 3);
+            }
             case "planned-tool-success" -> executeToolLifecycleFixture(session, handle, false);
             case "unplanned-tool-failure" ->
             {
@@ -743,6 +790,49 @@ class ConsoleTraceFixtureCorpusTest
                 terminalFailureId,
                 completionDetails));
         writeExpected(root, name, validExpected(name, outcome, terminalFailureId, attributed, terminal));
+    }
+
+    private static void executeCurrentPlanSemanticFixture(DefaultExecutionTraceHandle handle) throws IOException
+    {
+        ExecutionFrame root = frame("mission-root", null, TraceFrameType.ROOT_MISSION, "shared.skill");
+        ExecutionFrame primary = frame("planning-primary", "mission-root", TraceFrameType.PLANNING, "shared.skill");
+        ExecutionFrame nestedSkill = frame("nested-skill", "mission-root", TraceFrameType.SKILL_EXECUTION, "shared.skill");
+        ExecutionFrame nested = frame("planning-nested", "nested-skill", TraceFrameType.PLANNING, "shared.skill");
+        ExecutionFrame tool = frame("tool-current", "mission-root", TraceFrameType.TOOL_INVOCATION, "lookupIncident");
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, root, CLOCK.instant());
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, primary, CLOCK.instant().plusSeconds(1));
+        appendAttempt(handle, primary, "retry-primary", "attempt-rejected", 1, 2, 1, "EXACT");
+        appendAttempt(handle, primary, "retry-primary", "attempt-accepted", 2, 2, 1, "EXACT");
+        Map<String, Object> accepted = attempt("retry-primary", "attempt-accepted", 2, Map.of("planId", "framework-primary-plan"));
+        handle.append(TraceRecordType.PLAN_CREATED, primary, TraceFrameType.PLANNING, accepted,
+                ordered("planId", "framework-primary-plan", "version", 0, "body", "p".repeat(3000)));
+        for (int version = 1; version <= 11; version++)
+        {
+            handle.append(TraceRecordType.PLAN_UPDATED, primary, TraceFrameType.PLANNING,
+                    Map.of("planId", "framework-primary-plan"),
+                    ordered("planId", "framework-primary-plan", "version", version, "body", "p".repeat(3000)));
+        }
+        handle.append(TraceRecordType.ADVISOR_RESPONSE_MUTATION_RECORDED, primary, TraceFrameType.PLANNING,
+                attempt("retry-primary", "attempt-accepted", 2, Map.of("status", "passed")), Map.of("review", "accepted"));
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, primary, CLOCK.instant().plusSeconds(3));
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, nestedSkill, CLOCK.instant().plusSeconds(4));
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, nested, CLOCK.instant().plusSeconds(5));
+        appendAttempt(handle, nested, "retry-nested", "attempt-nested", 1, 2, 1, "EXACT");
+        handle.append(TraceRecordType.PLAN_CREATED, nested, TraceFrameType.PLANNING,
+                attempt("retry-nested", "attempt-nested", 1, Map.of("planId", "framework-nested-plan")),
+                ordered("planId", "framework-nested-plan", "version", 0, "body", "nested"));
+        handle.append(TraceRecordType.STRUCTURED_OUTPUT_RECORDED, nested, TraceFrameType.PLANNING,
+                Map.of(), ordered("incident", "INC-2401", "accepted", true));
+        handle.append(TraceRecordType.EVIDENCE_RECORDED, nested, TraceFrameType.PLANNING, Map.of(), JSON.nullNode());
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, nested, CLOCK.instant().plusSeconds(7));
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, nestedSkill, CLOCK.instant().plusSeconds(8));
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, tool, CLOCK.instant().plusSeconds(8));
+        handle.append(TraceRecordType.TOOL_CALL_STARTED, tool, TraceFrameType.TOOL_INVOCATION,
+                Map.of("capabilityName", "lookupIncident"), Map.of("incidentId", "INC-2401"));
+        handle.append(TraceRecordType.TOOL_CALL_COMPLETED, tool, TraceFrameType.TOOL_INVOCATION,
+                Map.of("capabilityName", "lookupIncident"), Map.of("status", "resolved"));
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, tool, CLOCK.instant().plusSeconds(9));
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, root, CLOCK.instant().plusSeconds(10));
     }
 
     private static String executeToolLifecycleFixture(
@@ -1122,6 +1212,10 @@ class ConsoleTraceFixtureCorpusTest
             case "repeated-skill-invocations" -> List.of(
                     expectedAttempt(name, "retry-1", "attempt-1", 1),
                     expectedAttempt(name, "retry-2", "attempt-2", 1));
+            case "current-plan-semantic-evidence" -> List.of(
+                    expectedAttempt(name, "retry-primary", "attempt-rejected", 1),
+                    expectedAttempt(name, "retry-primary", "attempt-accepted", 2),
+                    expectedAttempt(name, "retry-nested", "attempt-nested", 1));
             default -> List.of(expectedAttempt(name, "retry-1", "attempt-1", 1));
         };
     }
@@ -1151,6 +1245,7 @@ class ConsoleTraceFixtureCorpusTest
             case "chunked-payload", "chunked-json-payload" -> new Usage(2, 1);
             case "nested-frame-usage" -> attemptId.equals("attempt-framed") ? new Usage(4, 2) : new Usage(1, 1);
             case "repeated-skill-invocations" -> attemptId.equals("attempt-1") ? new Usage(2, 1) : new Usage(3, 2);
+            case "current-plan-semantic-evidence" -> new Usage(2, 1);
             default -> new Usage(10, 4);
         };
     }
@@ -1189,6 +1284,8 @@ class ConsoleTraceFixtureCorpusTest
             case "validation-exhaustion" -> List.of(
                     expectedValidationLink("retrying", "retry-1", "attempt-1", 1),
                     expectedValidationLink("exhausted", "retry-1", "attempt-2", 2));
+            case "current-plan-semantic-evidence" -> List.of(
+                    expectedValidationLink("passed", "retry-primary", "attempt-accepted", 2));
             default -> List.of();
         };
     }
@@ -1218,6 +1315,12 @@ class ConsoleTraceFixtureCorpusTest
                     expectedFrame("root", null, "ROOT_MISSION", "handleBilling", 4000, 2000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
                     expectedFrame("step", "root", "STEP_EXECUTION", "handleBilling#step-1", 2000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
                     expectedFrame("tool", "step", "TOOL_INVOCATION", "lookupCustomer", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
+            case "current-plan-semantic-evidence" -> List.of(
+                    expectedFrame("mission-root", null, "ROOT_MISSION", "shared.skill", 10000, 3000, Usage.ZERO, new Usage(6, 3), new Usage(6, 3)),
+                    expectedFrame("planning-primary", "mission-root", "PLANNING", "shared.skill", 2000, 2000, new Usage(4, 2), Usage.ZERO, new Usage(4, 2)),
+                    expectedFrame("nested-skill", "mission-root", "SKILL_EXECUTION", "shared.skill", 4000, 2000, Usage.ZERO, new Usage(2, 1), new Usage(2, 1)),
+                    expectedFrame("planning-nested", "nested-skill", "PLANNING", "shared.skill", 2000, 2000, new Usage(2, 1), Usage.ZERO, new Usage(2, 1)),
+                    expectedFrame("tool-current", "mission-root", "TOOL_INVOCATION", "lookupIncident", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
             default -> List.of();
         };
     }

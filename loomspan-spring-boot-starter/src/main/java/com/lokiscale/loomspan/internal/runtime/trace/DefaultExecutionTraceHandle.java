@@ -304,6 +304,7 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
                 LinkedHashMap<String, Object> metadata = new LinkedHashMap<>();
                 metadata.put("tracePath", tracePathMetadata);
                 metadata.put("consoleCompatibilityVersion", LoomspanReleaseVersion.load());
+                metadata.put("entrySkill", entrySkill);
                 if (configuredLimits != null)
                 {
                     metadata.put("configuredLimits", configuredLimits.asMetadata());
@@ -456,7 +457,11 @@ public final class DefaultExecutionTraceHandle implements ExecutionTraceHandle
 
         initialize();
         JsonNode jsonData = toJson(data);
-        Map<String, Object> safeMetadata = metadata == null ? Map.of() : new LinkedHashMap<>(metadata);
+        Map<String, Object> safeMetadata = metadata == null ? new LinkedHashMap<>() : new LinkedHashMap<>(metadata);
+        if (data instanceof JsonNode node && node.isNull())
+        {
+            safeMetadata.put("semanticContentPresent", true);
+        }
         long nextSequence = sequence.incrementAndGet();
 
         if (jsonData != null)

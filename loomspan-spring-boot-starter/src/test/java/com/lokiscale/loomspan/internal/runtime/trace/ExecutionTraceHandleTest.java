@@ -45,6 +45,19 @@ class ExecutionTraceHandleTest {
     }
 
     @Test
+    void writesEntrySkillOnTraceStarted() throws Exception {
+        Clock clock = Clock.fixed(Instant.parse("2026-03-24T12:00:00Z"), ZoneOffset.UTC);
+        DefaultExecutionTraceHandle handle = new DefaultExecutionTraceHandle(
+                "entry-skill-trace", "incident.primary", TracePersistencePolicy.ALWAYS, clock);
+
+        TraceRecord started = readRecords(handle).getFirst();
+
+        assertThat(started.recordType()).isEqualTo(TraceRecordType.TRACE_STARTED);
+        assertThat(started.metadata()).containsEntry("entrySkill", "incident.primary");
+        Files.deleteIfExists(handle.tracePath());
+    }
+
+    @Test
     void appliesNeverOnErrorAndAlwaysPersistencePolicies() throws Exception {
         Clock clock = Clock.fixed(Instant.parse("2026-03-24T12:00:00Z"), ZoneOffset.UTC);
 

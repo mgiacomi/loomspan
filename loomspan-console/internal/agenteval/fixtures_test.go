@@ -26,11 +26,12 @@ func TestEvaluationCasesResolveAuthoritativeFixtureFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	checks := map[string][]string{
-		"loomspan-console-fixtures/expected/runtime-terminal-failure.json":   {"trace-runtime-terminal-failure", "failure-terminal", "FAILED"},
-		"loomspan-console-fixtures/expected/nested-frame-usage.json":         {"trace-nested-frame-usage", "attempt-framed"},
-		"loomspan-console-fixtures/expected/unattributed-usage.json":         {"trace-unattributed-usage", "unattributed"},
-		"loomspan-console-fixtures/expected/repeated-skill-invocations.json": {"trace-repeated-skill-invocations", "skill-1", "skill-2"},
-		"loomspan-console/internal/mcpadapter/testdata/activity.json":        {"observedAt", "canonicalSequence", "beginningUnavailable", "reset"},
+		"loomspan-console-fixtures/expected/runtime-terminal-failure.json":       {"trace-runtime-terminal-failure", "failure-terminal", "FAILED"},
+		"loomspan-console-fixtures/expected/nested-frame-usage.json":             {"trace-nested-frame-usage", "attempt-framed"},
+		"loomspan-console-fixtures/expected/unattributed-usage.json":             {"trace-unattributed-usage", "unattributed"},
+		"loomspan-console-fixtures/expected/repeated-skill-invocations.json":     {"trace-repeated-skill-invocations", "skill-1", "skill-2"},
+		"loomspan-console-fixtures/traces/current-plan-semantic-evidence.ndjson": {"framework-primary-plan", "framework-nested-plan", "attempt-accepted", "retry-primary", "INC-2401", "TOOL_CALL_COMPLETED", "STRUCTURED_OUTPUT_RECORDED"},
+		"loomspan-console/internal/mcpadapter/testdata/activity.json":            {"observedAt", "canonicalSequence", "beginningUnavailable", "reset"},
 	}
 	for relative, markers := range checks {
 		content, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(relative)))

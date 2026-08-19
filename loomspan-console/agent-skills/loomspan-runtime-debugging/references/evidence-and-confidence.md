@@ -7,7 +7,7 @@ fact.
 
 Cite the smallest stable identifiers that let the developer reconnect the
 claim to evidence: session, trace, frame, record sequence, failure,
-attempt/retry sequence, payload reference, returned continuation, or exact
+attempt/retry sequence, content reference, returned continuation, or exact
 range. Include observation time and latest sequence for live claims. For
 finalized evidence, identify and inspect the trace by `traceId`; do not request
 or infer Console's internal owner, target scope, instance, or artifact handle.
@@ -25,6 +25,6 @@ inclusive frame usage.
 
 Application diagnostic content can contain secrets. Loomspan does not
 secret-scan application YAML, paths, messages, tool inputs, diagnostics,
-payloads, or raw bytes. Authorized retrieval also does not control what the
+semantic content, or raw bytes. Authorized retrieval also does not control what the
 client, model, or provider retains. Minimize disclosure and quote only what the
 developer's question needs.

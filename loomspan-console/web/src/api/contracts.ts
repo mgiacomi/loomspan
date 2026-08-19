@@ -265,7 +265,7 @@ export type TraceAnalysisSummary = EvidenceEnvelope & {
   configuredLimits: ConfiguredLimits | null;
 };
 export type TraceFrame = {
-  frameId: string; parentFrameId: string | null; childFrameIds: string[];
+  frameId: string; parentFrameId: string | null; childFrameIds?: string[];
   frameType: string; route: string; openedTimestampMillis: number;
   closedTimestampMillis: number | null; inclusiveDurationMillis: number | null;
   selfDurationMillis: number | null; directUsage: TraceUsageValue;
@@ -278,9 +278,14 @@ export type TraceFrame = {
 export type TraceRecord = {
   sequence: number; type: string; frameId: string; parentFrameId: string;
   frameType: string; route: string; threadName: string; timestampMillis: number;
-  representation: string; isChunk: boolean; isEnvelope: boolean; payloadId: string;
+  representation: string; isChunk: boolean; isEnvelope: boolean;
+  content?: TraceContentDescriptor; plan?: TracePlanLandmark;
 };
+export type TraceContentDescriptor = { role: "DATA" | "RECONSTRUCTED" | "DIAGNOSTIC"; contentType: string; encoding: "UTF8" | "BINARY"; retainedBytes: number; available: boolean; complete: boolean; inlineEligibility: boolean; inlineOmission?: "PER_VALUE_LIMIT" | "AGGREGATE_LIMIT" | "UNAVAILABLE" | "INCOMPLETE"; contentRef?: string; inlineContent?: string };
+export type TracePlanLandmark = { planId: string; sequence: number; rootFrameId: string; planningFrameId: string; attemptId?: string; retrySequenceId?: string };
 export type TraceAnalysisPage<T> = EvidenceEnvelope & { items: T[]; hasMore: boolean; nextCursor: string | null };
+export type TraceSearchCoverage = { query: string; caseSensitive: boolean; representation: "LOGICAL"; searchedFields: string[]; semanticContentCoverage: string; workComplete: boolean; limitations: { code: string; message: string }[] };
+export type TraceSearchPage = TraceAnalysisPage<TraceSearchResult> & { search: TraceSearchCoverage };
 export type TraceRange = EvidenceEnvelope & { actualStart: number; actualEnd: number; totalLength: number; contentType: string; encoding: "TEXT" | "BASE64"; content: string; hasMore: boolean; nextCursor: string | null };
 export type TraceUsage = EvidenceEnvelope & { attributed: TraceUsageValue; unattributed: TraceUsageValue; unframedAttributed: TraceUsageValue; terminal: TraceUsageValue };
 export type TraceUsageValue = { promptUnits: number; completionUnits: number; totalUnits: number };
@@ -289,7 +294,7 @@ export type TraceAttempt = { retrySequenceId: string; attemptId: string; attempt
   outcome: "SUCCEEDED" | "FAILED" | "INCOMPLETE"; failureClassification?: string;
   failureCategory?: string; retryDecision?: string; retryDelayMillis: number;
   retryDelaySource?: string; httpStatus?: number; providerErrorType?: string;
-  providerErrorCode?: string; payloadId?: string; usage: TraceUsageValue; usageComplete: boolean };
+  providerErrorCode?: string; contentRef?: string; usage: TraceUsageValue; usageComplete: boolean };
 export type TraceRetry = { retrySequenceId: string; usage: TraceUsageValue; usageComplete: boolean };
 export type TraceFailure = { failureId: string; terminal: boolean; sequence: number; timestampMillis: number;
   recordType: string; frameId: string; route: string; attemptId: string;
@@ -299,8 +304,7 @@ export type TraceFailureDiagnostic = EvidenceEnvelope & { failureId: string; des
 export type TraceValidation = { status: string; retrySequenceId: string; attemptId: string; attemptNumber: number };
 export type TraceGap = { kind: string; frameId: string; attemptId: string };
 export type TraceUncertainty = { kind: string; frameId: string };
-export type TracePayload = { payloadId: string; sequence: number; contentType: string; chunkCount: number; storeLength: number };
-export type TraceSearchResult = { sequence: number; recordType: string; frameId: string; matchOffset: number; matchLength: number; searchedField: string };
+export type TraceSearchResult = { sequence: number; recordType: string; frameId: string; matchOffset: number; matchLength: number; searchedField: string; contentRef?: string };
 
 export type ActivePage = Page<ActiveExecution> & {
   resumeCursor: string | null;

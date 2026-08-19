@@ -147,7 +147,7 @@ func ValidateRecord(record EvaluationRecord, cases map[string]Case) error {
 		mcpadapter.ListExecutionsToolName: true, mcpadapter.GetExecutionToolName: true,
 		mcpadapter.GetExecutionActivityToolName: true, mcpadapter.ListTracesToolName: true,
 		mcpadapter.GetTraceToolName: true, mcpadapter.QueryTraceFramesToolName: true,
-		mcpadapter.QueryTraceRecordsToolName: true, mcpadapter.ReadTracePayloadToolName: true,
+		mcpadapter.QueryTraceRecordsToolName: true, mcpadapter.ReadTraceContentToolName: true,
 		mcpadapter.ReadTraceArtifactToolName: true,
 	}
 	for _, operation := range record.Operations {

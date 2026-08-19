@@ -93,7 +93,8 @@ type entry struct {
 	// count. The raw artifact (ComponentRawArtifact) is tracked via rawBytes.
 	componentSizes map[ComponentName]int64
 
-	// acquisitionTime is when the entry was created.
+	// acquisitionTime is when the complete artifact bundle was successfully
+	// published for use. It is zero while acquisition/import is in progress.
 	acquisitionTime time.Time
 	// lastUsedAt is the time of the last successful lease close. It is the
 	// origin for idle TTL expiry.

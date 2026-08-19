@@ -5,7 +5,7 @@ import type { TraceAnalysisPage, TraceRange, TraceRecord } from "../api/contract
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
-  getPayloadRange: vi.fn(),
+  getContentRange: vi.fn(),
   getRawRecordRange: vi.fn(),
   getTraceRecords: vi.fn(),
 }));
@@ -26,8 +26,13 @@ function record(sequence: number, type: string): TraceRecord {
     representation: "LOGICAL",
     isChunk: false,
     isEnvelope: false,
-    payloadId: "",
+
   };
+}
+
+function planRecord(): TraceRecord {
+  const plan = { planId: "plan-1", capabilityName: "handleBilling", tasks: [{ taskId: "task-lookup-customer", title: "Retrieve Customer Account Details" }] };
+  return { ...record(85, "PLAN_CREATED"), content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify(plan) } };
 }
 
 function range(value: unknown): TraceRange {
@@ -51,7 +56,7 @@ function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
 }
 
 function renderRecord(current: TraceRecord) {
-  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Action details" }));
 }
 
@@ -71,7 +76,7 @@ test("shows the proposed task and tool without claiming execution", async () => 
       tasks: [{ taskId: "task-lookup-customer", title: "Retrieve Customer Account Details" }],
     },
   }));
-  getTraceRecordsMock.mockResolvedValue(page([record(85, "PLAN_CREATED")]));
+  getTraceRecordsMock.mockResolvedValue(page([planRecord()]));
 
   renderRecord(record(94, "STEP_ACTION_PROPOSED"));
 
@@ -92,7 +97,7 @@ test("joins a validated action to its proposal without claiming tool success", a
   });
   getTraceRecordsMock.mockImplementation(async (_traceId, _cursor, filter) => {
     if (filter?.types?.includes("STEP_ACTION_PROPOSED")) return page([record(94, "STEP_ACTION_PROPOSED")]);
-    return page([record(85, "PLAN_CREATED")]);
+    return page([planRecord()]);
   });
 
   renderRecord(record(95, "STEP_ACTION_VALIDATED"));

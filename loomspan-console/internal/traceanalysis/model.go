@@ -236,7 +236,7 @@ type DiagnosticDescriptor struct {
 	Truncated         bool   `json:"truncated"`
 	CaptureLimitBytes int    `json:"captureLimitBytes"`
 	DecodedBytes      int    `json:"decodedBytes"`
-	PayloadRef        string `json:"payloadRef,omitempty"`
+	ContentRef        string `json:"contentRef,omitempty"`
 }
 
 // gapResult records one structural gap (for example an open frame never closed).

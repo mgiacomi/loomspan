@@ -1,14 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { getPayloadRange, getRawRecordRange, getTraceRecords } from "../api/client";
+import { getContentRange, getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRecord, TraceRange } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
-vi.mock("../api/client", () => ({ getPayloadRange: vi.fn(), getRawRecordRange: vi.fn(), getTraceRecords: vi.fn() }));
+vi.mock("../api/client", () => ({ getContentRange: vi.fn(), getRawRecordRange: vi.fn(), getTraceRecords: vi.fn() }));
 
 const getRawRecordRangeMock = vi.mocked(getRawRecordRange);
 const getTraceRecordsMock = vi.mocked(getTraceRecords);
-const getPayloadRangeMock = vi.mocked(getPayloadRange);
+const getContentRangeMock = vi.mocked(getContentRange);
 const record: TraceRecord = {
   sequence: 7,
   type: "PLAN_CREATED",
@@ -21,7 +21,7 @@ const record: TraceRecord = {
   representation: "LOGICAL",
   isChunk: false,
   isEnvelope: true,
-  payloadId: "",
+
 };
 
 function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange {
@@ -41,59 +41,53 @@ function range(content: string, overrides: Partial<TraceRange> = {}): TraceRange
 }
 
 function renderPlanRecord(value = record) {
-  render(<TraceRecords traceId="trace-1" records={[value]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[value]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
 }
 
 beforeEach(() => {
   getRawRecordRangeMock.mockReset();
   getTraceRecordsMock.mockReset();
-  getPayloadRangeMock.mockReset();
+  getContentRangeMock.mockReset();
 });
 
-test("loads every raw-record range and pretty prints only the plan data", async () => {
+test("loads every content range and pretty prints only the plan data", async () => {
   const plan = { planId: "plan-1", tasks: [{ taskId: "task-1", title: "Friendly title" }] };
-  const raw = JSON.stringify({ traceId: "trace-1", recordType: "PLAN_CREATED", data: plan });
+  const raw = JSON.stringify(plan);
   const split = 40;
-  getRawRecordRangeMock
+  getContentRangeMock
     .mockResolvedValueOnce(range(raw.slice(0, split), { actualEnd: split, totalLength: raw.length, hasMore: true, nextCursor: "next" }))
     .mockResolvedValueOnce(range(raw.slice(split), { actualStart: split, actualEnd: raw.length, totalLength: raw.length }));
 
-  renderPlanRecord();
+  renderPlanRecord({ ...record, content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: raw.length, available: true, complete: true, inlineEligibility: true, contentRef: "plan-content" } });
 
   const output = await screen.findByText((_, element) => element?.tagName === "PRE");
   expect(output).toHaveTextContent(JSON.stringify(plan, null, 2), { normalizeWhitespace: false });
-  expect(screen.getByRole("region", { name: "Plan for record 7" })).not.toHaveTextContent("traceId");
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 7, undefined, "TARGET");
-  expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(2, "trace-1", 7, "next", "TARGET");
+  expect(getContentRangeMock).toHaveBeenNthCalledWith(1, "trace-1", "plan-content", undefined, "TARGET");
+  expect(getContentRangeMock).toHaveBeenNthCalledWith(2, "trace-1", "plan-content", "next", "TARGET");
 });
 
 test("reconstructs a chunked plan payload using the current trace contract", async () => {
   const plan = { planId: "plan-2", tasks: [] };
   const raw = JSON.stringify(plan);
-  getPayloadRangeMock.mockResolvedValue(range(raw));
+  getContentRangeMock.mockResolvedValue(range(raw));
 
-  renderPlanRecord({ ...record, payloadId: "payload-plan", isEnvelope: true });
+  renderPlanRecord({ ...record, content: { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: raw.length, available: true, complete: true, inlineEligibility: true, contentRef: "payload-plan" }, isEnvelope: true });
 
   const output = await screen.findByText((_, element) => element?.tagName === "PRE");
   expect(output).toHaveTextContent(JSON.stringify(plan, null, 2), { normalizeWhitespace: false });
-  expect(getPayloadRangeMock).toHaveBeenCalledWith("trace-1", "payload-plan", undefined, "TARGET");
+  expect(getContentRangeMock).toHaveBeenCalledWith("trace-1", "payload-plan", undefined, "TARGET");
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 });
 
 test("reports malformed plan records without displaying a truncated fallback", async () => {
-  getRawRecordRangeMock.mockResolvedValue(range("{not-json"));
-
-  renderPlanRecord();
+  renderPlanRecord({ ...record, content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 9, available: true, complete: true, inlineEligibility: true, inlineContent: "{not-json" } });
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Plan could not be displayed");
   expect(screen.queryByText("{not-json")).toBeNull();
 });
 
 test("summarizes a plan update against the latest earlier snapshot with the same plan ID", async () => {
-  const updatedRecord = { ...record, sequence: 41, type: "PLAN_UPDATED" };
-  const previousRecord = { ...record, sequence: 26 };
-  const interleavedRecord = { ...record, sequence: 35 };
   const previousPlan = {
     planId: "plan-1",
     capabilityName: "resolveSupportCase",
@@ -107,6 +101,10 @@ test("summarizes a plan update against the latest earlier snapshot with the same
     tasks: [{ taskId: "task-understand", title: "Understand intent", status: "IN_PROGRESS", note: "Starting tool understandIntent" }],
   };
   const nestedPlan = { planId: "nested-plan", tasks: [] };
+  const withPlan = (sequence: number, type: string, plan: unknown): TraceRecord => ({ ...record, sequence, type, content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify(plan) } });
+  const updatedRecord = withPlan(41, "PLAN_UPDATED", currentPlan);
+  const previousRecord = withPlan(26, "PLAN_CREATED", previousPlan);
+  const interleavedRecord = withPlan(35, "PLAN_UPDATED", nestedPlan);
   getTraceRecordsMock.mockResolvedValue({
     source: "TARGET",
     targetScopeId: "scope-1",
@@ -114,12 +112,8 @@ test("summarizes a plan update against the latest earlier snapshot with the same
     hasMore: false,
     nextCursor: null,
   });
-  getRawRecordRangeMock.mockImplementation((_traceId, sequence) => {
-    const plan = sequence === 41 ? currentPlan : sequence === 35 ? nestedPlan : previousPlan;
-    return Promise.resolve(range(JSON.stringify({ data: plan })));
-  });
 
-  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[updatedRecord]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "View changes" }));
 
   const changes = await screen.findByRole("region", { name: "Plan changes" });
@@ -132,7 +126,7 @@ test("summarizes a plan update against the latest earlier snapshot with the same
     types: ["PLAN_CREATED", "PLAN_UPDATED"],
 	maxSequence: 40,
   }, "TARGET");
-  expect(getRawRecordRangeMock.mock.calls.map((call) => call[1])).toEqual([41, 35, 26]);
+  expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("tab", { name: "Full plan" }));
   expect(screen.getByRole("tabpanel")).toHaveTextContent(JSON.stringify(currentPlan, null, 2), { normalizeWhitespace: false });

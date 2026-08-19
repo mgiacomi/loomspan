@@ -2,6 +2,7 @@ package mcpadapter
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,9 +20,106 @@ import (
 )
 
 func TestTraceRangeTextFallbackPreservesContent(t *testing.T) {
-	text := traceRangeText(rangeResult{ActualStart: 0, ActualEnd: 16, TotalLength: 32, ContentType: "application/octet-stream", Encoding: "BASE64", Content: "unique-large-content", HasMore: true})
-	if !strings.Contains(text, `"content":"unique-large-content"`) || !strings.Contains(text, `"actualStart":0`) || !strings.Contains(text, `"hasMore":true`) {
+	content := strings.Repeat("unique-large-content", 4096)
+	text := traceRangeText(rangeResult{ActualStart: 0, ActualEnd: int64(len(content)), TotalLength: int64(len(content) + 16), ContentType: "application/octet-stream", Encoding: "BASE64", Content: content, HasMore: true})
+	if strings.Count(text, content) != 1 || !strings.Contains(text, `range=0:`) || !strings.Contains(text, `hasMore=true`) {
 		t.Fatalf("range fallback omitted diagnostic facts: %q", text)
+	}
+	if overhead := len(text) - len(content); overhead > 4<<10 {
+		t.Fatalf("range fallback overhead=%d bytes max=%d", overhead, 4<<10)
+	}
+}
+
+func TestTraceNavigationTextFallbacksStayWithinCompactBudget(t *testing.T) {
+	large := strings.Repeat("x", maxTraceTokenLength)
+	frames := queryFramesResult{Evidence: evidenceDTO{TraceID: large}, Projection: "COMPACT", HasMore: true, Continuation: large}
+	records := queryRecordsResult{Evidence: evidenceDTO{TraceID: large}, HasMore: true, Continuation: large}
+	list := listTracesResult{HasMore: true, Continuation: large}
+	for range 64 {
+		frames.Items = append(frames.Items, frameDTO{FrameID: large, Route: large})
+		records.Items = append(records.Items, recordDTO{FrameID: large, Content: &contentDescriptorDTO{ContentRef: large}})
+		traceID := large
+		list.Items = append(list.Items, traceInventoryItemDTO{TraceID: large, SessionID: &traceID})
+	}
+	for name, value := range map[string]string{"frames": traceFramesText(frames), "records": traceRecordsText(records), "inventory": traceListText(list)} {
+		if len(value) > traceanalysis.MaxCompactResponseBytes {
+			t.Fatalf("%s fallback=%d bytes", name, len(value))
+		}
+	}
+}
+
+func TestRepresentativeStructuredNavigationResponsesMeetBudgets(t *testing.T) {
+	frames := queryFramesResult{Evidence: evidenceDTO{TraceID: "trace-30"}, Projection: "COMPACT", Items: make([]frameDTO, 30)}
+	for i := range frames.Items {
+		frames.Items[i] = frameDTO{FrameID: strings.Repeat("f", 64), Route: strings.Repeat("r", 128), FrameType: "SKILL_EXECUTION", DirectAttemptCount: 2, DirectRetryCount: 1}
+	}
+	records := queryRecordsResult{Evidence: evidenceDTO{TraceID: "trace-descriptors"}, Items: make([]recordDTO, 64)}
+	for i := range records.Items {
+		records.Items[i] = recordDTO{Sequence: int64(i + 1), Type: "PLAN_UPDATED", Content: &contentDescriptorDTO{Role: "DATA", ContentType: "application/json", Encoding: "UTF8", RetainedBytes: 8192, Available: true, Complete: true, ContentRef: strings.Repeat("c", 512)}}
+	}
+	for name, value := range map[string]struct {
+		value any
+		max   int
+	}{"frames": {frames, traceanalysis.MaxCompactResponseBytes}, "records": {records, traceanalysis.MaxDescriptorResponseBytes}} {
+		body, err := json.Marshal(value.value)
+		if err != nil || len(body) > value.max {
+			t.Fatalf("%s bytes=%d max=%d err=%v", name, len(body), value.max, err)
+		}
+	}
+}
+
+func TestCompactFrameSerializationRetainsHierarchyWithoutEmptyDetailedFields(t *testing.T) {
+	summary := traceanalysis.FrameSummary{
+		FrameID: "root", ChildFrameIDs: []string{"child"}, FrameType: "ROOT_MISSION", Route: "root",
+		Outcomes: []string{"completed"}, DirectAttemptCount: 2, DirectFailureCount: 1,
+	}
+	compact := mapFrame(summary, traceanalysis.FrameProjectionCompact)
+	body, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{`"childFrameIds":["child"]`, `"directAttemptCount":2`, `"directFailureCount":1`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("compact frame missing %s: %s", want, text)
+		}
+	}
+	for _, forbidden := range []string{`"skillNames"`, `"attemptIds"`, `"retrySequenceIds"`, `"validationStatuses"`, `"failureIds"`, `"gapKinds"`, `"uncertaintyKinds"`, `"directUsage"`, `"inclusiveDurationMillis"`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("compact frame retained %s: %s", forbidden, text)
+		}
+	}
+	detailedBody, err := json.Marshal(mapFrame(summary, traceanalysis.FrameProjectionDetailed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"skillNames":[]`, `"attemptIds":[]`, `"failureIds":[]`, `"gapKinds":[]`} {
+		if !strings.Contains(string(detailedBody), want) {
+			t.Fatalf("detailed frame omitted %s: %s", want, detailedBody)
+		}
+	}
+}
+
+func TestDetailedFrameMappingPreservesUsageWhenDurationIsUnavailable(t *testing.T) {
+	summary := traceanalysis.FrameSummary{
+		FrameID: "incomplete", FrameType: "MODEL_CALL",
+		DirectUsage: traceanalysis.Usage{PromptUnits: 5, CompletionUnits: 2, TotalUnits: 7}, DirectUsageComplete: true,
+		DescendantUsage: traceanalysis.Usage{PromptUnits: 3, CompletionUnits: 1, TotalUnits: 4}, DescendantUsageComplete: true,
+		InclusiveUsage: traceanalysis.Usage{PromptUnits: 8, CompletionUnits: 3, TotalUnits: 11}, InclusiveUsageComplete: true,
+	}
+	mapped := mapFrame(summary, traceanalysis.FrameProjectionDetailed)
+	if mapped.InclusiveDurationMillis != nil || mapped.DirectUsage == nil || mapped.DescendantUsage == nil || mapped.InclusiveUsage == nil {
+		t.Fatalf("detailed mapping dropped duration-independent usage: %+v", mapped)
+	}
+	if mapped.DirectUsage.TotalUnits != 7 || mapped.DescendantUsage.TotalUnits != 4 || mapped.InclusiveUsage.TotalUnits != 11 {
+		t.Fatalf("detailed usage changed: %+v", mapped)
+	}
+}
+
+func TestBinaryInlineContentUsesBase64Transport(t *testing.T) {
+	mapped := mapRecord(traceanalysis.RecordSummary{Content: &traceanalysis.ContentDescriptor{Encoding: traceanalysis.ContentEncodingBinary, InlineContent: []byte{0xff, 0x00, 0x80}}})
+	if mapped.Content == nil || mapped.Content.InlineContent != "/wCA" {
+		t.Fatalf("content=%+v", mapped.Content)
 	}
 }
 
@@ -47,11 +145,13 @@ type fakeTraceAnalysis struct {
 	frameQuery   traceanalysis.FrameQuery
 	recordQuery  traceanalysis.RecordQuery
 	rangeRequest traceanalysis.RangeRequest
+	searchQuery  traceanalysis.SearchQuery
 	summaryCalls int
 	frameCalls   int
 	recordCalls  int
 	payloadCalls int
 	rawCalls     int
+	searchCalls  int
 	onSummary    func()
 }
 
@@ -75,7 +175,7 @@ func (fake *fakeTraceAnalysis) QueryRecords(_ context.Context, ref evidence.Refe
 	fake.recordQuery = query
 	return fake.records, nil
 }
-func (fake *fakeTraceAnalysis) ReadPayloadRange(_ context.Context, ref evidence.Reference, request traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
+func (fake *fakeTraceAnalysis) ReadContentRange(_ context.Context, ref evidence.Reference, request traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
 	fake.payloadCalls++
 	fake.refs = append(fake.refs, ref)
 	fake.rangeRequest = request
@@ -86,6 +186,12 @@ func (fake *fakeTraceAnalysis) ReadRawArtifactRange(_ context.Context, ref evide
 	fake.refs = append(fake.refs, ref)
 	fake.rangeRequest = request
 	return fake.raw, nil
+}
+func (fake *fakeTraceAnalysis) Search(_ context.Context, ref evidence.Reference, query traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error) {
+	fake.searchCalls++
+	fake.refs = append(fake.refs, ref)
+	fake.searchQuery = query
+	return traceanalysis.Page[traceanalysis.SearchResult]{Context: fake.records.Context, Items: []traceanalysis.SearchResult{}}, nil
 }
 
 type fakeTraceArtifacts struct {
@@ -127,7 +233,8 @@ func TestTraceHandlersResolveTraceIDAndPreserveQuestionSpecificRequests(t *testi
 		raw:     traceanalysis.ByteRangeResult{Context: traceContext, ContentType: "application/x-ndjson", Encoding: traceanalysis.RangeEncodingText, Content: []byte("{}\n")},
 	}
 	resolver := &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()}
-	inventory := &fakeTraceInventory{result: traceinventory.Result{ObservedAt: now, Complete: true, Items: []traceinventory.Entry{{TraceID: "trace-i", SessionID: "session-i"}}}}
+	sessionID := "session-i"
+	inventory := &fakeTraceInventory{result: traceinventory.Result{ObservedAt: now, Complete: true, Items: []traceinventory.Entry{{TraceID: "trace-i", SessionID: &sessionID}}}}
 	options := ServerOptions{Credentials: fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 1}}, Now: func() time.Time { return now }, TraceInventory: inventory, TraceAnalysis: analysis, TraceResolver: resolver}
 
 	if result, envelope, err := handleListTraces(context.Background(), options, listTracesInput{}); err != nil || result.IsError || envelope.Result == nil || !envelope.Result.Complete {
@@ -139,18 +246,22 @@ func TestTraceHandlersResolveTraceIDAndPreserveQuestionSpecificRequests(t *testi
 	if result, _, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: "trace-i", Order: traceanalysis.FrameOrderCanonical}); err != nil || result.IsError {
 		t.Fatalf("frames result=%#v err=%v", result, err)
 	}
-	if result, _, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: "trace-i", Continuation: "prior", InlinePayload: true}); err != nil || result.IsError || analysis.recordQuery.Cursor != "prior" || !analysis.recordQuery.InlinePayload {
+	if result, _, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: "trace-i", Continuation: "prior", InlineContent: true}); err != nil || result.IsError || analysis.recordQuery.Cursor != "prior" || !analysis.recordQuery.InlineContent {
 		t.Fatalf("records result=%#v request=%#v err=%v", result, analysis.recordQuery, err)
 	}
+	literalFilter := traceanalysis.RecordFilter{LiteralText: "needle", Types: []string{string(traceanalysis.RecordPlanCreated)}, FrameID: "planning"}
+	if result, _, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: "trace-i", Filter: literalFilter}); err != nil || result.IsError || analysis.searchQuery.Filter.FrameID != "planning" || len(analysis.searchQuery.Filter.Types) != 1 {
+		t.Fatalf("search result=%#v request=%#v err=%v", result, analysis.searchQuery, err)
+	}
 	start := int64(0)
-	if result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-i", PayloadRef: "opaque", Start: &start}, false); err != nil || result.IsError || analysis.rangeRequest.PayloadRef != "opaque" {
+	if result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-i", ContentRef: "opaque", Start: &start}, false); err != nil || result.IsError || analysis.rangeRequest.ContentRef != "opaque" {
 		t.Fatalf("payload result=%#v request=%#v err=%v", result, analysis.rangeRequest, err)
 	}
 	if result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-i", Start: &start}, true); err != nil || result.IsError {
 		t.Fatalf("raw result=%#v err=%v", result, err)
 	}
-	if resolver.calls.Load() != 5 || analysis.summaryCalls != 1 || analysis.frameCalls != 1 || analysis.recordCalls != 1 || analysis.payloadCalls != 1 || analysis.rawCalls != 1 {
-		t.Fatalf("resolver=%d summary=%d frames=%d records=%d payload=%d raw=%d", resolver.calls.Load(), analysis.summaryCalls, analysis.frameCalls, analysis.recordCalls, analysis.payloadCalls, analysis.rawCalls)
+	if resolver.calls.Load() != 6 || analysis.summaryCalls != 1 || analysis.frameCalls != 1 || analysis.recordCalls != 1 || analysis.searchCalls != 1 || analysis.payloadCalls != 1 || analysis.rawCalls != 1 {
+		t.Fatalf("resolver=%d summary=%d frames=%d records=%d search=%d payload=%d raw=%d", resolver.calls.Load(), analysis.summaryCalls, analysis.frameCalls, analysis.recordCalls, analysis.searchCalls, analysis.payloadCalls, analysis.rawCalls)
 	}
 }
 
@@ -162,7 +273,7 @@ func TestTraceOpaqueTokenErrorsGiveTraceIDRecoveryWithoutHandleTerms(t *testing.
 		want         string
 	}{
 		{consolecore.NewError(consolecore.CodeInvalidCursor, "old handle mismatch", "scope", consolecore.Details{}, nil), true, false, "Restart this query by traceId."},
-		{consolecore.NewError(consolecore.CodeInvalidArgument, "The payload reference is invalid.", "scope", consolecore.Details{}, nil), false, true, "Re-query the relevant record descriptor by traceId."},
+		{consolecore.NewError(consolecore.CodeInvalidArgument, "The content reference is invalid.", "scope", consolecore.Details{}, nil), false, true, "Re-query the relevant record descriptor by traceId."},
 		{consolecore.NewError(consolecore.CodeArtifactExpired, "old handle expired", "scope", consolecore.Details{}, nil), false, false, "Retry inspection by traceId"},
 	} {
 		mapped := mapTraceAnalysisError(test.domain, "trace-1", test.continuation, test.payload)

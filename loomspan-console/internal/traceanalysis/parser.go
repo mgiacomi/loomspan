@@ -243,8 +243,13 @@ func decodeRecord(content []byte, address RawAddress) (*Record, *consolecore.Err
 		rec.Metadata = append([]byte(nil), raw.Metadata...)
 	}
 
-	// Data: retained verbatim when present and non-null.
-	if len(raw.Data) > 0 && !bytes.Equal(raw.Data, nullBytes) {
+	// Data: ordinary null is normally the producer's absent-value encoding.
+	// Current producers mark an intentional semantic JSON null explicitly.
+	explicitNull, present, boolErr := rec.metadataBool("semanticContentPresent")
+	if boolErr != nil {
+		return nil, invalidityError(CategoryUnsupportedValue, rec.TraceID)
+	}
+	if len(raw.Data) > 0 && (!bytes.Equal(raw.Data, nullBytes) || (present && explicitNull)) {
 		rec.Data = append([]byte(nil), raw.Data...)
 	}
 

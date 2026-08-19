@@ -5,7 +5,7 @@ import type { TraceRange, TraceRecord } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
-  getPayloadRange: vi.fn(),
+  getContentRange: vi.fn(),
   getRawRecordRange: vi.fn(),
   getTraceRecords: vi.fn(),
 }));
@@ -24,7 +24,7 @@ const stepRecord: TraceRecord = {
   representation: "LOGICAL",
   isChunk: false,
   isEnvelope: false,
-  payloadId: "",
+
 };
 
 function range(content: string): TraceRange {
@@ -43,7 +43,7 @@ function range(content: string): TraceRange {
 }
 
 function renderStep() {
-  render(<TraceRecords traceId="trace-1" records={[stepRecord]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onPayload={vi.fn()} />);
+  render(<TraceRecords traceId="trace-1" records={[stepRecord]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
 }
 
 beforeEach(() => getRawRecordRangeMock.mockReset());

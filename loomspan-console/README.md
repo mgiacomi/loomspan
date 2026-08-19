@@ -246,10 +246,11 @@ The read-only tool surface is:
   snapshot from the Console's one current continuity interval;
 - `LOOMSPAN_list_traces` and `LOOMSPAN_get_trace` for compact finalized-trace
   discovery and unique trace-ID resolution;
-- `LOOMSPAN_query_trace_frames` and `LOOMSPAN_query_trace_records` for finite,
-  continuable mechanical trace facts;
-- `LOOMSPAN_read_trace_payload` for exact bounded reconstructed payload or
-  failure-diagnostic ranges; and
+- `LOOMSPAN_query_trace_frames` for compact-by-default orientation or explicit
+  detailed mechanical frame evidence;
+- `LOOMSPAN_query_trace_records` for descriptor-first semantic evidence or
+  compact coverage-aware literal matches;
+- `LOOMSPAN_read_trace_content` for exact bounded selected semantic values; and
 - `LOOMSPAN_read_trace_artifact` for optional exact raw NDJSON forensics.
 
 Runtime discovery advertises `loomspan.runtime-status.v1`,
@@ -282,10 +283,14 @@ descriptive text only and is never a Console filesystem locator.
 
 The server advertises no custom MCP resource templates. Tools are the complete
 portable contract for runtime, skill, execution, activity, parsed trace,
-payload, and raw-artifact inspection.
+semantic content, and raw-artifact inspection.
 
-The finalized-trace workflow is `list traces -> select traceId ->
-inspect/query/read by traceId`. Inventory emits one candidate per `traceId`;
+The finalized-trace workflow is `list traces -> get trace -> compact frames ->
+record descriptors/search -> selected content read`. Inventory supports source,
+outcome, exact entry-skill/session, and independent finalized/acquired/imported
+time filters with explicit `FINALIZED_DESC`, `ACQUIRED_DESC`, and
+`IMPORTED_DESC` ordering. `evidenceSources`, `acquiredAt`, `importedAt`, and
+`finalizedAt` remain independent facts. Inventory emits one candidate per `traceId`;
 `hasMore` reports pagination while `complete` and compact `limitations` report
 whether absence or uniqueness is safe to conclude. `ambiguous: true` and
 `AMBIGUOUS_TRACE` never silently prefer one evidence owner.
@@ -294,9 +299,12 @@ Console resolves installed target evidence, imported evidence, safe target
 acquisition, expiry, and leases internally. `TRACE_UNAVAILABLE` replaces
 caller-managed artifact repair. `TARGET_CHANGED` requires restarting by
 `traceId`; stale continuations restart their query by `traceId`, and stale
-payload references require a refreshed record descriptor by `traceId`.
+content references require a refreshed record descriptor by `traceId`.
 
-Trace pages accept at most 64 items. Payload and raw reads use exact source-byte
+Trace pages accept at most 64 items. Content descriptors are returned without
+bytes by default. Explicit `inlineContent` includes complete values no larger
+than 8 KiB in record order under a 32 KiB aggregate source-byte budget; an
+omitted value retains its descriptor and reason. Content and raw reads use exact source-byte
 offsets, default to 64 KiB, and accept at most 16 MiB (16,777,216 source bytes)
 per call. A larger request returns `LIMIT_EXCEEDED` with `rangeBytes` and the
 shared limit; successful responses are never silently shortened to the limit.

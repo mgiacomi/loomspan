@@ -1,0 +1,209 @@
+{
+  "case" : "current-plan-semantic-evidence",
+  "valid" : true,
+  "traceId" : "trace-current-plan-semantic-evidence",
+  "sessionId" : "session-current-plan-semantic-evidence",
+  "outcome" : "SUCCEEDED",
+  "terminalFailureId" : null,
+  "attributedUsage" : {
+    "promptUnits" : 6,
+    "completionUnits" : 3,
+    "totalUnits" : 9
+  },
+  "terminalUsage" : {
+    "promptUnits" : 6,
+    "completionUnits" : 3,
+    "totalUnits" : 9
+  },
+  "unattributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "usageComplete" : true,
+  "attempts" : [ {
+    "retrySequenceId" : "retry-primary",
+    "attemptId" : "attempt-rejected",
+    "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
+    "usage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "usageComplete" : true
+  }, {
+    "retrySequenceId" : "retry-primary",
+    "attemptId" : "attempt-accepted",
+    "attemptNumber" : 2,
+    "attemptReason" : "SEMANTIC_RETRY",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
+    "usage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "usageComplete" : true
+  }, {
+    "retrySequenceId" : "retry-nested",
+    "attemptId" : "attempt-nested",
+    "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "SUCCEEDED",
+    "retryDelayMillis" : 0,
+    "usage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "usageComplete" : true
+  } ],
+  "retries" : [ {
+    "retrySequenceId" : "retry-primary",
+    "usage" : {
+      "promptUnits" : 4,
+      "completionUnits" : 2,
+      "totalUnits" : 6
+    },
+    "usageComplete" : true
+  }, {
+    "retrySequenceId" : "retry-nested",
+    "usage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "usageComplete" : true
+  } ],
+  "validationLinks" : [ {
+    "status" : "passed",
+    "retrySequenceId" : "retry-primary",
+    "attemptId" : "attempt-accepted",
+    "attemptNumber" : 2
+  } ],
+  "frames" : [ {
+    "frameId" : "mission-root",
+    "parentFrameId" : null,
+    "frameType" : "ROOT_MISSION",
+    "inclusiveDurationMillis" : 10000,
+    "selfDurationMillis" : 3000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 6,
+      "completionUnits" : 3,
+      "totalUnits" : 9
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 6,
+      "completionUnits" : 3,
+      "totalUnits" : 9
+    },
+    "route" : "shared.skill"
+  }, {
+    "frameId" : "planning-primary",
+    "parentFrameId" : "mission-root",
+    "frameType" : "PLANNING",
+    "inclusiveDurationMillis" : 2000,
+    "selfDurationMillis" : 2000,
+    "directUsage" : {
+      "promptUnits" : 4,
+      "completionUnits" : 2,
+      "totalUnits" : 6
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 4,
+      "completionUnits" : 2,
+      "totalUnits" : 6
+    },
+    "route" : "shared.skill"
+  }, {
+    "frameId" : "nested-skill",
+    "parentFrameId" : "mission-root",
+    "frameType" : "SKILL_EXECUTION",
+    "inclusiveDurationMillis" : 4000,
+    "selfDurationMillis" : 2000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "route" : "shared.skill"
+  }, {
+    "frameId" : "planning-nested",
+    "parentFrameId" : "nested-skill",
+    "frameType" : "PLANNING",
+    "inclusiveDurationMillis" : 2000,
+    "selfDurationMillis" : 2000,
+    "directUsage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "route" : "shared.skill"
+  }, {
+    "frameId" : "tool-current",
+    "parentFrameId" : "mission-root",
+    "frameType" : "TOOL_INVOCATION",
+    "inclusiveDurationMillis" : 1000,
+    "selfDurationMillis" : 1000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "route" : "lookupIncident"
+  } ],
+  "unframedAttributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "payloads" : [ ],
+  "gaps" : [ ],
+  "uncertainties" : [ ]
+}

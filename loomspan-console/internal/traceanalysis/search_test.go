@@ -30,8 +30,74 @@ func TestServiceSearchFindsLiteralAcrossReconstructedPayloadChunks(t *testing.T)
 		t.Fatalf("expected one reconstructed-payload match, got %d", len(page.Items))
 	}
 	match := page.Items[0]
-	if match.SearchedField != "payload" || match.Sequence != 3 || match.MatchOffset != 4 {
+	if match.SearchedField != "content" || match.Sequence != 3 || match.MatchOffset != 4 || match.ContentRef == "" {
 		t.Fatalf("unexpected payload match: %+v", match)
+	}
+}
+
+func TestServiceSearchAppliesRecordFiltersToOrdinaryAndEnvelopeContent(t *testing.T) {
+	trace := strings.Join([]string{
+		startedRecord(1),
+		requestRecord(2, "retry-1", "attempt-1", 1, true),
+		chunkEnvelopeRecordFor(3, "retry-1", "attempt-1", 1, "payload-1", "text/plain", 1),
+		chunkRecord(4, "payload-1", "text/plain", 0, 1, "shared-hit"),
+		strings.Replace(responseRecord(5, "", "retry-1", "attempt-1", 1, 1, 0, 1, "EXACT"), `"content":"r"`, `"content":"shared-hit"`, 1),
+		requestRecord(6, "retry-2", "attempt-2", 1, true),
+		chunkEnvelopeRecordFor(7, "retry-2", "attempt-2", 1, "payload-2", "text/plain", 1),
+		chunkRecord(8, "payload-2", "text/plain", 0, 1, "shared-hit"),
+		strings.Replace(responseRecord(9, "", "retry-2", "attempt-2", 1, 1, 0, 1, "EXACT"), `"content":"r"`, `"content":"shared-hit"`, 1),
+		completionRecord(10, "SUCCEEDED", 2, 0, 2, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", trace)
+	query := SearchQuery{Handle: h.handle, Text: "shared-hit", Filter: RecordFilter{AttemptID: "attempt-2"}, PageSize: 1}
+	sequences := []int64{}
+	for {
+		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
+		if domain != nil {
+			t.Fatalf("Search failed: %v", domain)
+		}
+		for _, match := range page.Items {
+			sequences = append(sequences, match.Sequence)
+			if match.Sequence != 7 && match.Sequence != 9 {
+				t.Fatalf("filter admitted sequence %d: %+v", match.Sequence, match)
+			}
+		}
+		if !page.HasMore {
+			break
+		}
+		query.Cursor = page.NextCursor
+	}
+	if len(sequences) != 2 {
+		t.Fatalf("filtered matches=%v", sequences)
+	}
+
+	query.Filter.AttemptID = "attempt-1"
+	if _, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+		t.Fatalf("changed filter reused continuation: %v", domain)
+	}
+}
+
+func TestServiceSearchExcludesBinarySemanticContentWithLimitation(t *testing.T) {
+	trace := strings.Join([]string{
+		startedRecord(1),
+		requestRecord(2, "retry-1", "attempt-1", 1, true),
+		chunkEnvelopeRecord(3, "payload-1", "application/octet-stream", 1),
+		chunkRecord(4, "payload-1", "application/octet-stream", 0, 1, "binary-secret"),
+		responseRecord(5, "", "retry-1", "attempt-1", 1, 1, 0, 1, "EXACT"),
+		completionRecord(6, "SUCCEEDED", 1, 0, 1, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", trace)
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
+		Handle: h.handle, Text: "binary-secret", PageSize: 10,
+	})
+	if domain != nil {
+		t.Fatalf("Search failed: %v", domain)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("binary content must not produce literal matches: %+v", page.Items)
+	}
+	if len(page.SearchLimitations) != 1 || page.SearchLimitations[0].Code != "BINARY_CONTENT_EXCLUDED" {
+		t.Fatalf("expected explicit binary exclusion limitation: %+v", page.SearchLimitations)
 	}
 }
 
@@ -74,6 +140,25 @@ func TestServiceSearchNoMatch(t *testing.T) {
 	}
 }
 
+func TestServiceSearchEmptyUnfinishedPageCannotBeMistakenForCompleteNegative(t *testing.T) {
+	trace := chunkedPayloadTrace(maxSearchWorkBytes+1024, 16)
+	h := newServiceTestHarness(t, "t", trace)
+	query := SearchQuery{Handle: h.handle, Text: "not-present", PageSize: 10}
+	first, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
+	if domain != nil || len(first.Items) != 0 || !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("unfinished page=%+v domain=%v", first, domain)
+	}
+	query.Cursor = first.NextCursor
+	final, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
+	if domain != nil || len(final.Items) != 0 || final.HasMore || final.NextCursor != "" {
+		t.Fatalf("final page=%+v domain=%v", final, domain)
+	}
+	query.Text = "changed"
+	if _, domain = h.service.Search(context.Background(), targetEvidence(h.scopeID), query); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+		t.Fatalf("changed-query cursor domain=%v", domain)
+	}
+}
+
 func TestServiceSearchEmptyText(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
 	_, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
@@ -105,10 +190,10 @@ func TestServiceSearchExceedsLiteralLimit(t *testing.T) {
 
 func TestServiceSearchPagination(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	// Search for "traceId" which appears in every record.
+	// Search metadata shared by the request/response records.
 	page1, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
-		Text:     "traceId",
+		Text:     "attempt-1",
 		PageSize: 2,
 	})
 	if domain != nil {
@@ -123,7 +208,7 @@ func TestServiceSearchPagination(t *testing.T) {
 	// Continue.
 	page2, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
-		Text:     "traceId",
+		Text:     "attempt-1",
 		PageSize: 2,
 		Cursor:   page1.NextCursor,
 	})
@@ -149,7 +234,7 @@ func TestServiceSearchExpiredHandle(t *testing.T) {
 
 func TestServiceSearchRejectsOutOfRangeKMPContinuation(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
-	query := SearchQuery{Handle: h.handle, Text: "traceId", PageSize: 1}
+	query := SearchQuery{Handle: h.handle, Text: "attempt-1", PageSize: 1}
 	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), query)
 	if domain != nil || page.NextCursor == "" {
 		t.Fatalf("create search continuation: page=%+v domain=%v", page, domain)
@@ -184,7 +269,7 @@ func TestServicePayloadSearchContinuationCarriesDirectIndexOffset(t *testing.T) 
 	}, "\n") + "\n"
 	h := newServiceTestHarness(t, "t", trace)
 	query := SearchQuery{Handle: h.handle, Text: "payload-hit", PageSize: 1}
-	fingerprint, err := canonicalizeRequest(searchQueryCanonical{Text: query.Text, PageSize: query.PageSize})
+	fingerprint, err := canonicalizeRequest(searchQueryCanonical{Text: query.Text, Filter: query.Filter, PageSize: query.PageSize})
 	if err != nil {
 		t.Fatalf("canonicalize search: %v", err)
 	}
@@ -295,7 +380,7 @@ func TestServiceSearchMatchOffsetsAreNonNegative(t *testing.T) {
 	// non-negative offsets because KMP state is reset at each record boundary.
 	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{
 		Handle:   h.handle,
-		Text:     "traceId",
+		Text:     "attempt-1",
 		PageSize: 100,
 	})
 	if domain != nil {

@@ -25,13 +25,13 @@ var capabilityDescriptors = []capabilityDescriptor{
 	{ID: SkillInspectionCapability, RequiredTools: []string{ListSkillsToolName, GetSkillToolName}},
 	{ID: ActiveExecutionInspectionCapability, RequiredTools: []string{ListExecutionsToolName, GetExecutionToolName}},
 	{ID: RecentActivityInspectionCapability, RequiredTools: []string{GetExecutionActivityToolName}},
-	{ID: TraceInspectionCapability, RequiredTools: []string{ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName}, RequiredSemanticFixtures: traceSemanticFixtures},
+	{ID: TraceInspectionCapability, RequiredTools: []string{ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTraceContentToolName}, RequiredSemanticFixtures: traceSemanticFixtures},
 	{ID: RawArtifactInspectionCapability, RequiredTools: []string{ReadTraceArtifactToolName}, RequiredSemanticFixtures: rawArtifactSemanticFixtures},
 }
 
 func installedCapabilities() []string {
 	tools := map[string]bool{}
-	for _, name := range []string{ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTracePayloadToolName, ReadTraceArtifactToolName} {
+	for _, name := range []string{ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTraceContentToolName, ReadTraceArtifactToolName} {
 		tools[name] = true
 	}
 	return capabilitiesWithCompleteTools(tools)

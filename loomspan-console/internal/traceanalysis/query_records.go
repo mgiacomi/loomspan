@@ -45,7 +45,7 @@ type RecordQuery struct {
 	Handle         artifact.Handle
 	Filter         RecordFilter         `json:"filter"`
 	Representation RecordRepresentation `json:"representation"`
-	InlinePayload  bool                 `json:"inlinePayload"`
+	InlineContent  bool                 `json:"inlineContent"`
 	PageSize       int                  `json:"pageSize"`
 	Cursor         string               `json:"cursor,omitempty"`
 }
@@ -54,7 +54,7 @@ type RecordQuery struct {
 type recordQueryCanonical struct {
 	Filter         RecordFilter         `json:"filter"`
 	Representation RecordRepresentation `json:"representation"`
-	InlinePayload  bool                 `json:"inlinePayload"`
+	InlineContent  bool                 `json:"inlineContent"`
 	PageSize       int                  `json:"pageSize"`
 }
 
@@ -68,7 +68,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		return Page[RecordSummary]{}, domain
 	}
 	if query.Representation == "" {
-		query.Representation = RecordRepresentationPhysical
+		query.Representation = RecordRepresentationLogical
 	}
 	if query.Representation != RecordRepresentationPhysical && query.Representation != RecordRepresentationLogical {
 		return Page[RecordSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
@@ -81,7 +81,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 	fingerprint, err := canonicalizeRequest(recordQueryCanonical{
 		Filter:         query.Filter,
 		Representation: query.Representation,
-		InlinePayload:  query.InlinePayload,
+		InlineContent:  query.InlineContent,
 		PageSize:       pageSize,
 	})
 	if err != nil {
@@ -147,6 +147,10 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 	if err != nil {
 		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
+	frameRoots, err := loadFrameRoots(lease)
+	if err != nil {
+		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
+	}
 	items := make([]RecordSummary, 0, pageSize)
 	pageRecords := make([]*Record, 0, pageSize)
 	pagePositions := make([]int64, 0, pageSize)
@@ -196,6 +200,7 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		}
 		defer factReader.Close()
 	}
+	var aggregateInlineBytes int64
 	for index, rec := range pageRecords {
 		storedFacts, readErr := factReader.Read(ctx, pagePositions[index])
 		if readErr != nil {
@@ -208,20 +213,34 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		if err != nil {
 			return Page[RecordSummary]{}, invalidityErrorWithCause(CategoryUnsupportedValue, scopeID.ID(), err)
 		}
-		if query.InlinePayload && rec.IsEnvelope {
+		if items[index].Facts.Plan != nil {
+			items[index].Facts.Plan.RootFrameID = frameRoots[rec.FrameID]
+		}
+		if query.Representation == RecordRepresentationLogical && rec.IsEnvelope {
 			for _, desc := range storedFacts.Payloads {
-				if desc.PayloadID != rec.PayloadID || desc.StoreLength > int64(maxInlinePayloadBytes) {
+				if desc.PayloadID != rec.PayloadID {
 					continue
 				}
-				payload, readErr := readInlinePayload(ctx, lease, payloadDescriptor{PayloadID: desc.PayloadID, Sequence: desc.Sequence, ContentType: desc.ContentType, ChunkCount: desc.ChunkCount, StoreOffset: desc.StoreOffset, StoreLength: desc.StoreLength})
-				if readErr != nil {
-					if ctx.Err() != nil {
-						return Page[RecordSummary]{}, canceledError(ctx.Err())
-					}
-					return Page[RecordSummary]{}, storageError(scopeID.ID(), readErr)
+				contentRef, refErr := encodeEnvelopeContentReference(scopeID, query.Handle, desc.PayloadID)
+				if refErr != nil {
+					return Page[RecordSummary]{}, storageError(scopeID.ID(), refErr)
 				}
-				items[index].InlinePayload = &InlinePayload{ContentType: desc.ContentType, Bytes: payload}
+				items[index].Content = &ContentDescriptor{Role: ContentRoleReconstructed, ContentType: desc.ContentType, Encoding: descriptorEncoding(desc.ContentType), RetainedBytes: desc.StoreLength, Available: true, Complete: true, InlineEligibility: desc.StoreLength <= MaxInlineContentBytes, ContentRef: contentRef}
+				if query.InlineContent {
+					if d := inlineDescriptor(ctx, lease, items[index].Content, desc, &aggregateInlineBytes); d != nil {
+						return Page[RecordSummary]{}, d
+					}
+				}
 				break
+			}
+		} else if query.Representation == RecordRepresentationLogical && rec.Data != nil {
+			contentRef, refErr := encodeRecordContentReference(scopeID, query.Handle, rec.Sequence)
+			if refErr != nil {
+				return Page[RecordSummary]{}, storageError(scopeID.ID(), refErr)
+			}
+			items[index].Content = &ContentDescriptor{Role: ContentRoleData, ContentType: "application/json", Encoding: ContentEncodingUTF8, RetainedBytes: int64(len(rec.Data)), Available: true, Complete: true, InlineEligibility: len(rec.Data) <= MaxInlineContentBytes, ContentRef: contentRef}
+			if query.InlineContent {
+				inlineOrdinaryDescriptor(items[index].Content, rec.Data, &aggregateInlineBytes)
 			}
 		}
 	}
@@ -240,6 +259,36 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
+}
+
+func loadFrameRoots(lease *artifact.Lease) (map[string]string, error) {
+	parents := map[string]string{}
+	err := scanFactRows[persistedFrameResult](lease, ComponentFrameIndex, 0, func(row persistedFrameResult, _ int64) bool {
+		if row.ParentFrameID != nil {
+			parents[row.FrameID] = *row.ParentFrameID
+		} else {
+			parents[row.FrameID] = ""
+		}
+		return false
+	})
+	if err != nil {
+		return nil, err
+	}
+	roots := map[string]string{}
+	for id := range parents {
+		seen := map[string]bool{}
+		current := id
+		for current != "" && !seen[current] {
+			seen[current] = true
+			parent, ok := parents[current]
+			if !ok || parent == "" {
+				roots[id] = current
+				break
+			}
+			current = parent
+		}
+	}
+	return roots, nil
 }
 
 // recordMatchesFilter reports whether a record matches all set filter fields.
@@ -322,16 +371,23 @@ func validateRecordFilter(scopeID evidence.Reference, filter RecordFilter) *cons
 			return consolecore.NewError(consolecore.CodeInvalidArgument, "The record type filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
 		}
 	}
+	if filter.ValidationStatus != "" && !knownValidationStatus(filter.ValidationStatus) {
+		return consolecore.NewError(consolecore.CodeInvalidArgument, "The validation status filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
+	}
 	if filter.LiteralText != "" {
 		return validateLiteralText(scopeID, filter.LiteralText)
 	}
 	return nil
 }
 
+func knownValidationStatus(value string) bool {
+	return containsClosedValue(ValidationStatusValues(), value)
+}
+
 // recordToSummary converts a parsed Record to a RecordSummary.
 func recordToSummary(rec *Record, row recordIndexRow, ctx TraceContext, rep RecordRepresentation) RecordSummary {
 	repStr := "physical"
-	if rec.IsEnvelope && rep == RecordRepresentationLogical {
+	if rep == RecordRepresentationLogical {
 		repStr = "logical"
 	}
 	return RecordSummary{
@@ -351,6 +407,44 @@ func recordToSummary(rec *Record, row recordIndexRow, ctx TraceContext, rep Reco
 		Raw:             rec.Raw,
 		Facts:           RecordFacts{Attempts: []AttemptSummary{}, Retries: []RetrySummary{}, Validations: []ValidationSummary{}, Failures: []FailureSummary{}, Payloads: []PayloadDescriptor{}, SearchMatches: []SearchResult{}},
 	}
+}
+
+func descriptorEncoding(contentType string) ContentEncoding {
+	if isTextContentType(contentType) {
+		return ContentEncodingUTF8
+	}
+	return ContentEncodingBinary
+}
+
+func inlineOrdinaryDescriptor(desc *ContentDescriptor, raw []byte, aggregate *int64) {
+	if len(raw) > MaxInlineContentBytes {
+		desc.InlineOmission = InlineOmissionPerValue
+		return
+	}
+	if *aggregate+int64(len(raw)) > MaxAggregateInlineContentBytes {
+		desc.InlineOmission = InlineOmissionAggregate
+		return
+	}
+	desc.InlineContent = append([]byte(nil), raw...)
+	*aggregate += int64(len(raw))
+}
+
+func inlineDescriptor(ctx context.Context, lease *artifact.Lease, desc *ContentDescriptor, stored payloadIndexRow, aggregate *int64) *consolecore.Error {
+	if stored.StoreLength > MaxInlineContentBytes {
+		desc.InlineOmission = InlineOmissionPerValue
+		return nil
+	}
+	if *aggregate+stored.StoreLength > MaxAggregateInlineContentBytes {
+		desc.InlineOmission = InlineOmissionAggregate
+		return nil
+	}
+	payload, err := readInlinePayload(ctx, lease, payloadDescriptor{PayloadID: stored.PayloadID, Sequence: stored.Sequence, ContentType: stored.ContentType, ChunkCount: stored.ChunkCount, StoreOffset: stored.StoreOffset, StoreLength: stored.StoreLength})
+	if err != nil {
+		return storageError(desc.ContentRef, err)
+	}
+	desc.InlineContent = payload
+	*aggregate += stored.StoreLength
+	return nil
 }
 
 func findPayloadDescriptorInIndex(lease *artifact.Lease, payloadID string) (*payloadDescriptor, error) {

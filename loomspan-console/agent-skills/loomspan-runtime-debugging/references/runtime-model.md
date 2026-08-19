@@ -3,7 +3,7 @@
 Keep identities distinct: an application instance contains execution sessions;
 a session records one trace; frames represent nested execution structure; and
 records are ordered facts. Failure, model-attempt, retry-sequence, tool-call,
-payload, and continuation identifiers link specific evidence rather than
+content, and continuation identifiers link specific evidence rather than
 establishing cause by themselves.
 
 Active executions and recent activity are live, bounded observations. Cite
@@ -25,9 +25,9 @@ single-flight, expiry, leases, and capacity remain internal safety mechanisms.
 The MCP client does not supply or compare them. `TRACE_UNAVAILABLE` is the
 domain-level result when safe reuse or acquisition cannot provide evidence.
 
-Payload references and continuations are opaque, transient, and bound to their
+Content references and continuations are opaque, transient, and bound to their
 content or query in the current Console process. On a stale continuation,
-restart the query by `traceId`. On a stale payload reference, re-query the
+restart the query by `traceId`. On a stale content reference, re-query the
 relevant record by `traceId` and use the refreshed descriptor. On
 `TARGET_CHANGED`, restart the operation by `traceId`.
 

@@ -20,6 +20,7 @@ func TestRuntimeDebuggingSkillDoesNotTeachRemovedMCPWorkflow(t *testing.T) {
 	stale := []string{
 		"claim to evidence: target scope",
 		"artifact handle, payload reference",
+		"payload references",
 		"expired evidence",
 		"changed scope",
 	}

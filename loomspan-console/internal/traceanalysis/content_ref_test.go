@@ -9,9 +9,9 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 )
 
-func TestPayloadReferenceBindsSourceHandleAndKind(t *testing.T) {
+func TestContentReferenceBindsSourceHandleAndKind(t *testing.T) {
 	handle := artifact.Handle(strings.Repeat("a", 64))
-	token, err := encodeContentReference(evidence.ForImported(), handle, contentKindPayload, "payload-1", nil)
+	token, err := encodeEnvelopeContentReference(evidence.ForImported(), handle, "payload-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestPayloadReferenceBindsSourceHandleAndKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Source != evidence.SourceImported || decoded.Handle != string(handle) || decoded.PayloadID != "payload-1" || decoded.Kind != contentKindPayload {
+	if decoded.Source != evidence.SourceImported || decoded.Handle != string(handle) || decoded.PayloadID != "payload-1" || decoded.Kind != contentKindSemantic || decoded.ContentSource != contentSourceEnvelope {
 		t.Fatalf("decoded=%#v", decoded)
 	}
 	if err := validateContentReference(decoded, evidence.ForTarget("scope"), handle); err == nil {

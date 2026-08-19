@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 )
 
 func TestTraceToolSchemasAreClosedBoundedAndUseSettledBranches(t *testing.T) {
@@ -28,11 +30,41 @@ func TestTraceToolSchemasAreClosedBoundedAndUseSettledBranches(t *testing.T) {
 	prepareRangeSchema(rangeSchema, true)
 	body, _ = json.Marshal(rangeSchema)
 	text := string(body)
-	for _, want := range []string{`"maximum":16777216`, `"maxLength":8192`, `"oneOf"`, `"payloadRef"`} {
+	for _, want := range []string{`"maximum":16777216`, `"maxLength":8192`, `"oneOf"`, `"contentRef"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("range schema missing %s: %s", want, text)
 		}
 	}
+}
+
+func TestClosedTraceVocabulariesUseAuthoritativeServiceInventories(t *testing.T) {
+	list := traceInputSchema[listTracesInput]()
+	prepareListTracesSchema(list)
+	frames := traceInputSchema[queryTraceFramesInput]()
+	prepareQueryFramesSchema(frames)
+	records := traceInputSchema[queryTraceRecordsInput]()
+	prepareQueryRecordsSchema(records)
+	assertSchemaEnum := func(name string, schema *jsonschema.Schema, want []string) {
+		t.Helper()
+		got := make([]string, len(schema.Enum))
+		for index, value := range schema.Enum {
+			got[index] = value.(string)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s enum=%v want=%v", name, got, want)
+		}
+	}
+	assertSchemaEnum("inventory order", list.Properties["order"], traceinventory.OrderValues())
+	assertSchemaEnum("inventory sources", list.Properties["sources"].Items, traceinventory.EvidenceSourceValues())
+	assertSchemaEnum("inventory outcomes", list.Properties["outcomes"].Items, traceanalysis.TraceOutcomeValues())
+	assertSchemaEnum("frame order", frames.Properties["order"], traceanalysis.FrameOrderValues())
+	assertSchemaEnum("frame projection", frames.Properties["projection"], traceanalysis.FrameProjectionValues())
+	assertSchemaEnum("frame type", frames.Properties["filter"].Properties["frameType"], traceanalysis.FrameTypeValues())
+	assertSchemaEnum("frame outcome", frames.Properties["filter"].Properties["outcome"], traceanalysis.FrameOutcomeValues())
+	assertSchemaEnum("frame validation", frames.Properties["filter"].Properties["validationStatus"], traceanalysis.ValidationStatusValues())
+	assertSchemaEnum("record representation", records.Properties["representation"], traceanalysis.RecordRepresentationValues())
+	assertSchemaEnum("record type", records.Properties["filter"].Properties["types"].Items, traceanalysis.RecordTypeValues())
+	assertSchemaEnum("record validation", records.Properties["filter"].Properties["validationStatus"], traceanalysis.ValidationStatusValues())
 }
 
 func TestTraceToolSchemasExposeOnlyDeveloperIntentIdentity(t *testing.T) {
@@ -43,11 +75,11 @@ func TestTraceToolSchemasExposeOnlyDeveloperIntentIdentity(t *testing.T) {
 		schema     any
 		properties []string
 	}{
-		{ListTracesToolName, traceInputSchema[listTracesInput](), []string{"continuation", "pageSize"}},
+		{ListTracesToolName, traceInputSchema[listTracesInput](), []string{"acquiredFrom", "acquiredTo", "continuation", "entrySkill", "finalizedFrom", "finalizedTo", "importedFrom", "importedTo", "order", "outcomes", "pageSize", "sessionId", "sources"}},
 		{GetTraceToolName, traceInputSchema[getTraceInput](), []string{"traceId"}},
-		{QueryTraceFramesToolName, traceInputSchema[queryTraceFramesInput](), []string{"continuation", "filter", "order", "pageSize", "traceId"}},
-		{QueryTraceRecordsToolName, traceInputSchema[queryTraceRecordsInput](), []string{"continuation", "filter", "inlinePayload", "pageSize", "representation", "traceId"}},
-		{ReadTracePayloadToolName, traceInputSchema[traceRangeInput](), []string{"continuation", "maxBytes", "payloadRef", "start", "traceId"}},
+		{QueryTraceFramesToolName, traceInputSchema[queryTraceFramesInput](), []string{"continuation", "filter", "order", "pageSize", "projection", "traceId"}},
+		{QueryTraceRecordsToolName, traceInputSchema[queryTraceRecordsInput](), []string{"continuation", "filter", "inlineContent", "pageSize", "representation", "traceId"}},
+		{ReadTraceContentToolName, traceInputSchema[traceRangeInput](), []string{"contentRef", "continuation", "maxBytes", "start", "traceId"}},
 		{ReadTraceArtifactToolName, rawSchema, []string{"continuation", "maxBytes", "start", "traceId"}},
 	}
 	for _, test := range tests {

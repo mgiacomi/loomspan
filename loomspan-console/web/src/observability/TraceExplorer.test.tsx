@@ -6,7 +6,7 @@ const api = vi.hoisted(() => ({
   BrowserAPIError: class BrowserAPIError extends Error { constructor(readonly code: string, message: string) { super(message); } },
   getTraceAnalysisSummary: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "FAILED", terminalFailureId: null, recordCount: 1, frameCount: 1, rootFrameIds: ["f-1"], usageComplete: false }),
   getTraceFrames: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: null, selfDurationMillis: null, directUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, directUsageComplete: true, descendantUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, descendantUsageComplete: true, inclusiveUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, inclusiveUsageComplete: true, outcomes: [], attemptIds: [], retrySequenceIds: [], validationStatuses: [], failureIds: [] }], hasMore: false, nextCursor: null }),
-  getTraceRecords: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 1, type: "PAYLOAD", frameId: "f-1", route: "hello", timestampMillis: 1, representation: "LOGICAL", payloadId: "p-1" }], hasMore: false, nextCursor: null }),
+  getTraceRecords: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 1, type: "PAYLOAD", frameId: "f-1", route: "hello", timestampMillis: 1, representation: "LOGICAL", content: { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "p-1" } }], hasMore: false, nextCursor: null }),
   getTraceUsage: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", attributed: { totalUnits: 4 } }),
   getTraceAttempts: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
   getTraceRetries: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
@@ -15,9 +15,8 @@ const api = vi.hoisted(() => ({
   listSkills: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
   getTraceGaps: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
   getTraceUncertainties: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
-  getTracePayloads: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
   searchTraceEvidence: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }),
-  getPayloadRange: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 4, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "<a>x</a>", hasMore: false, nextCursor: null }),
+  getContentRange: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 4, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "<a>x</a>", hasMore: false, nextCursor: null }),
   getRawRecordRange: vi.fn().mockResolvedValue({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 2, totalLength: 2, contentType: "application/x-ndjson", encoding: "TEXT", content: "{}", hasMore: false, nextCursor: null }),
 }));
 const targetState = vi.hoisted(() => ({ target: { status: { source: "TARGET", targetScopeId: "scope-1" } }, scopeGeneration: 0, refresh: vi.fn() }));
@@ -37,20 +36,31 @@ function LocationProbe() { const location = useLocation(); return <output aria-l
 test("loads hierarchy and deliberately reads inert evidence", async () => {
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
-  expect(api.getPayloadRange).not.toHaveBeenCalled();
+  expect(api.getContentRange).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
   await screen.findByText("1: PAYLOAD");
-  fireEvent.click(screen.getByRole("button", { name: "Read payload" }));
+  fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   await screen.findByText("<a>x</a>");
   expect(screen.queryByRole("link", { name: "x" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
   await screen.findByLabelText("Usage facts");
 });
 
+test("uses compact frames for hierarchy and detailed frames for rich views", async () => {
+	render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
+	await screen.findByText(/FAILED/);
+	expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET");
+	fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+	await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "DETAILED"));
+	fireEvent.click(screen.getByRole("tab", { name: "Hierarchy" }));
+	fireEvent.click(screen.getByRole("button", { name: /SKILL: hello/ }));
+	await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, { frameIds: ["f-1"] }, "CANONICAL", "TARGET", "DETAILED"));
+});
+
 test("usage operations deep-link to and focus their exact model response record", async () => {
   const rootFrame = { frameId: "root", parentFrameId: null, childFrameIds: ["model-frame"], frameType: "SKILL", route: "handleIncident", openedTimestampMillis: 1, closedTimestampMillis: 30, inclusiveDurationMillis: 29, selfDurationMillis: 1, directUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, directUsageComplete: true, descendantUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 }, descendantUsageComplete: true, inclusiveUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 }, inclusiveUsageComplete: true, outcomes: [], attemptIds: [], retrySequenceIds: [], validationStatuses: [], failureIds: [] };
   const modelFrame = { ...rootFrame, frameId: "model-frame", parentFrameId: "root", childFrameIds: [], frameType: "MODEL_CALL", route: "handleIncident#planning-model", openedTimestampMillis: 10, closedTimestampMillis: 20, directUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 }, descendantUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, inclusiveUsage: { promptUnits: 2, completionUnits: 2, totalUnits: 4 } };
-  const response = { sequence: 23, type: "MODEL_RESPONSE_RECEIVED", frameId: "model-frame", route: modelFrame.route, timestampMillis: 20, representation: "LOGICAL", payloadId: "response-payload" };
+  const response = { sequence: 23, type: "MODEL_RESPONSE_RECEIVED", frameId: "model-frame", route: modelFrame.route, timestampMillis: 20, representation: "LOGICAL", content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "response-payload" } };
   const page = (items: unknown[], hasMore = false, nextCursor: string | null = null) => ({ source: "TARGET", targetScopeId: "scope-1", items, hasMore, nextCursor });
   api.getTraceFrames.mockResolvedValueOnce(page([rootFrame])).mockResolvedValueOnce(page([modelFrame]));
   api.getTraceUsage.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", attributed: modelFrame.directUsage, unattributed: rootFrame.directUsage, unframedAttributed: rootFrame.directUsage, terminal: modelFrame.directUsage });
@@ -70,25 +80,25 @@ test("usage operations deep-link to and focus their exact model response record"
 });
 
 test("continues a finite payload range using the returned opaque cursor", async () => {
-  api.getPayloadRange.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 2, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "one", hasMore: true, nextCursor: "next-1" }).mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", actualStart: 2, actualEnd: 4, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "two", hasMore: false, nextCursor: null });
+  api.getContentRange.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 2, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "one", hasMore: true, nextCursor: "next-1" }).mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", actualStart: 2, actualEnd: 4, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "two", hasMore: false, nextCursor: null });
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
   await screen.findByText("1: PAYLOAD");
-  fireEvent.click(screen.getByRole("button", { name: "Read payload" }));
+  fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   await screen.findByText("one");
   fireEvent.click(screen.getByRole("button", { name: "Read next range" }));
   await screen.findByText("two");
-  expect(api.getPayloadRange).toHaveBeenLastCalledWith("trace-1", "p-1", "next-1", "TARGET");
+  expect(api.getContentRange).toHaveBeenLastCalledWith("trace-1", "p-1", "next-1", "TARGET");
 });
 
 test("artifact expiration during a range clears stale content and reports the precise error", async () => {
-  api.getPayloadRange.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 2, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "one", hasMore: true, nextCursor: "next-1" }).mockRejectedValueOnce(new api.BrowserAPIError("ARTIFACT_EXPIRED", "The local artifact expired."));
+  api.getContentRange.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", actualStart: 0, actualEnd: 2, totalLength: 4, contentType: "text/plain", encoding: "TEXT", content: "one", hasMore: true, nextCursor: "next-1" }).mockRejectedValueOnce(new api.BrowserAPIError("ARTIFACT_EXPIRED", "The local artifact expired."));
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
   await screen.findByText("1: PAYLOAD");
-  fireEvent.click(screen.getByRole("button", { name: "Read payload" }));
+  fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   await screen.findByText("one");
   fireEvent.click(screen.getByRole("button", { name: "Read next range" }));
   await screen.findByText("The local artifact expired.");
@@ -113,7 +123,7 @@ test("search is deliberate and forwards literal text only after submission", asy
 test("continues hierarchy, record, and literal-search pages with their returned cursors", async () => {
   const page = (items: unknown[], hasMore: boolean, nextCursor: string | null) => ({ source: "TARGET", targetScopeId: "scope-1", items, hasMore, nextCursor });
   api.getTraceFrames.mockResolvedValueOnce(page([{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: null, selfDurationMillis: null }], true, "frames-next")).mockResolvedValueOnce(page([{ frameId: "f-2", parentFrameId: null, childFrameIds: [], frameType: "TOOL", route: "next", inclusiveDurationMillis: 1, selfDurationMillis: 1 }], false, null));
-  api.getTraceRecords.mockResolvedValueOnce(page([{ sequence: 1, type: "PAYLOAD", frameId: "f-1", route: "hello", timestampMillis: 1, representation: "LOGICAL", payloadId: "p-1" }], true, "records-next")).mockResolvedValueOnce(page([{ sequence: 2, type: "EVENT", frameId: "f-2", route: "next", timestampMillis: 2, representation: "LOGICAL", payloadId: "" }], false, null));
+  api.getTraceRecords.mockResolvedValueOnce(page([{ sequence: 1, type: "PAYLOAD", frameId: "f-1", route: "hello", timestampMillis: 1, representation: "LOGICAL", content: { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "p-1" } }], true, "records-next")).mockResolvedValueOnce(page([{ sequence: 2, type: "EVENT", frameId: "f-2", route: "next", timestampMillis: 2, representation: "LOGICAL",  }], false, null));
   api.searchTraceEvidence.mockResolvedValueOnce(page([], true, "search-next")).mockResolvedValueOnce(page([], false, null));
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
@@ -176,7 +186,6 @@ test("records omit detached fact indexes and do not load their collections", asy
   expect(api.getTraceValidationLinks).not.toHaveBeenCalled();
   expect(api.getTraceGaps).not.toHaveBeenCalled();
   expect(api.getTraceUncertainties).not.toHaveBeenCalled();
-  expect(api.getTracePayloads).not.toHaveBeenCalled();
 });
 
 test("failure deep links continue pages until the selected fact is found", async () => {
@@ -268,7 +277,7 @@ test("failure focus selects the recorded terminal failure and never loads raw pa
   await screen.findByText("ERROR_RECORDED sequence 119");
   await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("frameId=f-1"));
   expect(screen.getByText(/does not identify root cause/)).toBeInTheDocument();
-  expect(api.getPayloadRange).not.toHaveBeenCalled();
+  expect(api.getContentRange).not.toHaveBeenCalled();
   expect(api.getRawRecordRange).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Show in hierarchy" }));
   await vi.waitFor(() => expect(screen.getByRole("button", { name: /SKILL: hello/ })).toHaveFocus());
@@ -276,7 +285,7 @@ test("failure focus selects the recorded terminal failure and never loads raw pa
 
 test("view error from the exact failure record focuses the failure panel", async () => {
   api.getTraceAnalysisSummary.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", traceId: "trace-1", sessionId: "session-1", outcome: "FAILED", terminalFailureId: "terminal-1", recordCount: 15, frameCount: 1, attemptCount: 1, retryCount: 1, validationCount: 0, failureCount: 1, payloadCount: 1, gapCount: 0, uncertaintyCount: 0, rootFrameIds: ["f-1"], usageComplete: false, configuredLimits: null });
-  api.getTraceRecords.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 15, type: "ERROR_RECORDED", frameId: "f-1", route: "hello", timestampMillis: 15, representation: "LOGICAL", payloadId: "p-1" }], hasMore: false, nextCursor: null });
+  api.getTraceRecords.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 15, type: "ERROR_RECORDED", frameId: "f-1", route: "hello", timestampMillis: 15, representation: "LOGICAL", content: { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "p-1" } }], hasMore: false, nextCursor: null });
   api.getTraceFailures.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ failureId: "terminal-1", terminal: true, sequence: 15, timestampMillis: 15, recordType: "ERROR_RECORDED", frameId: "f-1", route: "hello", attemptId: "a-1", retrySequenceId: "r-1", validationStatus: "" }], hasMore: false, nextCursor: null });
   render(<MemoryRouter initialEntries={["/?view=records"]}><TraceExplorer traceId="trace-1" /></MemoryRouter>);
 
@@ -286,7 +295,8 @@ test("view error from the exact failure record focuses the failure panel", async
 });
 
 test("selected frames link only exact current registered skill names", async () => {
-  api.getTraceFrames.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "root.child", inclusiveDurationMillis: 1, selfDurationMillis: 1, skillNames: ["exact.skill", "Missing.Skill"] }], hasMore: false, nextCursor: null });
+	const framePage = { source: "TARGET", targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "root.child", inclusiveDurationMillis: 1, selfDurationMillis: 1, skillNames: ["exact.skill", "Missing.Skill"] }], hasMore: false, nextCursor: null };
+	api.getTraceFrames.mockResolvedValueOnce(framePage).mockResolvedValueOnce(framePage);
   api.listSkills.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ registeredName: "exact.skill", sourcePath: "<unsafe>" }, { registeredName: "missing.skill", sourcePath: "other" }], hasMore: false, nextCursor: null });
   render(<MemoryRouter initialEntries={["/?frameId=f-1"]}><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   expect(await screen.findByRole("link", { name: "exact.skill" })).toHaveAttribute("href", "/skills/exact.skill?targetScopeId=scope-1");

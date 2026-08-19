@@ -991,14 +991,14 @@ func TestSharedQueryServiceSearchThroughProductionComposition(t *testing.T) {
 
 	page, domain := queryService.Search(context.Background(), evidence.ForTarget(scope.ID), traceanalysis.SearchQuery{
 		Handle:   acquired.Handle,
-		Text:     "traceId",
+		Text:     "attempt-1",
 		PageSize: 10,
 	})
 	if domain != nil {
 		t.Fatalf("Search failed: %v", domain)
 	}
 	if len(page.Items) == 0 {
-		t.Fatal("expected at least one search match for 'traceId'")
+		t.Fatal("expected at least one semantic metadata match for 'attempt-1'")
 	}
 }
 

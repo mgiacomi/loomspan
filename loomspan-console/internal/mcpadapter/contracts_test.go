@@ -159,10 +159,10 @@ func TestRejectedPropertySpellingsInsideUntrustedEvidenceRoundTripUnchanged(t *t
 	}
 
 	record := mapRecord(traceanalysis.RecordSummary{
-		InlinePayload: &traceanalysis.InlinePayload{ContentType: "application/json", Bytes: []byte(sentinel)},
-		Facts:         traceanalysis.RecordFacts{Failures: []traceanalysis.FailureSummary{{ContextSummary: sentinel}}},
+		Content: &traceanalysis.ContentDescriptor{Role: traceanalysis.ContentRoleData, ContentType: "application/json", Encoding: traceanalysis.ContentEncodingUTF8, RetainedBytes: int64(len(sentinel)), Available: true, Complete: true, InlineEligibility: true, InlineContent: []byte(sentinel)},
+		Facts:   traceanalysis.RecordFacts{Failures: []traceanalysis.FailureSummary{{ContextSummary: sentinel}}},
 	})
-	if record.InlinePayload == nil || record.InlinePayload.Content != sentinel || len(record.Facts.Failures) != 1 || record.Facts.Failures[0].ContextSummary != sentinel {
+	if record.Content == nil || record.Content.InlineContent != sentinel || len(record.Facts.Failures) != 1 || record.Facts.Failures[0].ContextSummary != sentinel {
 		t.Fatalf("record evidence changed: %#v", record)
 	}
 	for _, value := range []traceanalysis.ByteRangeResult{

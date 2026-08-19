@@ -34,7 +34,7 @@ func (a *immutableRangeAnalysis) QueryFrames(context.Context, evidence.Reference
 func (a *immutableRangeAnalysis) QueryRecords(context.Context, evidence.Reference, traceanalysis.RecordQuery) (traceanalysis.Page[traceanalysis.RecordSummary], *consolecore.Error) {
 	return traceanalysis.Page[traceanalysis.RecordSummary]{}, nil
 }
-func (a *immutableRangeAnalysis) ReadPayloadRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
+func (a *immutableRangeAnalysis) ReadContentRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
 	return a.result, nil
 }
 func (a *immutableRangeAnalysis) ReadRawArtifactRange(ctx context.Context, _ evidence.Reference, request traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {

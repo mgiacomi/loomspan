@@ -21,10 +21,18 @@ constraints from the completed LLM Runtime Inspector phase design and
 supersedes that removed document as the active authority for future
 skill-and-MCP trace-understanding work.
 
-The first implementation step for this roadmap is the
-[LLM-facing MCP trace interface cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md).
-It removes accepted Console-internal concepts from the model-facing contract
-before further live MCP walkthroughs select additional changes.
+The LLM-facing trace-interface cleanup is complete. Finalized trace operations
+now use `traceId`; Console ownership, acquisition, artifact, target-scope, and
+runtime-instance mechanics remain internal; and tools are the complete MCP
+inspection path. The next work starts with live walkthroughs against that
+cleaned baseline and the unresolved workstreams below.
+
+This MCP and Console interface is still unreleased development work. Change it
+in place when the design improves: do not add compatibility shims, aliases,
+fallbacks, dual behavior, or new generations to preserve an earlier
+development-only contract. Keep the server, skill, tests, fixtures, and docs in
+lockstep. This does not relax the repository's separate closed supported Java
+API rules.
 
 ## Outcome
 
@@ -54,13 +62,11 @@ security, and transport foundations. Evaluation against the developer question
 different class of gaps: the system is mechanically complete at a low level but
 does not yet teach or expose the shortest reliable semantic path.
 
-Three independently evaluated models reported the same broad pattern:
+Initial model evaluations reported the remaining broad pattern:
 
 - full tool discovery consumed thousands of lines before the first evidence
   call;
 - capability identifiers did not lead directly to the relevant tools;
-- the trace acquisition and `traceId` to `artifactHandle` transition exposed
-  Console lifecycle machinery and had to be learned through errors;
 - record-type vocabulary and search scope were difficult to discover;
 - important model-response and plan content was not exposed by the parsed tool
   path and required exact raw NDJSON reads;
@@ -239,11 +245,11 @@ layers. Missing capability, unsupported MCP protocol, target authentication,
 `INCOMPATIBLE_TARGET`, evidence expiry, and operation failure must not be
 collapsed into one health or compatibility state.
 
-Loomspan has not released an alpha version of this surface. Until the first
-release, capability identifiers describe a development contract and may be
-corrected, expanded, renamed, or replaced without a compatibility shim or new
-generation. The repository must still remain internally coherent: the skill,
-server, tests, and documentation move together, and an advertised development
+Loomspan has not released this surface. Capability identifiers and MCP schemas
+are development contracts and may be corrected, expanded, renamed, or replaced
+in place. Do not add a compatibility shim, alias, fallback, dual behavior, or
+new generation merely to preserve an earlier development revision. The skill,
+server, tests, fixtures, and documentation move together, and an advertised
 capability must match the operations and semantics present in that revision.
 
 The first released version establishes the compatibility-governance baseline.
@@ -254,12 +260,11 @@ an incomplete development-only contract, and do not claim compatibility with
 an earlier unreleased revision. After the baseline release, capability changes
 must follow those recorded rules deliberately.
 
-Tools remain the complete portable investigation path. Remove `resourceUri`
-and `resources` from tool results and remove the current custom MCP resource
-templates; they duplicate callable operations and expose rejected ownership
-and artifact mechanics. A future resource method must independently pass the
-method test. No workflow may depend on resources, MCP prompts, sampling,
-elicitation, or an MCP-hosted UI.
+Tools are the complete portable investigation path. Tool results contain no
+`resourceUri` or `resources`, and the server advertises no custom MCP resource
+templates. A future resource method must independently pass the method test.
+No workflow may depend on resources, MCP prompts, sampling, elicitation, or an
+MCP-hosted UI.
 
 ### Selected target, identity, and internal artifact lifecycle
 
@@ -466,28 +471,6 @@ and scanning as investigation cost. Decide from evidence whether documented
 recent-first traversal is sufficient or server-side inventory filters are
 required.
 
-### 1A. LLM-facing interface cleanup baseline
-
-Implement the accepted interface decisions recorded in the question
-inventory before using live walkthroughs to select further changes. The
-[cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md)
-is authoritative for this bounded implementation step:
-
-- use `traceId` for finalized-trace operations while resolving ownership and
-  installed evidence internally;
-- remove `sourceFilter`, `source`, `artifactHandle`, `targetScopeId`, and
-  `instanceId` from the LLM-facing contract;
-- return compact trace candidates without catalog, availability, cache,
-  acquisition, retention, expiration, or size fields;
-- remove `resourceUri` and `resources` from tool results; and
-- preserve internal safety through direct domain errors and limitations rather
-  than exposed routing state.
-
-Do not fold unresolved candidates—session identity, content-reference design,
-pagination defaults, activity continuity, physical-record representation,
-fallback duplication, or tool consolidation—into this cleanup merely because
-the implementation touches nearby code.
-
 ### 2. Semantic content addressability
 
 Extend the existing typed, opaque, scope-and-artifact-bound content-reference
@@ -657,7 +640,6 @@ behavior aligned. Candidate checked facts include:
 | Question-to-reference routing is unclear | Confirmed skill navigation gap | Top-level routing table and deterministic reference links |
 | Bootstrap checks every capability family | Confirmed proportionality gap | Check only workflow dependencies after runtime discovery |
 | Literal search missed plan records | Confirmed discoverability/correctness risk | Expose type enums and explicit search scope/case semantics |
-| `traceId` to `artifactHandle` was learned through errors | Confirmed leakage of Console acquisition mechanics | Use `traceId` throughout the LLM contract and preserve evidence ownership internally |
 | Failed calls redisplay the full catalog | Client-dependent until reproduced at the protocol boundary | Attribute ownership, then reduce server-controlled repetition where useful |
 | Full frame results are expensive for tree discovery | Confirmed projection gap | Evaluate compact tree/summary projection |
 | Single-line truncated JSON is difficult to recover | Client and fallback-format interoperability gap | Evaluate concise/line-oriented fallback and structured-result behavior |
@@ -667,7 +649,7 @@ behavior aligned. Candidate checked facts include:
 | “I just ran this skill” has no bounded trace-identification contract | Confirmed workflow gap | Measure identification cost and evaluate inventory filters |
 | Per-value inline bounds can accumulate across a record page | Confirmed response-bound and exposure risk | Add an aggregate per-response inline budget |
 | Some prepared/sent model requests use ordinary `data` rather than chunked payloads | Confirmed semantic-content gap | Apply the general record-data contract to both physical representations |
-| Plan identity was model-authored, plan records relied on frame-placement behavior, and `PLAN_CREATED` omitted its accepting attempt | Producer gap resolved by PR 27; MCP/skill consumption remains | Expose and teach framework-owned `planId` plus accepting `attemptId`/`retrySequenceId` |
+| MCP and skill do not yet consume all framework-owned plan identity and accepted-attempt facts | Confirmed downstream contract gap | Expose and teach `planId` plus accepting `attemptId`/`retrySequenceId` |
 
 ## Evaluation authority
 
@@ -683,12 +665,10 @@ investigation may legitimately cost more than a direct content lookup.
 ### Stage 1 — Workflow and baseline evidence
 
 - Approve the companion workflow catalog.
-- Implement the accepted LLM-facing cleanup ticket so walkthroughs begin from
-  the intended `traceId`-based contract rather than known storage leakage.
 - Reproduce representative workflows against the protocol boundary and
-  selected clients after that cleanup.
-- Record post-cleanup interaction-complexity measurements and retain the
-  current implementation only as the historical comparison baseline.
+  selected clients.
+- Record interaction-complexity measurements for the current `traceId`-based
+  interface.
 - Identify the exact design/implementation divergences that block ordinary
   workflows.
 - Derive a sanitized synthetic fixture preserving the observed nested primary
@@ -795,19 +775,16 @@ pre-alpha design iterations under this roadmap.
 
 The next context should:
 
-1. implement the
-   [LLM-facing MCP trace interface cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md)
-   without absorbing unresolved candidates;
-2. connect a representative LLM client to the resulting MCP server and walk
+1. connect a representative LLM client to the current MCP server and walk
    through successful, failed/retried, imported, active, unavailable, and large
    content traces;
-3. record tool discovery, unnecessary calls, ignored fields, error recovery,
+2. record tool discovery, unnecessary calls, ignored fields, error recovery,
    and approximate context cost in the question inventory and evaluation
    evidence;
-4. decide the `sessionId`, content-reference, pagination, activity-continuity,
+3. decide the `sessionId`, content-reference, pagination, activity-continuity,
    physical-record, text-fallback, and tool/resource candidates from observed
    workflow friction;
-5. research the smallest correct storage/index implementation for ordinary
+4. research the smallest correct storage/index implementation for ordinary
    semantic record-data ranges; and
-6. create later tickets only for independently reviewable outcomes supported
+5. create later tickets only for independently reviewable outcomes supported
    by those walkthroughs.

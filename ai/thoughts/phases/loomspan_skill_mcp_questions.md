@@ -10,10 +10,16 @@ The first area is how a developer asks the LLM to find, load, select, or reuse a
 trace. No MCP or skill change is selected merely because a question appears
 here.
 
-Accepted first-pass interface cleanup is handed off through the
-[LLM-facing MCP trace interface cleanup ticket](../tickets/loomspan-mcp-llm-facing-trace-interface-cleanup.md).
-After implementation, live MCP walkthroughs should supply evidence for the
-remaining candidates rather than expanding that ticket speculatively.
+The first LLM-facing interface cleanup is complete. This document retains only
+unresolved questions and notes needed to select future work. Live MCP
+walkthroughs should supply evidence for those candidates rather than extending
+the interface speculatively.
+
+The MCP and Console contracts remain unreleased. Change them in place and move
+the server, skill, callers, tests, fixtures, and docs together. Do not preserve
+an earlier development revision with compatibility shims, aliases, fallbacks,
+or dual behavior. The supported Java API remains governed separately by its
+closed allowlist.
 
 ## Relationship to the roadmap and workflow catalog
 
@@ -66,26 +72,20 @@ Status meanings:
 - **CANDIDATE** — an observed interface concern that still requires design work;
 - **ACCEPTED** — the direction is agreed, although details may remain open;
 - **TICKETED** — an implementation-ready ticket exists;
-- **IMPLEMENTED** — the change is present but has not completed workflow/model
-  evaluation;
-- **VERIFIED** — implementation and representative LLM workflows demonstrate
-  the intended result;
 - **DEFERRED** — valid work intentionally postponed with a recorded reason; and
 - **REJECTED** — considered and deliberately not pursued with a recorded reason.
 
+Completed items are removed from this ledger once their enduring result is
+captured as a current baseline constraint elsewhere. Git history retains the
+implementation record.
+
 | ID | Area | Interface element | Decision or question | Rationale | Status | Follow-up |
 | --- | --- | --- | --- | --- | --- | --- |
-| TRACE-IF-001 | Trace discovery | `LOOMSPAN_list_traces.sourceFilter` | Remove `sourceFilter` from the LLM-facing MCP contract. Ordinary trace discovery should use one unified inventory without requiring the LLM to choose a storage or provenance category. Console may retain internal source distinctions, but should express any material evidence limitation directly instead of exposing a routing enum. | `TARGET` versus `IMPORTED` describes where evidence came from, not the developer’s ordinary intent. Requiring this choice makes the LLM restate an implementation detail and creates avoidable branching. | **TICKETED** | Implement and verify through the linked first-pass cleanup ticket. |
-| TRACE-IF-002 | Trace identity | LLM-visible `artifactHandle` parameters and return fields | Remove `artifactHandle` from the LLM-facing MCP contract. Use `traceId` as the normal identity for trace discovery and every downstream trace operation. Console may retain artifact handles internally to bind an exact installed evidence instance. If distinct evidence instances claim the same `traceId`, return an explicit exceptional disambiguation response rather than making every caller manage artifact identity. | `artifactHandle` represents Console acquisition, cache, expiry, and ownership mechanics rather than developer intent. Making the LLM transition from `traceId` to a temporary handle adds state and failure modes to every normal investigation. | **TICKETED** | Implement the internal resolver, collision behavior, target-change safety, imported evidence path, and evaluations in the linked ticket. |
-| TRACE-IF-003 | Trace discovery | Trace-inventory catalog, availability, cache, acquisition, retention, and size fields | Remove `applicationCatalog`, `applicationAvailability`, `localAvailable`, `acquiredAt`, `lastUsedAt`, `localExpiresAt`, `localBytes`, `persistencePolicy`, `applicationTraceExpiresAt`, and `sizeBytes` from the LLM-facing trace inventory. Replace a failed or incomplete discovery source with a compact domain-level completeness limitation only when it changes what the LLM may conclude. | These fields describe how Console merges, acquires, retains, and stores evidence rather than which trace answers the developer’s question. Console should manage those mechanics and report only a material inability to discover or inspect evidence. | **TICKETED** | Implement the compact inventory result and incomplete-discovery behavior in the linked ticket. |
-| TRACE-IF-004 | Trace operations | LLM-visible `source` parameters, fields, and `TARGET`/`IMPORTED` routing distinctions | Remove `source` from the LLM-facing MCP trace contract. Console should resolve evidence internally from `traceId`; the LLM should not select or branch on storage origin. If origin creates a material limitation, return the limitation in domain terms rather than requiring or returning an implementation-facing source enum. | Source is an acquisition, storage, and ownership concern rather than developer intent. Keeping it visible would preserve unnecessary branching after `sourceFilter` and `artifactHandle` are removed. | **TICKETED** | Implement deterministic resolution and domain-level limitations alongside TRACE-IF-001 and TRACE-IF-002. |
-| TRACE-IF-005 | Cross-cutting identity | LLM-visible `targetScopeId` and `instanceId` return and error fields | Remove `targetScopeId` and `instanceId` from the LLM-facing MCP contract. Console must continue to enforce target ownership, target-change, runtime-generation, and stale-evidence safety internally, returning a direct domain error or limitation when the LLM must restart or cannot proceed. | These identifiers exist so Console can prevent evidence from being mixed across targets and runtime generations. The LLM should not retain, compare, or route with them to receive those guarantees. | **TICKETED** | Implement MCP-specific runtime, continuity, result, and error DTOs plus leak tests in the linked ticket. |
-| TRACE-IF-006 | MCP navigation | `resourceUri`, `resources`, and current custom MCP resource templates | Remove `resourceUri` and `resources` from LLM-facing tool results. Remove the current custom resource templates because they duplicate complete tool paths and expose rejected scope/source/handle identities. A future resource surface must independently pass the method test. | These fields and templates duplicate callable inspection tools, increase branching, and currently expose `targetScopeId`, `source`, and `artifactHandle` through URI construction. | **TICKETED** | Remove result fields and current resource registrations in the linked ticket; reconsider resources only from observed post-cleanup need. |
-| TRACE-IF-007 | Execution-to-trace identity | `sessionId` in discovery and downstream operations | Determine whether `sessionId` should remain only a developer-facing discovery/correlation key that resolves to `traceId`, after which live and finalized inspection use `traceId`. Do not remove it as Console noise: the supported Java `SkillExecutionView` exposes it to application developers and it identifies a skill session even though trace evidence has a separate identity. | `sessionId` represents a real developer entry point, but repeating or routing with both `sessionId` and `traceId` throughout an investigation may create an avoidable identity transition. | **CANDIDATE** | Walk through copied-session, active execution, finalization failure, and completed-trace conversations after the cleanup ticket; determine whether one session can map to multiple traces. |
+| TRACE-IF-007 | Execution-to-trace identity | `sessionId` in discovery and downstream operations | Determine whether `sessionId` should remain only a developer-facing discovery/correlation key that resolves to `traceId`, after which live and finalized inspection use `traceId`. Do not remove it as Console noise: the supported Java `SkillExecutionView` exposes it to application developers and it identifies a skill session even though trace evidence has a separate identity. | `sessionId` represents a real developer entry point, but repeating or routing with both `sessionId` and `traceId` throughout an investigation may create an avoidable identity transition. | **CANDIDATE** | Walk through copied-session, active execution, finalization failure, and completed-trace conversations; determine whether one session can map to multiple traces. |
 
 Expected flow:
 
-`question inventory → accepted ledger item → roadmap dependency → ticket → implementation → workflow/model evaluation → VERIFIED`
+`question inventory → accepted ledger item → roadmap dependency → ticket → implementation → workflow/model evaluation → remove completed planning baggage`
 
 Keep this ledger in this document while it remains manageable. Extract it into a
 separate work-tracking document only if its size begins to obscure the developer
@@ -518,6 +518,165 @@ None of these pressures yet proves that a new MCP operation is necessary.
 Existing tools, schemas, ordering, or skill guidance may satisfy some after
 measurement.
 
+## Live walkthrough evidence
+
+### 2026-08-18 — primary-plan question
+
+Connected directly to the local stateless MCP endpoint with protocol
+`2025-11-25`. The server advertised the expected twelve read-only tools, six
+capabilities, and no custom resources. The full `tools/list` response was large
+enough to dominate the initial interaction and repeated substantial result and
+error schemas. Exact byte/token measurement remains to be captured with a
+client-side counter.
+
+Prompt under evaluation:
+
+> I ran `handleIncident`. Pull up the trace and show me what plan the model
+> ended up creating for the primary mission.
+
+The complete recent-first inventory contained two candidates and made the
+newest `handleIncident` trace unambiguous. The normal path used runtime
+discovery, trace listing, trace summary, canonical frames, and a structured
+`PLAN_CREATED`/`PLAN_UPDATED` record query.
+
+The newest trace was a useful negative case: planning ended during its only
+model attempt, and the structured plan-record query returned no items. Five
+successful evidence calls established that there was no recorded accepted plan
+without a raw read or a failed call. This is the desired stopping behavior;
+model-response content could be examined separately only to answer whether an
+unaccepted proposal existed.
+
+The second retained trace exercised actual plan evolution. Structural evidence
+identified the primary root, its planning frame, one `PLAN_CREATED` at sequence
+14, and `PLAN_UPDATED` records at sequences 25 and 39 on the root mission. The
+record query requested `representation=LOGICAL` and `inlinePayload=true`, but
+all three ordinary-data records returned only physical raw offsets. They
+contained no inline plan value, content reference, typed `planId`, accepting
+attempt, or retry relationship. Answering the ordinary semantic question then
+required three `LOOMSPAN_read_trace_artifact` calls plus manual NDJSON decoding.
+
+The raw fallback established one plan chain with `planId`
+`aee2b88e-b610-457a-8f9c-775f3b2fee70`. Its final recorded state at sequence 39
+had four tasks: classification was complete; network investigation, runbook
+lookup, and response drafting remained pending. The execution itself later
+failed, so the recorded plan must not be described as fully executed.
+
+Observed interface friction:
+
+- ordinary plan content and plan identity are not available through parsed
+  trace inspection;
+- `inlinePayload=true` gives no explicit per-record explanation when ordinary
+  `data` cannot be inlined;
+- `representation=LOGICAL` still returned records labeled `physical`, without
+  making the representation fallback or limitation explicit;
+- the ten-frame orientation response returned every detailed usage,
+  attempt/retry, validation, failure, gap, and uncertainty field, confirming
+  the need to evaluate a compact hierarchy projection;
+- `filter.types` had no item enum in the advertised schema, so the plan record
+  vocabulary had to come from prior documentation; and
+- an exact raw record-range read returned `hasMore=true` because unrelated
+  artifact bytes followed, even though the selected record range was complete.
+
+This walkthrough confirms semantic content addressability as the first
+correctness blocker. It also supplies concrete evidence for record vocabulary,
+compact frame projection, and logical-selection completeness work. It does not
+yet justify a specialized plan tool.
+
+### 2026-08-18 — recently uploaded successful trace discovery
+
+Tested discovery without using the developer-supplied trace ID. One
+`LOOMSPAN_list_traces(pageSize=10)` call returned a complete, single-page
+inventory of three traces. The uploaded trace was selectable because it was the
+only item with outcome `SUCCEEDED`; no candidate inspection or failed call was
+required.
+
+This was easy for the current inventory but is not a robust “recently uploaded”
+path. The imported trace retained its original `finalizedAt` and sorted after
+newer failed traces, while `entrySkill` was empty. The inventory exposes no
+admission/upload time or server-side outcome, entry-skill, session, or time
+filter. With more successful imports, the supplied conversational clue would
+not prove a unique candidate without scanning pages or asking for another
+identifier.
+
+This evidence supports keeping the compact unified inventory, but the design
+still needs to decide whether imported traces can supply trustworthy entry-skill
+metadata and whether measured inventory growth justifies bounded filters or an
+admission-time fact. It does not justify mutable process-global “current trace”
+state.
+
+### 2026-08-18 — successful trace understanding workflows
+
+Inspected the inventory-selected successful trace across overview, plan,
+model-exchange, tool, validation, search, and final-output questions. The trace
+contained 187 records, 30 frames, 12 model attempts, 11 retry sequences, two
+validations, twelve reconstructed payloads, complete usage, and no failures.
+
+The trace summary was compact and useful. Structural orientation was not: one
+canonical 30-frame query produced about 15.6K tokens and was truncated by the
+client because every frame carried detailed duration, three usage aggregates,
+attempts, retries, validations, failures, gaps, and uncertainties. The primary
+root and nested paths were present, but a normal overview needed only identity,
+parent, type, route, outcome, and selected landmarks.
+
+The plan query found one primary `PLAN_CREATED`, nine primary plan versions in
+total, and a separate nested `investigateNetwork` plan chain. All twelve plan
+records were individually small and collectively about 24 KiB as physical
+records. Despite `representation=LOGICAL` and `inlinePayload=true`, every plan
+record returned only a physical raw address. No parsed `data`, content
+descriptor, `planId`, or accepting-attempt relationship was exposed.
+
+The model-exchange query was the opposite failure mode. Envelope-backed
+prepared/sent requests were repeatedly inlined, while ordinary-data model
+responses remained raw-only. The whole-trace query produced about 57K tokens
+and was truncated. Prepared and sent requests often duplicated the same large
+prompt, and the text fallback duplicated the structured result again at the
+protocol level. There was no aggregate inline budget or descriptor-first mode
+that allowed selecting one exchange before loading content.
+
+A frame-scoped `classifyIncident` tool query efficiently found
+`TOOL_CALL_STARTED` and `TOOL_CALL_COMPLETED`, but their input and output were
+ordinary `data` and therefore inaccessible without raw reads. The same problem
+affected `ADVISOR_RESPONSE_MUTATION_RECORDED`,
+`STRUCTURED_OUTPUT_RECORDED`, and the final `MODEL_RESPONSE_RECEIVED`. Finding
+the successful final answer required tail-record traversal followed by an exact
+raw-artifact read and manual NDJSON decoding.
+
+Literal search for `INC-2401` returned about 10.8K tokens of rich record
+descriptors. It matched encoded ordinary `data` but omitted reconstructed
+envelope payloads containing the same text. The result did not state searched
+fields, case behavior, representation mode, or referenced-content coverage at
+the page level, so the caller could not safely interpret a negative result.
+
+Additional friction confirmed by this trace:
+
+- the advertised `filter.types` and validation-status fields had no enum;
+- `LOGICAL` queries silently mixed logical envelope records with physical
+  ordinary-data records;
+- `inlinePayload` was a coarse all-page switch rather than a bounded content
+  selection mechanism;
+- exact raw record reads reported `hasMore=true` whenever unrelated artifact
+  bytes followed, not whether the requested record selection was complete;
+- full JSON text fallbacks repeated structured results and amplified large
+  responses; and
+- this imported trace predates the framework-owned plan-identity producer
+  contract, so its model-authored plan ID and missing accepting-attempt fields
+  are legacy evidence, not a compatibility requirement for the next contract.
+
+The raw fallback established that the primary plan ended with all four tasks
+completed: classify the incident, investigate the network path, look up the
+runbook, and draft the incident response. The final model response reported a
+successful SEV2 network incident analysis. These answers were present in the
+trace but not reachable through the ordinary parsed semantic path.
+
+## Accepted next ticket
+
+The failed- and successful-trace findings are captured as one executable brief
+in
+[`../tickets/loomspan-console-mcp-trace-navigation-and-semantic-evidence.md`](../tickets/loomspan-console-mcp-trace-navigation-and-semantic-evidence.md).
+That ticket is the authority for the next implementation boundary; keep this
+inventory for unresolved questions and new walkthrough evidence rather than
+duplicating the ticket scope here.
+
 ## Open questions for the human/LLM design team
 
 1. When a developer says only “review this trace,” should the baseline response
@@ -547,14 +706,6 @@ measurement.
 
 ## Next collaborative step
 
-Implement the linked first-pass cleanup ticket in a fresh context. Then connect
-an LLM client to the resulting MCP server and walk through exact-ID,
-skill-plus-recency, copied-session, imported, active, failed/retried,
-unavailable, and large-content traces.
-
-Record which methods are naturally discoverable, which parameters cause
-hesitation, which return fields are ignored, how errors are recovered, and the
-approximate call/context cost. Use that evidence to decide the remaining
-session identity, content-reference, pagination, activity-continuity,
-physical-record, fallback-duplication, and method/resource candidates one
-section at a time.
+Implement the accepted ticket, then repeat its live MCP acceptance walkthrough.
+Record any remaining friction here only when it is supported by a concrete
+developer question and observed trace evidence.

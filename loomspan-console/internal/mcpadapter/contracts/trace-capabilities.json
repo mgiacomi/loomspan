@@ -6,7 +6,7 @@
       "LOOMSPAN_get_trace",
       "LOOMSPAN_query_trace_frames",
       "LOOMSPAN_query_trace_records",
-      "LOOMSPAN_read_trace_payload"
+      "LOOMSPAN_read_trace_content"
     ],
     "requiredSemanticFixtures": [
       "trace.target-acquisition",

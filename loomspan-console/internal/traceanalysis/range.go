@@ -24,11 +24,8 @@ type RangeRequest struct {
 	MaxBytes       int
 	// Source identifies which component to read.
 	Source RangeSource
-	// PayloadID is required when Source == RangeSourcePayload.
-	PayloadID string
-	// PayloadRef is the adapter-safe opaque selector used by MCP. Browser
-	// compatibility requests are translated from PayloadID at their adapter.
-	PayloadRef string
+	// ContentRef selects one semantic value without exposing storage details.
+	ContentRef string
 	// RecordSequence is required when Source == RangeSourceRawRecord.
 	RecordSequence int64
 }
@@ -53,7 +50,7 @@ func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Le
 		// Empty range at end-of-payload.
 		return ByteRangeResult{
 			Context:     traceCtx,
-			Source:      RangeSourcePayload,
+			Source:      RangeSourceContent,
 			ActualStart: start,
 			ActualEnd:   start,
 			TotalLength: descriptor.StoreLength,
@@ -95,7 +92,7 @@ func (service *Service) readPayloadRange(ctx context.Context, lease *artifact.Le
 	}
 	return ByteRangeResult{
 		Context:     traceCtx,
-		Source:      RangeSourcePayload,
+		Source:      RangeSourceContent,
 		ActualStart: actualStart,
 		ActualEnd:   actualEnd,
 		TotalLength: descriptor.StoreLength,
