@@ -1,6 +1,7 @@
 package mcpadapter
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -222,7 +223,11 @@ type searchMatchDTO struct {
 	MatchOffset   int64  `json:"matchOffset"`
 	MatchLength   int    `json:"matchLength"`
 	SearchedField string `json:"searchedField"`
-	ContentRef    string `json:"contentRef,omitempty"`
+	ContentID     string `json:"contentId,omitempty"`
+}
+type searchContentDescriptorDTO struct {
+	ContentID  string `json:"contentId"`
+	ContentRef string `json:"contentRef"`
 }
 type recordFactsDTO struct {
 	Plan          *planLandmarkDTO `json:"plan,omitempty"`
@@ -233,12 +238,13 @@ type recordFactsDTO struct {
 	SearchMatches []searchMatchDTO `json:"searchMatches"`
 }
 type planLandmarkDTO struct {
-	PlanID          string `json:"planId"`
-	Sequence        int64  `json:"sequence"`
-	RootFrameID     string `json:"rootFrameId"`
-	PlanningFrameID string `json:"planningFrameId"`
-	AttemptID       string `json:"attemptId,omitempty"`
-	RetrySequenceID string `json:"retrySequenceId,omitempty"`
+	PlanID           string `json:"planId"`
+	Sequence         int64  `json:"sequence"`
+	TraceRootFrameID string `json:"traceRootFrameId"`
+	MissionFrameID   string `json:"missionFrameId"`
+	PlanningFrameID  string `json:"planningFrameId"`
+	AttemptID        string `json:"attemptId,omitempty"`
+	RetrySequenceID  string `json:"retrySequenceId,omitempty"`
 }
 type contentDescriptorDTO struct {
 	Role              string `json:"role"`
@@ -255,6 +261,7 @@ type contentDescriptorDTO struct {
 type recordDTO struct {
 	Sequence        int64                    `json:"sequence"`
 	Type            string                   `json:"type"`
+	FailureID       string                   `json:"failureId,omitempty"`
 	FrameID         string                   `json:"frameId,omitempty"`
 	ParentFrameID   string                   `json:"parentFrameId,omitempty"`
 	FrameType       string                   `json:"frameType,omitempty"`
@@ -269,13 +276,36 @@ type recordDTO struct {
 	Facts           recordFactsDTO           `json:"facts"`
 }
 type queryRecordsResult struct {
-	Evidence     evidenceDTO        `json:"evidence"`
-	Items        []recordDTO        `json:"items,omitempty"`
-	Matches      []searchMatchDTO   `json:"matches,omitempty"`
-	Search       *searchCoverageDTO `json:"search,omitempty"`
-	HasMore      bool               `json:"hasMore"`
-	Continuation string             `json:"continuation,omitempty"`
+	Evidence           evidenceDTO                   `json:"evidence"`
+	Items              []recordDTO                   `json:"items,omitempty"`
+	Matches            []searchMatchDTO              `json:"matches,omitempty"`
+	ContentDescriptors *[]searchContentDescriptorDTO `json:"contentDescriptors,omitempty"`
+	Search             *searchCoverageDTO            `json:"search,omitempty"`
+	HasMore            bool                          `json:"hasMore"`
+	Continuation       string                        `json:"continuation,omitempty"`
 }
+
+func (value queryRecordsResult) MarshalJSON() ([]byte, error) {
+	type alias queryRecordsResult
+	body, err := json.Marshal(alias(value))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	if value.Search == nil {
+		fields["items"] = nonNil(value.Items)
+	} else {
+		if value.Matches == nil {
+			value.Matches = []searchMatchDTO{}
+		}
+		fields["matches"] = value.Matches
+	}
+	return json.Marshal(fields)
+}
+
 type searchCoverageDTO struct {
 	Query                   string               `json:"query"`
 	CaseSensitive           bool                 `json:"caseSensitive"`

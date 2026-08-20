@@ -203,7 +203,7 @@ class ExecutionStateServiceTest {
 
         ExecutionFrame rootFrame = stateService.openMissionFrame(session, "rootVisibleSkill", Map.of("objective", "hello"));
         ExecutionFrame frame = stateService.openFrame(session, TraceFrameType.MODEL_CALL, "rootVisibleSkill#model", Map.of("driver", "openai"));
-        stateService.recordModelRequestPrepared(
+        stateService.recordModelRequestSent(
                 session,
                 frame,
                 new ModelTraceContext(new com.lokiscale.loomspan.internal.core.ModelExecutionIdentity(
@@ -223,7 +223,7 @@ class ExecutionStateServiceTest {
                 .findFirst()
                 .orElseThrow();
         TraceRecord modelRequest = records.stream()
-                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED)
+                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT)
                 .findFirst()
                 .orElseThrow();
         TraceRecord toolStarted = records.stream()
@@ -332,11 +332,6 @@ class ExecutionStateServiceTest {
 
             @Override
             public void recordFrameClosed(LoomspanSession session, ExecutionFrame frame, Map<String, Object> metadata) {
-            }
-
-            @Override
-            public void recordModelRequestPrepared(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
-                    Map<String, Object> attempt, Object payload) {
             }
 
             @Override

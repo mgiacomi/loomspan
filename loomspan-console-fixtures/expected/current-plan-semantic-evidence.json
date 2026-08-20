@@ -136,6 +136,28 @@
     "parentFrameId" : "mission-root",
     "frameType" : "SKILL_EXECUTION",
     "inclusiveDurationMillis" : 4000,
+    "selfDurationMillis" : 0,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 2,
+      "completionUnits" : 1,
+      "totalUnits" : 3
+    },
+    "route" : "shared.skill"
+  }, {
+    "frameId" : "nested-mission",
+    "parentFrameId" : "nested-skill",
+    "frameType" : "ROOT_MISSION",
+    "inclusiveDurationMillis" : 4000,
     "selfDurationMillis" : 2000,
     "directUsage" : {
       "promptUnits" : 0,
@@ -155,7 +177,7 @@
     "route" : "shared.skill"
   }, {
     "frameId" : "planning-nested",
-    "parentFrameId" : "nested-skill",
+    "parentFrameId" : "nested-mission",
     "frameType" : "PLANNING",
     "inclusiveDurationMillis" : 2000,
     "selfDurationMillis" : 2000,

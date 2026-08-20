@@ -23,18 +23,18 @@ type getExecutionInput struct {
 }
 
 func addExecutionTools(server *mcp.Server, options ServerOptions) {
-	mcp.AddTool(server, &mcp.Tool{
+	addValidatedTool(server, &mcp.Tool{
 		Name:        ListExecutionsToolName,
-		Description: "List current bounded active-execution snapshots for the selected Loomspan target. Results are provisional diagnostic data, not diagnoses or completed history.",
+		Description: "List bounded active-execution snapshots. Results are provisional diagnostic evidence.",
 		Annotations: readOnlyAnnotations, InputSchema: pageInputSchema[listExecutionsInput](),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listExecutionsInput) (*mcp.CallToolResult, toolEnvelope[executionListResult], error) {
+	}, executionListOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input listExecutionsInput) (*mcp.CallToolResult, toolEnvelope[executionListResult], error) {
 		return handleListExecutions(ctx, options, input)
 	})
-	mcp.AddTool(server, &mcp.Tool{
+	addValidatedTool(server, &mcp.Tool{
 		Name:        GetExecutionToolName,
-		Description: "Return one current bounded active-execution snapshot by session ID. The result is provisional evidence, not a diagnosis, completed trace, or full hierarchy.",
+		Description: "Return one bounded active-execution snapshot by session ID. The result is provisional evidence.",
 		Annotations: readOnlyAnnotations, InputSchema: nonblankInputSchema[getExecutionInput]("sessionId"),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getExecutionInput) (*mcp.CallToolResult, toolEnvelope[executionDetailResult], error) {
+	}, executionDetailOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input getExecutionInput) (*mcp.CallToolResult, toolEnvelope[executionDetailResult], error) {
 		return handleGetExecution(ctx, options, input)
 	})
 }

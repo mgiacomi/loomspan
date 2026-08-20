@@ -113,6 +113,7 @@ func TestMCPGoldenInventoryContainsOnlyImplementedSurface(t *testing.T) {
 	want := map[string]bool{
 		"runtime-no-target.json": true, "skills-list.json": true, "skill-detail.json": true,
 		"executions-list.json": true, "execution-detail.json": true, "activity.json": true,
+		"tools-list-response.json": true,
 	}
 	if len(entries) != len(want) {
 		t.Fatalf("golden entries = %v", entries)

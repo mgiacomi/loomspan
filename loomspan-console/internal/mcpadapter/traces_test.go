@@ -3,6 +3,7 @@ package mcpadapter
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -44,6 +45,46 @@ func TestTraceNavigationTextFallbacksStayWithinCompactBudget(t *testing.T) {
 	for name, value := range map[string]string{"frames": traceFramesText(frames), "records": traceRecordsText(records), "inventory": traceListText(list)} {
 		if len(value) > traceanalysis.MaxCompactResponseBytes {
 			t.Fatalf("%s fallback=%d bytes", name, len(value))
+		}
+	}
+}
+
+func TestOptionalFallbackFormattingIsDeterministic(t *testing.T) {
+	blank := ""
+	present := "parent\nframe"
+	zeroTime := time.Time{}
+	presentTime := time.Date(2026, 8, 19, 9, 10, 11, 123, time.FixedZone("west", -7*60*60))
+	zeroDuration := int64(0)
+	presentDuration := int64(42)
+	for name, test := range map[string]struct{ got, want string }{
+		"nil string":        {optionalValue[string](nil, fallbackField), "-"},
+		"blank string":      {optionalValue(&blank, fallbackField), "unknown"},
+		"present string":    {optionalValue(&present, fallbackField), present},
+		"zero timestamp":    {optionalValue(&zeroTime, formatFallbackTime), "unknown"},
+		"present timestamp": {optionalValue(&presentTime, formatFallbackTime), "2026-08-19T16:10:11.000000123Z"},
+		"zero duration":     {optionalValue(&zeroDuration, formatFallbackInt64), "unknown"},
+		"present duration":  {optionalValue(&presentDuration, formatFallbackInt64), "42"},
+	} {
+		if test.got != test.want {
+			t.Errorf("%s got=%q want=%q", name, test.got, test.want)
+		}
+	}
+}
+
+func TestMCPFallbacksNeverContainPointerAddresses(t *testing.T) {
+	outcome, parent := "FAILED", "root"
+	when := time.Date(2026, 8, 19, 9, 10, 11, 0, time.FixedZone("west", -7*60*60))
+	closed, inclusive, self := int64(9), int64(8), int64(7)
+	texts := []string{
+		traceListText(listTracesResult{Items: []traceInventoryItemDTO{{TraceID: "trace", Outcome: &outcome, FinalizedAt: &when, AcquiredAt: &when, ImportedAt: &when}}}),
+		traceFramesText(queryFramesResult{Items: []frameDTO{{FrameID: "child", ParentFrameID: &parent, ClosedTimestampMillis: &closed, InclusiveDurationMillis: &inclusive, SelfDurationMillis: &self}}}),
+		traceRecordsText(queryRecordsResult{Items: []recordDTO{{Sequence: 1, Type: "STEP_FAILED"}}}),
+		traceRangeText(rangeResult{Content: "ok"}),
+	}
+	address := regexp.MustCompile(`0x[0-9a-fA-F]+`)
+	for _, text := range texts {
+		if address.MatchString(text) {
+			t.Fatalf("fallback contains pointer address: %q", text)
 		}
 	}
 }
@@ -123,6 +164,29 @@ func TestBinaryInlineContentUsesBase64Transport(t *testing.T) {
 	}
 }
 
+func TestRecordResultSerializationKeepsOrdinaryAndSearchModesExclusive(t *testing.T) {
+	ordinary, err := json.Marshal(queryRecordsResult{Evidence: evidenceDTO{TraceID: "trace", SessionID: "session"}, Items: []recordDTO{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ordinary), `"items":[]`) || strings.Contains(string(ordinary), `"matches"`) || strings.Contains(string(ordinary), `"contentDescriptors"`) || strings.Contains(string(ordinary), `"search"`) {
+		t.Fatalf("ordinary=%s", ordinary)
+	}
+	descriptors := []searchContentDescriptorDTO{}
+	search, err := json.Marshal(queryRecordsResult{Evidence: evidenceDTO{TraceID: "trace", SessionID: "session"}, Matches: []searchMatchDTO{}, ContentDescriptors: &descriptors, Search: &searchCoverageDTO{Limitations: []traceLimitationDTO{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{`"matches":[]`, `"contentDescriptors":[]`, `"search":`} {
+		if !strings.Contains(string(search), required) {
+			t.Fatalf("search omitted %s: %s", required, search)
+		}
+	}
+	if strings.Contains(string(search), `"items"`) {
+		t.Fatalf("search retained ordinary items: %s", search)
+	}
+}
+
 type fakeTraceInventory struct {
 	result traceinventory.Result
 	query  traceinventory.Query
@@ -187,11 +251,11 @@ func (fake *fakeTraceAnalysis) ReadRawArtifactRange(_ context.Context, ref evide
 	fake.rangeRequest = request
 	return fake.raw, nil
 }
-func (fake *fakeTraceAnalysis) Search(_ context.Context, ref evidence.Reference, query traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error) {
+func (fake *fakeTraceAnalysis) Search(_ context.Context, ref evidence.Reference, query traceanalysis.SearchQuery) (traceanalysis.SearchPage, *consolecore.Error) {
 	fake.searchCalls++
 	fake.refs = append(fake.refs, ref)
 	fake.searchQuery = query
-	return traceanalysis.Page[traceanalysis.SearchResult]{Context: fake.records.Context, Items: []traceanalysis.SearchResult{}}, nil
+	return traceanalysis.SearchPage{Context: fake.records.Context, Items: []traceanalysis.SearchResult{}, ContentDescriptors: []traceanalysis.SearchContentDescriptor{}}, nil
 }
 
 type fakeTraceArtifacts struct {

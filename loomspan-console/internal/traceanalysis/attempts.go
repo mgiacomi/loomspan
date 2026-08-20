@@ -64,8 +64,8 @@ func (g *attemptGraph) onAdvisorRecord(rec *Record) *consolecore.Error {
 	return nil
 }
 
-// onModelRecord processes a MODEL_REQUEST_PREPARED, MODEL_REQUEST_SENT, or
-// MODEL_RESPONSE_RECEIVED record. It validates attempt identity consistency and
+// onModelRecord processes a MODEL_REQUEST_SENT, MODEL_RESPONSE_RECEIVED, or
+// MODEL_ATTEMPT_FAILED record. It validates attempt identity consistency and
 // lifecycle ordering.
 func (g *attemptGraph) onModelRecord(rec *Record) *consolecore.Error {
 	attemptID := rec.metadataStringOrEmpty("attemptId")
@@ -118,7 +118,7 @@ func (g *attemptGraph) onModelRecord(rec *Record) *consolecore.Error {
 			return invalidityError(CategoryInvalidAttempt, rec.TraceID)
 		}
 	}
-	// Lifecycle ordering: PREPARED -> SENT -> RESPONSE_RECEIVED, no repeats.
+	// Lifecycle ordering: SENT -> RESPONSE_RECEIVED|ATTEMPT_FAILED, no repeats.
 	if !lifecycleAccepts(a.lifecycle, rec.Type) {
 		return invalidityError(CategoryInvalidAttempt, rec.TraceID)
 	}
@@ -162,14 +162,10 @@ func (g *attemptGraph) onModelRecord(rec *Record) *consolecore.Error {
 // lifecycleAccepts reports whether recType can follow the existing lifecycle.
 func lifecycleAccepts(lifecycle []TraceRecordType, recType TraceRecordType) bool {
 	switch recType {
-	case RecordModelRequestPrepared:
-		return len(lifecycle) == 0
 	case RecordModelRequestSent:
-		return len(lifecycle) == 1 && lifecycle[0] == RecordModelRequestPrepared
+		return len(lifecycle) == 0
 	case RecordModelResponseReceived, RecordModelAttemptFailed:
-		return len(lifecycle) == 2 &&
-			lifecycle[0] == RecordModelRequestPrepared &&
-			lifecycle[1] == RecordModelRequestSent
+		return len(lifecycle) == 1 && lifecycle[0] == RecordModelRequestSent
 	}
 	return false
 }

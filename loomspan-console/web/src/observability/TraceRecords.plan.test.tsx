@@ -51,6 +51,24 @@ beforeEach(() => {
   getContentRangeMock.mockReset();
 });
 
+test.each([
+  ["primary", "trace-root", "trace-root", "planning-primary"],
+  ["nested", "trace-root", "nested-mission", "planning-nested"],
+])("presents %s plan landmarks and navigates by their recorded frame IDs", (_kind, traceRootFrameId, missionFrameId, planningFrameId) => {
+  const onRelatedFrame = vi.fn();
+  const plan = { planId: `plan-${_kind}`, sequence: 7, traceRootFrameId, missionFrameId, planningFrameId, attemptId: "attempt-1", retrySequenceId: "retry-1" };
+  render(<TraceRecords traceId="trace-1" records={[{ ...record, plan }]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onRelatedFrame={onRelatedFrame} onContent={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
+  const landmarks = screen.getByRole("group", { name: `Plan plan-${_kind} landmarks` });
+  expect(landmarks).toHaveTextContent(traceRootFrameId);
+  expect(landmarks).toHaveTextContent(missionFrameId);
+  expect(landmarks).toHaveTextContent(planningFrameId);
+  expect(landmarks).toHaveTextContent("attempt-1");
+  fireEvent.click(screen.getByRole("button", { name: planningFrameId }));
+  expect(onRelatedFrame).toHaveBeenCalledWith({ frameIds: [planningFrameId] });
+});
+
 test("loads every content range and pretty prints only the plan data", async () => {
   const plan = { planId: "plan-1", tasks: [{ taskId: "task-1", title: "Friendly title" }] };
   const raw = JSON.stringify(plan);

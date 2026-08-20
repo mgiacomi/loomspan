@@ -518,194 +518,40 @@ None of these pressures yet proves that a new MCP operation is necessary.
 Existing tools, schemas, ordering, or skill guidance may satisfy some after
 measurement.
 
-## Live walkthrough evidence
+## Active implementation ticket
 
-### 2026-08-18 — primary-plan question
+The post-PR-28 walkthrough proved the descriptor-first workflow and produced a
+bounded correction ticket. Its measurements, decisions, trace evidence, and
+acceptance walkthrough now live in
+[PR 30 — MCP Contract Efficiency and Trace Semantic Corrections](../tickets/loomspan-console-pr-30-mcp-contract-efficiency-and-trace-semantics.md).
 
-Connected directly to the local stateless MCP endpoint with protocol
-`2025-11-25`. The server advertised the expected twelve read-only tools, six
-capabilities, and no custom resources. The full `tools/list` response was large
-enough to dominate the initial interaction and repeated substantial result and
-error schemas. Exact byte/token measurement remains to be captured with a
-client-side counter.
-
-Prompt under evaluation:
-
-> I ran `handleIncident`. Pull up the trace and show me what plan the model
-> ended up creating for the primary mission.
-
-The complete recent-first inventory contained two candidates and made the
-newest `handleIncident` trace unambiguous. The normal path used runtime
-discovery, trace listing, trace summary, canonical frames, and a structured
-`PLAN_CREATED`/`PLAN_UPDATED` record query.
-
-The newest trace was a useful negative case: planning ended during its only
-model attempt, and the structured plan-record query returned no items. Five
-successful evidence calls established that there was no recorded accepted plan
-without a raw read or a failed call. This is the desired stopping behavior;
-model-response content could be examined separately only to answer whether an
-unaccepted proposal existed.
-
-The second retained trace exercised actual plan evolution. Structural evidence
-identified the primary root, its planning frame, one `PLAN_CREATED` at sequence
-14, and `PLAN_UPDATED` records at sequences 25 and 39 on the root mission. The
-record query requested `representation=LOGICAL` and `inlinePayload=true`, but
-all three ordinary-data records returned only physical raw offsets. They
-contained no inline plan value, content reference, typed `planId`, accepting
-attempt, or retry relationship. Answering the ordinary semantic question then
-required three `LOOMSPAN_read_trace_artifact` calls plus manual NDJSON decoding.
-
-The raw fallback established one plan chain with `planId`
-`aee2b88e-b610-457a-8f9c-775f3b2fee70`. Its final recorded state at sequence 39
-had four tasks: classification was complete; network investigation, runbook
-lookup, and response drafting remained pending. The execution itself later
-failed, so the recorded plan must not be described as fully executed.
-
-Observed interface friction:
-
-- ordinary plan content and plan identity are not available through parsed
-  trace inspection;
-- `inlinePayload=true` gives no explicit per-record explanation when ordinary
-  `data` cannot be inlined;
-- `representation=LOGICAL` still returned records labeled `physical`, without
-  making the representation fallback or limitation explicit;
-- the ten-frame orientation response returned every detailed usage,
-  attempt/retry, validation, failure, gap, and uncertainty field, confirming
-  the need to evaluate a compact hierarchy projection;
-- `filter.types` had no item enum in the advertised schema, so the plan record
-  vocabulary had to come from prior documentation; and
-- an exact raw record-range read returned `hasMore=true` because unrelated
-  artifact bytes followed, even though the selected record range was complete.
-
-This walkthrough confirms semantic content addressability as the first
-correctness blocker. It also supplies concrete evidence for record vocabulary,
-compact frame projection, and logical-selection completeness work. It does not
-yet justify a specialized plan tool.
-
-### 2026-08-18 — recently uploaded successful trace discovery
-
-Tested discovery without using the developer-supplied trace ID. One
-`LOOMSPAN_list_traces(pageSize=10)` call returned a complete, single-page
-inventory of three traces. The uploaded trace was selectable because it was the
-only item with outcome `SUCCEEDED`; no candidate inspection or failed call was
-required.
-
-This was easy for the current inventory but is not a robust “recently uploaded”
-path. The imported trace retained its original `finalizedAt` and sorted after
-newer failed traces, while `entrySkill` was empty. The inventory exposes no
-admission/upload time or server-side outcome, entry-skill, session, or time
-filter. With more successful imports, the supplied conversational clue would
-not prove a unique candidate without scanning pages or asking for another
-identifier.
-
-This evidence supports keeping the compact unified inventory, but the design
-still needs to decide whether imported traces can supply trustworthy entry-skill
-metadata and whether measured inventory growth justifies bounded filters or an
-admission-time fact. It does not justify mutable process-global “current trace”
-state.
-
-### 2026-08-18 — successful trace understanding workflows
-
-Inspected the inventory-selected successful trace across overview, plan,
-model-exchange, tool, validation, search, and final-output questions. The trace
-contained 187 records, 30 frames, 12 model attempts, 11 retry sequences, two
-validations, twelve reconstructed payloads, complete usage, and no failures.
-
-The trace summary was compact and useful. Structural orientation was not: one
-canonical 30-frame query produced about 15.6K tokens and was truncated by the
-client because every frame carried detailed duration, three usage aggregates,
-attempts, retries, validations, failures, gaps, and uncertainties. The primary
-root and nested paths were present, but a normal overview needed only identity,
-parent, type, route, outcome, and selected landmarks.
-
-The plan query found one primary `PLAN_CREATED`, nine primary plan versions in
-total, and a separate nested `investigateNetwork` plan chain. All twelve plan
-records were individually small and collectively about 24 KiB as physical
-records. Despite `representation=LOGICAL` and `inlinePayload=true`, every plan
-record returned only a physical raw address. No parsed `data`, content
-descriptor, `planId`, or accepting-attempt relationship was exposed.
-
-The model-exchange query was the opposite failure mode. Envelope-backed
-prepared/sent requests were repeatedly inlined, while ordinary-data model
-responses remained raw-only. The whole-trace query produced about 57K tokens
-and was truncated. Prepared and sent requests often duplicated the same large
-prompt, and the text fallback duplicated the structured result again at the
-protocol level. There was no aggregate inline budget or descriptor-first mode
-that allowed selecting one exchange before loading content.
-
-A frame-scoped `classifyIncident` tool query efficiently found
-`TOOL_CALL_STARTED` and `TOOL_CALL_COMPLETED`, but their input and output were
-ordinary `data` and therefore inaccessible without raw reads. The same problem
-affected `ADVISOR_RESPONSE_MUTATION_RECORDED`,
-`STRUCTURED_OUTPUT_RECORDED`, and the final `MODEL_RESPONSE_RECEIVED`. Finding
-the successful final answer required tail-record traversal followed by an exact
-raw-artifact read and manual NDJSON decoding.
-
-Literal search for `INC-2401` returned about 10.8K tokens of rich record
-descriptors. It matched encoded ordinary `data` but omitted reconstructed
-envelope payloads containing the same text. The result did not state searched
-fields, case behavior, representation mode, or referenced-content coverage at
-the page level, so the caller could not safely interpret a negative result.
-
-Additional friction confirmed by this trace:
-
-- the advertised `filter.types` and validation-status fields had no enum;
-- `LOGICAL` queries silently mixed logical envelope records with physical
-  ordinary-data records;
-- `inlinePayload` was a coarse all-page switch rather than a bounded content
-  selection mechanism;
-- exact raw record reads reported `hasMore=true` whenever unrelated artifact
-  bytes followed, not whether the requested record selection was complete;
-- full JSON text fallbacks repeated structured results and amplified large
-  responses; and
-- this imported trace predates the framework-owned plan-identity producer
-  contract, so its model-authored plan ID and missing accepting-attempt fields
-  are legacy evidence, not a compatibility requirement for the next contract.
-
-The raw fallback established that the primary plan ended with all four tasks
-completed: classify the incident, investigate the network path, look up the
-runbook, and draft the incident response. The final model response reported a
-successful SEV2 network incident analysis. These answers were present in the
-trace but not reachable through the ordinary parsed semantic path.
-
-## Accepted next ticket
-
-The failed- and successful-trace findings are captured as one executable brief
-in
-[`../tickets/loomspan-console-mcp-trace-navigation-and-semantic-evidence.md`](../tickets/loomspan-console-mcp-trace-navigation-and-semantic-evidence.md).
-That ticket is the authority for the next implementation boundary; keep this
-inventory for unresolved questions and new walkthrough evidence rather than
-duplicating the ticket scope here.
+Keep the ticket while the work is active. Once it is implemented, verified,
+committed, and cleaned up, remove this pointer as well; Git history retains the
+completed investigation.
 
 ## Open questions for the human/LLM design team
 
 1. When a developer says only “review this trace,” should the baseline response
    include a compact overview or stop after confirmed selection?
-2. What exact lifecycle timestamp defines “most recent” for finalized traces?
-3. Does “most recent skill run” mean entry skill by default, with nested-skill
+2. Does “most recent skill run” mean entry skill by default, with nested-skill
    search requiring explicit wording?
-4. How should an active run transition to its finalized trace without polling
+3. How should an active run transition to its finalized trace without polling
    unrelated inventory?
-5. Which inventory filters already exist at the application boundary, and which
-   would require new upstream support rather than only Console/MCP work?
-6. Can MCP discover the `traceId` of evidence manually loaded through the
+4. Can MCP discover the `traceId` of evidence manually loaded through the
    browser today? If so, what client/session ownership prevents cross-user or
    cross-client surprise?
-7. Is the unified trace inventory sufficient for manually loaded evidence, or
-   can a mutable “current trace” pointer ever pass the method test?
-8. Is local NDJSON import part of the portable MCP product, browser-only
+5. Is local NDJSON import part of the portable MCP product, browser-only
    behavior, or deliberately outside this roadmap?
-9. How much inventory may the LLM traverse before it should narrow the time
+6. How much inventory may the LLM traverse before it should narrow the time
    window or ask the developer for another clue?
-10. Which application correlation identifiers—ticket, request, execution, or
+7. Which application correlation identifiers—ticket, request, execution, or
     business key—are sufficiently stable and common to expose structurally?
-11. Is bounded cross-trace semantic-content search needed, or should the first
+8. Is bounded cross-trace semantic-content search needed, or should the first
     release require selecting candidate traces before content search?
-12. What evidence must a result return before the LLM may say “latest,” “only,”
-    or “no matching trace exists”?
 
 ## Next collaborative step
 
-Implement the accepted ticket, then repeat its live MCP acceptance walkthrough.
-Record any remaining friction here only when it is supported by a concrete
-developer question and observed trace evidence.
+Repeat the developer questions against the current MCP contract, starting with
+recently imported trace selection, compact orientation, primary-plan lineage,
+tool content, final output, and positive/negative literal search. Record only
+new friction supported by concrete trace evidence.

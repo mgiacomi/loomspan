@@ -231,21 +231,8 @@ public class DefaultExecutionStateService implements ExecutionStateService
         Objects.requireNonNull(frame, "frame must not be null");
         Objects.requireNonNull(recordType, "recordType must not be null");
         session.appendTraceRecord(recordType, frame,
-                metadata == null ? Map.of() : Map.copyOf(metadata),
+                metadata == null ? Map.of() : new LinkedHashMap<>(metadata),
                 payload == null ? Map.of() : payload);
-    }
-
-    @Override
-    public void recordModelRequestPrepared(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
-            Map<String, Object> attempt, Object payload)
-    {
-        Objects.requireNonNull(session, "session must not be null");
-        traceRecorder.recordModelRequestPrepared(
-                session,
-                Objects.requireNonNull(frame, "frame must not be null"),
-                Objects.requireNonNull(context, "context must not be null"),
-                attempt,
-                payload);
     }
 
     @Override

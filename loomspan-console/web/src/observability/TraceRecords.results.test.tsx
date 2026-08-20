@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { getRawRecordRange, getTraceRecords } from "../api/client";
-import type { TraceAnalysisPage, TraceRange, TraceRecord } from "../api/contracts";
+import type { TraceAnalysisPage, TraceFailure, TraceRange, TraceRecord } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
 vi.mock("../api/client", () => ({
@@ -36,14 +36,24 @@ function page(items: TraceRecord[]): TraceAnalysisPage<TraceRecord> {
   return { source: "TARGET", targetScopeId: "scope-1", items, hasMore: false, nextCursor: null };
 }
 
-function renderRecord(current: TraceRecord, onSelectRecord = vi.fn(), onSelectFailure = vi.fn()) {
-  render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={onSelectRecord} onSelectFailure={onSelectFailure} onContent={vi.fn()} />);
+function renderRecord(current: TraceRecord, onSelectRecord = vi.fn(), onSelectFailure = vi.fn(), failures: TraceFailure[] = []) {
+  render(<TraceRecords traceId="trace-1" records={[current]} failures={failures} onSelectRecord={onSelectRecord} onSelectFailure={onSelectFailure} onContent={vi.fn()} />);
   return onSelectRecord;
 }
 
 beforeEach(() => {
   getRawRecordRangeMock.mockReset();
   getTraceRecordsMock.mockReset();
+});
+
+test("links a failed step to its diagnostic failure by failure ID", () => {
+  const onSelectFailure = vi.fn();
+  const failed = { ...record(12, "STEP_FAILED", "handleBilling#step-1"), failureId: "failure-step" };
+  const failure: TraceFailure = { failureId: "failure-step", terminal: false, sequence: 11, timestampMillis: 11, recordType: "ERROR_RECORDED", frameId: "frame", route: "handleBilling#step-1", attemptId: "", retrySequenceId: "", validationStatus: "" };
+  renderRecord(failed, vi.fn(), onSelectFailure, [failure]);
+
+  fireEvent.click(screen.getByRole("button", { name: "View error" }));
+  expect(onSelectFailure).toHaveBeenCalledWith("failure-step");
 });
 
 test("shows and pretty formats the complete owned tool result", async () => {

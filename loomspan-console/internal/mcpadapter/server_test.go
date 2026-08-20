@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -19,7 +20,6 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/profile"
-	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -31,7 +31,7 @@ type authTransport struct {
 func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testing.T) {
 	const (
 		prePR28ToolsListResponseBytes  = 34371
-		expectedToolsListResponseBytes = 37788
+		expectedToolsListResponseBytes = 20304
 	)
 	credentials := fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 4}, key: "secret"}
 	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
@@ -51,6 +51,7 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
 	lastResponseBytes := 0
+	var lastResponseBody []byte
 	post := func(payload string) map[string]any {
 		t.Helper()
 		request, err := http.NewRequest(http.MethodPost, httpServer.URL, bytes.NewBufferString(payload))
@@ -72,6 +73,7 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 			t.Fatalf("status=%d body=%s err=%v", response.StatusCode, body, err)
 		}
 		lastResponseBytes = len(body)
+		lastResponseBody = append(lastResponseBody[:0], body...)
 		var decoded map[string]any
 		if err := json.Unmarshal(body, &decoded); err != nil {
 			t.Fatalf("decode %s: %v", body, err)
@@ -85,11 +87,25 @@ func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testin
 	}
 	listed := post(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
 	toolsListBytes := lastResponseBytes
-	if toolsListBytes > traceanalysis.MaxCompactResponseBytes {
-		t.Fatalf("tools/list response=%d bytes max=%d", toolsListBytes, traceanalysis.MaxCompactResponseBytes)
+	bodyForSnapshot := append([]byte(nil), lastResponseBody...)
+	if toolsListBytes > maxToolsListResponseBytes {
+		t.Fatalf("tools/list response=%d bytes discovery budget=%d", toolsListBytes, maxToolsListResponseBytes)
 	}
 	if toolsListBytes != expectedToolsListResponseBytes {
 		t.Fatalf("tools/list serialized response=%d bytes expected=%d pre-PR28=%d", toolsListBytes, expectedToolsListResponseBytes, prePR28ToolsListResponseBytes)
+	}
+	snapshotPath := filepath.Join("testdata", "tools-list-response.json")
+	if os.Getenv("LOOMSPAN_UPDATE_SNAPSHOTS") == "1" {
+		if err := os.WriteFile(snapshotPath, bodyForSnapshot, 0o644); err != nil {
+			t.Fatalf("write tools/list snapshot: %v", err)
+		}
+	}
+	expectedSnapshot, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatalf("read tools/list snapshot: %v", err)
+	}
+	if !bytes.Equal(bodyForSnapshot, expectedSnapshot) {
+		t.Fatalf("tools/list response does not match %s", snapshotPath)
 	}
 	tools := listed["result"].(map[string]any)["tools"].([]any)
 	if len(tools) != 12 || !rawToolNamesContain(tools, RuntimeToolName, ListSkillsToolName, GetSkillToolName, ListExecutionsToolName, GetExecutionToolName, GetExecutionActivityToolName, ListTracesToolName, GetTraceToolName, QueryTraceFramesToolName, QueryTraceRecordsToolName, ReadTraceContentToolName, ReadTraceArtifactToolName) {

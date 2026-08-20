@@ -41,6 +41,7 @@ import org.springframework.ai.tool.function.FunctionToolCallback;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.io.InterruptedIOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -213,7 +214,7 @@ class ModelAttemptCallAdvisorIntegrationTest
     }
 
     @Test
-    void recordsPreparedAndSentButNoResponseWhenProviderThrows()
+    void recordsSentButNoResponseWhenProviderThrows()
     {
         DefaultSessionUsageService usageService = usageService();
         DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
@@ -238,7 +239,6 @@ class ModelAttemptCallAdvisorIntegrationTest
                 .hasMessage("provider failed");
 
         List<TraceRecord> records = records(session);
-        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED)).hasSize(1);
         assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT)).hasSize(1);
         assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.MODEL_RESPONSE_RECEIVED);
         assertThat(session.getSessionUsage()
@@ -283,8 +283,6 @@ class ModelAttemptCallAdvisorIntegrationTest
         assertThat(session.getSessionUsage().orElseThrow().providerAttempts()).isEqualTo(2);
         assertThat(session.getSessionUsage().orElseThrow().modelCalls()).isEqualTo(1);
         assertThat(records(session).stream()
-                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED)).hasSize(2);
-        assertThat(records(session).stream()
                 .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT)).hasSize(2);
         List<TraceRecord> attemptFailures = records(session).stream()
                 .filter(record -> record.recordType() == TraceRecordType.MODEL_ATTEMPT_FAILED)
@@ -299,6 +297,62 @@ class ModelAttemptCallAdvisorIntegrationTest
                 .findFirst().orElseThrow().metadata())
                 .containsEntry("attemptReason", "PROVIDER_RETRY")
                 .containsEntry("providerAttemptNumber", 2);
+    }
+
+    @Test
+    void recordsTranslatedOpenAiReadTimeoutAsRetryableAttemptFact()
+    {
+        DefaultSessionUsageService usageService = usageService();
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK, usageService);
+        LoomspanSession session = TestLoomspanSessions.withId("openai-read-timeout", "test.entry", 4);
+        stateService.openMissionFrame(session, "test.skill", Map.of());
+        stateService.openFrame(session, TraceFrameType.MODEL_CALL, "test.skill#model", Map.of());
+        AtomicInteger calls = new AtomicInteger();
+        ChatModel model = prompt ->
+        {
+            if (calls.incrementAndGet() == 1)
+            {
+                throw new RuntimeException("Error reading response", new InterruptedIOException("timeout"));
+            }
+            return response("OK", 3, 2);
+        };
+        LoomspanProperties.ConnectionProperties properties = new LoomspanProperties.ConnectionProperties();
+        properties.setDriver(AiDriver.OPENAI);
+        properties.setApiKey("test-key");
+        ProviderFailureTranslator translator = new SpringAiProviderIntegration(new DefaultResourceLoader())
+                .create("openai", properties)
+                .failureTranslator();
+        ProviderConnectionRuntime runtime = new ProviderConnectionRuntime(
+                model,
+                AiDriver.OPENAI,
+                AttemptOwnership.EXACT_ATTEMPT_OWNERSHIP,
+                new ProviderRetryPolicy(true, 2, java.time.Duration.ZERO, 2.0d,
+                        java.time.Duration.ZERO, 0.0d),
+                translator);
+        ChatClient client = ChatClient.builder(model)
+                .defaultAdvisors(new ProviderAttemptCallAdvisor(runtime, stateService,
+                        new ModelUsageExtractor(), usageService))
+                .build();
+
+        String content = SessionContextRunner.callWithSession(session, () -> client.prompt()
+                .user("user")
+                .advisors(spec -> spec.param(ModelTraceContext.REQUEST_CONTEXT_KEY, traceContext()))
+                .call()
+                .content());
+
+        assertThat(content).isEqualTo("OK");
+        assertThat(calls).hasValue(2);
+        List<TraceRecord> records = records(session);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT))
+                .hasSize(2);
+        assertThat(records.stream()
+                .filter(record -> record.recordType() == TraceRecordType.MODEL_ATTEMPT_FAILED))
+                .singleElement()
+                .satisfies(record -> assertThat(record.metadata())
+                        .containsEntry("failureClassification", "TRANSIENT")
+                        .containsEntry("failureCategory", "TIMEOUT")
+                        .containsEntry("retryDecision", "RETRY")
+                        .containsEntry("providerAttemptNumber", 1));
     }
 
     @Test
@@ -351,8 +405,6 @@ class ModelAttemptCallAdvisorIntegrationTest
         assertThat(session.getSessionUsage().orElseThrow().providerAttempts()).isEqualTo(3);
         assertThat(session.getSessionUsage().orElseThrow().modelCalls()).isZero();
         List<TraceRecord> records = records(session);
-        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED))
-                .hasSize(3);
         assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT))
                 .hasSize(3);
         assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.MODEL_RESPONSE_RECEIVED))

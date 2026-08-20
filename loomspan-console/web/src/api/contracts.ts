@@ -276,16 +276,17 @@ export type TraceFrame = {
   retrySequenceIds: string[]; validationStatuses: string[]; failureIds: string[];
 };
 export type TraceRecord = {
-  sequence: number; type: string; frameId: string; parentFrameId: string;
+  sequence: number; type: string; failureId?: string; frameId: string; parentFrameId: string;
   frameType: string; route: string; threadName: string; timestampMillis: number;
   representation: string; isChunk: boolean; isEnvelope: boolean;
   content?: TraceContentDescriptor; plan?: TracePlanLandmark;
 };
 export type TraceContentDescriptor = { role: "DATA" | "RECONSTRUCTED" | "DIAGNOSTIC"; contentType: string; encoding: "UTF8" | "BINARY"; retainedBytes: number; available: boolean; complete: boolean; inlineEligibility: boolean; inlineOmission?: "PER_VALUE_LIMIT" | "AGGREGATE_LIMIT" | "UNAVAILABLE" | "INCOMPLETE"; contentRef?: string; inlineContent?: string };
-export type TracePlanLandmark = { planId: string; sequence: number; rootFrameId: string; planningFrameId: string; attemptId?: string; retrySequenceId?: string };
+export type TracePlanLandmark = { planId: string; sequence: number; traceRootFrameId: string; missionFrameId: string; planningFrameId: string; attemptId?: string; retrySequenceId?: string };
 export type TraceAnalysisPage<T> = EvidenceEnvelope & { items: T[]; hasMore: boolean; nextCursor: string | null };
 export type TraceSearchCoverage = { query: string; caseSensitive: boolean; representation: "LOGICAL"; searchedFields: string[]; semanticContentCoverage: string; workComplete: boolean; limitations: { code: string; message: string }[] };
-export type TraceSearchPage = TraceAnalysisPage<TraceSearchResult> & { search: TraceSearchCoverage };
+export type TraceSearchContentDescriptor = { contentId: string; contentRef: string };
+export type TraceSearchPage = TraceAnalysisPage<TraceSearchResult> & { contentDescriptors: TraceSearchContentDescriptor[]; search: TraceSearchCoverage };
 export type TraceRange = EvidenceEnvelope & { actualStart: number; actualEnd: number; totalLength: number; contentType: string; encoding: "TEXT" | "BASE64"; content: string; hasMore: boolean; nextCursor: string | null };
 export type TraceUsage = EvidenceEnvelope & { attributed: TraceUsageValue; unattributed: TraceUsageValue; unframedAttributed: TraceUsageValue; terminal: TraceUsageValue };
 export type TraceUsageValue = { promptUnits: number; completionUnits: number; totalUnits: number };
@@ -304,7 +305,7 @@ export type TraceFailureDiagnostic = EvidenceEnvelope & { failureId: string; des
 export type TraceValidation = { status: string; retrySequenceId: string; attemptId: string; attemptNumber: number };
 export type TraceGap = { kind: string; frameId: string; attemptId: string };
 export type TraceUncertainty = { kind: string; frameId: string };
-export type TraceSearchResult = { sequence: number; recordType: string; frameId: string; matchOffset: number; matchLength: number; searchedField: string; contentRef?: string };
+export type TraceSearchResult = { sequence: number; recordType: string; frameId: string; matchOffset: number; matchLength: number; searchedField: string; contentId?: string };
 
 export type ActivePage = Page<ActiveExecution> & {
   resumeCursor: string | null;
@@ -327,6 +328,7 @@ export type ActivityKind =
   | "STEP_STARTED"
   | "STEP_ACTION_REJECTED"
   | "STEP_COMPLETED"
+  | "STEP_FAILED"
   | "ERROR_RECORDED"
   | "TRACE_COMPLETED"
   | "EXECUTION_OBSERVATION_ENDED";
@@ -348,6 +350,7 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   STEP_STARTED: "Step started",
   STEP_ACTION_REJECTED: "Step action rejected",
   STEP_COMPLETED: "Step completed",
+  STEP_FAILED: "Step failed",
   ERROR_RECORDED: "Execution error recorded",
   TRACE_COMPLETED: "Execution completed",
   EXECUTION_OBSERVATION_ENDED: "Execution observation ended",

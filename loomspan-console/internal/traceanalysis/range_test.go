@@ -302,6 +302,14 @@ func TestServiceReadContentRangeNotFound(t *testing.T) {
 	}
 }
 
+func TestServiceReadContentRangeRejectsPageLocalContentID(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-t", minimalValidTrace)
+	_, domain := h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), RangeRequest{Handle: h.handle, Source: RangeSourceContent, ContentRef: "c1", Start: 0, MaxBytes: 100})
+	if domain == nil || domain.Code != consolecore.CodeInvalidArgument {
+		t.Fatalf("contentId domain=%v", domain)
+	}
+}
+
 func TestServiceReadContentRangeContinuation(t *testing.T) {
 	ndjson := chunkedPayloadTrace(256, 2)
 	h := newServiceTestHarness(t, "t", ndjson)

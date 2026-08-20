@@ -147,10 +147,6 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 	if err != nil {
 		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
 	}
-	frameRoots, err := loadFrameRoots(lease)
-	if err != nil {
-		return Page[RecordSummary]{}, storageError(scopeID.ID(), err)
-	}
 	items := make([]RecordSummary, 0, pageSize)
 	pageRecords := make([]*Record, 0, pageSize)
 	pagePositions := make([]int64, 0, pageSize)
@@ -213,9 +209,6 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		if err != nil {
 			return Page[RecordSummary]{}, invalidityErrorWithCause(CategoryUnsupportedValue, scopeID.ID(), err)
 		}
-		if items[index].Facts.Plan != nil {
-			items[index].Facts.Plan.RootFrameID = frameRoots[rec.FrameID]
-		}
 		if query.Representation == RecordRepresentationLogical && rec.IsEnvelope {
 			for _, desc := range storedFacts.Payloads {
 				if desc.PayloadID != rec.PayloadID {
@@ -259,36 +252,6 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
-}
-
-func loadFrameRoots(lease *artifact.Lease) (map[string]string, error) {
-	parents := map[string]string{}
-	err := scanFactRows[persistedFrameResult](lease, ComponentFrameIndex, 0, func(row persistedFrameResult, _ int64) bool {
-		if row.ParentFrameID != nil {
-			parents[row.FrameID] = *row.ParentFrameID
-		} else {
-			parents[row.FrameID] = ""
-		}
-		return false
-	})
-	if err != nil {
-		return nil, err
-	}
-	roots := map[string]string{}
-	for id := range parents {
-		seen := map[string]bool{}
-		current := id
-		for current != "" && !seen[current] {
-			seen[current] = true
-			parent, ok := parents[current]
-			if !ok || parent == "" {
-				roots[id] = current
-				break
-			}
-			current = parent
-		}
-	}
-	return roots, nil
 }
 
 // recordMatchesFilter reports whether a record matches all set filter fields.
@@ -394,6 +357,7 @@ func recordToSummary(rec *Record, row recordIndexRow, ctx TraceContext, rep Reco
 		Context:         ctx,
 		Sequence:        rec.Sequence,
 		Type:            string(rec.Type),
+		FailureID:       rec.metadataStringOrEmpty("failureId"),
 		FrameID:         rec.FrameID,
 		ParentFrameID:   rec.ParentFrameID,
 		FrameType:       string(rec.FrameType),

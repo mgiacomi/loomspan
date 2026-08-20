@@ -26,7 +26,7 @@ type fakeTraceAnalysisService struct {
 	diagnosticResult  traceanalysis.FailureDiagnostic
 	diagnosticErr     *consolecore.Error
 	searchQuery       traceanalysis.SearchQuery
-	searchPage        traceanalysis.Page[traceanalysis.SearchResult]
+	searchPage        traceanalysis.SearchPage
 	payloadRangeQuery traceanalysis.RangeRequest
 	rawRangeQuery     traceanalysis.RangeRequest
 	rangeResult       traceanalysis.ByteRangeResult
@@ -81,12 +81,12 @@ func (f *fakeTraceAnalysisService) QueryUncertainties(context.Context, evidence.
 func (f *fakeTraceAnalysisService) GetUsageBreakdown(context.Context, evidence.Reference, artifact.Handle) (traceanalysis.UsageBreakdown, *consolecore.Error) {
 	return traceanalysis.UsageBreakdown{}, nil
 }
-func (f *fakeTraceAnalysisService) Search(_ context.Context, _ evidence.Reference, q traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error) {
+func (f *fakeTraceAnalysisService) Search(_ context.Context, _ evidence.Reference, q traceanalysis.SearchQuery) (traceanalysis.SearchPage, *consolecore.Error) {
 	f.searchQuery = q
 	if f.searchPage.Items != nil {
 		return f.searchPage, nil
 	}
-	return traceanalysis.Page[traceanalysis.SearchResult]{Items: []traceanalysis.SearchResult{}}, nil
+	return traceanalysis.SearchPage{Items: []traceanalysis.SearchResult{}, ContentDescriptors: []traceanalysis.SearchContentDescriptor{}}, nil
 }
 func (f *fakeTraceAnalysisService) ReadContentRange(_ context.Context, _ evidence.Reference, q traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
 	f.payloadRangeQuery = q
@@ -286,7 +286,7 @@ func TestTraceAnalysisRangeAndSearchPreserveOpaqueContinuations(t *testing.T) {
 	router, _, cookie, fake := traceAnalysisRouter(t)
 	next := "next-range"
 	fake.rangeResult = traceanalysis.ByteRangeResult{ActualStart: 4, ActualEnd: 8, TotalLength: 12, ContentType: "application/octet-stream", Encoding: traceanalysis.RangeEncodingBase64, Content: []byte("AQIDBA=="), HasMore: true, NextCursor: next}
-	fake.searchPage = traceanalysis.Page[traceanalysis.SearchResult]{Items: []traceanalysis.SearchResult{{Sequence: 7, RecordType: "STRUCTURED_OUTPUT_RECORDED", SearchedField: "content", ContentRef: "opaque-content"}}, HasMore: true, NextCursor: "search-next", SearchLimitations: []traceanalysis.SearchLimitation{{Code: "BINARY_CONTENT_EXCLUDED", Message: "binary excluded"}}}
+	fake.searchPage = traceanalysis.SearchPage{Items: []traceanalysis.SearchResult{{Sequence: 7, RecordType: "STRUCTURED_OUTPUT_RECORDED", SearchedField: "content", ContentID: "c1"}}, ContentDescriptors: []traceanalysis.SearchContentDescriptor{{ContentID: "c1", ContentRef: "opaque-content"}}, HasMore: true, NextCursor: "search-next", SearchLimitations: []traceanalysis.SearchLimitation{{Code: "BINARY_CONTENT_EXCLUDED", Message: "binary excluded"}}}
 	w := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/content-range", `{"source":"TARGET","traceId":"trace-1","contentRef":"opaque-content","maxBytes":64,"continueCursor":"range-cursor"}`, cookie)
 	if w.Code != http.StatusOK || fake.payloadRangeQuery.ContinueCursor != "range-cursor" || fake.payloadRangeQuery.ContentRef != "opaque-content" {
 		t.Fatalf("content range status=%d query=%+v body=%s", w.Code, fake.payloadRangeQuery, w.Body.String())
@@ -302,7 +302,7 @@ func TestTraceAnalysisRangeAndSearchPreserveOpaqueContinuations(t *testing.T) {
 	if search.Code != http.StatusOK || fake.searchQuery.Cursor != "search-cursor" || fake.searchQuery.Text != "needle" {
 		t.Fatalf("search status=%d query=%+v", search.Code, fake.searchQuery)
 	}
-	for _, expected := range []string{`"contentRef":"opaque-content"`, `"workComplete":false`, `"code":"BINARY_CONTENT_EXCLUDED"`, `"nextCursor":"search-next"`} {
+	for _, expected := range []string{`"contentId":"c1"`, `"contentRef":"opaque-content"`, `"workComplete":false`, `"code":"BINARY_CONTENT_EXCLUDED"`, `"nextCursor":"search-next"`} {
 		if !strings.Contains(search.Body.String(), expected) {
 			t.Fatalf("search projection missing %s: %s", expected, search.Body.String())
 		}
@@ -314,6 +314,15 @@ func TestTraceAnalysisBinaryInlineContentUsesBase64(t *testing.T) {
 	fake.recordPage = traceanalysis.Page[traceanalysis.RecordSummary]{Items: []traceanalysis.RecordSummary{{Content: &traceanalysis.ContentDescriptor{Encoding: traceanalysis.ContentEncodingBinary, InlineContent: []byte{0xff, 0x00, 0x80}}}}}
 	response := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/records", `{"source":"TARGET","traceId":"trace-1","pageSize":1,"representation":"LOGICAL"}`, cookie)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"inlineContent":"/wCA"`) {
+		t.Fatalf("response=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestTraceAnalysisRecordsExposeFailureIdentity(t *testing.T) {
+	router, _, cookie, fake := traceAnalysisRouter(t)
+	fake.recordPage = traceanalysis.Page[traceanalysis.RecordSummary]{Items: []traceanalysis.RecordSummary{{Sequence: 12, Type: "STEP_FAILED", FailureID: "failure-step"}}}
+	response := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/records", `{"source":"TARGET","traceId":"trace-1","pageSize":1,"representation":"LOGICAL"}`, cookie)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"failureId":"failure-step"`) {
 		t.Fatalf("response=%d %s", response.Code, response.Body.String())
 	}
 }

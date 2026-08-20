@@ -33,6 +33,7 @@ public class LiveActivityProjector
             TraceRecordType.STEP_STARTED,
             TraceRecordType.STEP_ACTION_REJECTED,
             TraceRecordType.STEP_COMPLETED,
+            TraceRecordType.STEP_FAILED,
             TraceRecordType.ERROR_RECORDED,
             TraceRecordType.TRACE_COMPLETED);
 
@@ -318,6 +319,7 @@ public class LiveActivityProjector
             case STEP_STARTED -> ExecutionActivityKind.STEP_STARTED;
             case STEP_ACTION_REJECTED -> ExecutionActivityKind.STEP_ACTION_REJECTED;
             case STEP_COMPLETED -> ExecutionActivityKind.STEP_COMPLETED;
+            case STEP_FAILED -> ExecutionActivityKind.STEP_FAILED;
             case ERROR_RECORDED -> ExecutionActivityKind.ERROR_RECORDED;
             case TRACE_COMPLETED -> ExecutionActivityKind.TRACE_COMPLETED;
             default -> throw new IllegalArgumentException("Record type is not visible: " + record.recordType());
@@ -330,14 +332,14 @@ public class LiveActivityProjector
         {
             case TRACE_STARTED, TRACE_CAPTURE_POLICY_RECORDED -> "STARTING";
             case FRAME_OPENED, FRAME_METADATA_RECORDED, FRAME_CLOSED -> "EXECUTING_SKILL";
-            case MODEL_REQUEST_PREPARED, MODEL_REQUEST_SENT, MODEL_RESPONSE_RECEIVED, MODEL_ATTEMPT_FAILED,
+            case MODEL_REQUEST_SENT, MODEL_RESPONSE_RECEIVED, MODEL_ATTEMPT_FAILED,
                     ADVISOR_REQUEST_MUTATION_RECORDED, ADVISOR_RESPONSE_MUTATION_RECORDED,
                     MODEL_THOUGHT_CAPTURED -> "MODEL";
             case PLAN_CREATED, PLAN_UPDATED, PLAN_VALIDATION_FAILED, PLAN_RETRY_REQUESTED,
                     PLAN_QUALITY_WARNING -> "PLANNING";
             case TOOL_CALL_STARTED, TOOL_CALL_COMPLETED, TOOL_CALL_FAILED -> "TOOL";
             case STEP_STARTED, STEP_ACTION_PROPOSED, STEP_ACTION_VALIDATED,
-                    STEP_ACTION_REJECTED, STEP_COMPLETED -> "STEP";
+                    STEP_ACTION_REJECTED, STEP_COMPLETED, STEP_FAILED -> "STEP";
             case ERROR_RECORDED -> "ERROR";
             case TRACE_COMPLETED -> "COMPLETED";
             default -> "EXECUTING";
@@ -364,6 +366,7 @@ public class LiveActivityProjector
             case STEP_STARTED -> "Step started";
             case STEP_ACTION_REJECTED -> "Step action rejected";
             case STEP_COMPLETED -> "Step completed";
+            case STEP_FAILED -> "Step failed";
             case ERROR_RECORDED -> "Execution error recorded";
             case TRACE_COMPLETED -> "Execution completed";
             default -> record.recordType().name().toLowerCase().replace('_', ' ');

@@ -11,5 +11,6 @@ public enum JournalEntryType
     UNPLANNED_TOOL_EXECUTION,
     TOOL_FAILURE,
     TOOL_RESULT,
+    STEP_FAILURE,
     ERROR
 }

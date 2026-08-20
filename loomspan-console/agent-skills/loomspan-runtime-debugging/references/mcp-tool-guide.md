@@ -35,11 +35,23 @@ LOOMSPAN_list_traces -> LOOMSPAN_get_trace -> compact frames -> record descripto
 - `LOOMSPAN_query_trace_records` returns content descriptors by default.
   `inlineContent` is bounded per value and across the page, so omission is not
   absence. With `filter.literalText` it returns compact case-sensitive matches
-  plus fields, representation, coverage, work-completion, and limitations.
-- Select plan chains by the primary root plus framework `planId`, order versions
-  by record sequence, and use only recorded creation `attemptId` and
-  `retrySequenceId` for acceptance. Never choose by route, first match, or
-  model-authored IDs.
+  plus page-local `contentId` values, one `contentDescriptors` join map, fields,
+  representation, coverage, work-completion, and limitations. Resolve a match
+  through that same page's descriptor and pass its opaque `contentRef` to the
+  read tool; never pass `contentId` as a content reference.
+- Select plan chains by recorded `traceRootFrameId`, `missionFrameId`,
+  `planningFrameId`, and framework `planId`; order versions by record sequence,
+  and use only recorded creation `attemptId` and `retrySequenceId` for
+  acceptance. Never choose by route, first match, or model-authored IDs.
+- Treat one `MODEL_REQUEST_SENT` as the start of one physical provider attempt.
+  Its terminal is either `MODEL_RESPONSE_RECEIVED` or `MODEL_ATTEMPT_FAILED`;
+  there is no separate prepared-request phase. Read typed failure
+  classification, category, retry decision, and delay before opening diagnostic
+  content. A wrapped provider read deadline is `TIMEOUT`; caller cancellation is
+  not.
+- Treat `STEP_COMPLETED` as success only. `STEP_FAILED` is the failed terminal
+  and carries the `failureId` used to join its separate `ERROR_RECORDED`
+  diagnostic evidence. Caller-owned aborts have neither step terminal.
 - `LOOMSPAN_read_trace_content` reads an exact bounded selected semantic value
   using its returned opaque `contentRef`.
 - `LOOMSPAN_read_trace_artifact` optionally reads exact bounded raw source bytes

@@ -34,6 +34,7 @@ class LiveActivityProjectorTest
             TraceRecordType.STEP_STARTED,
             TraceRecordType.STEP_ACTION_REJECTED,
             TraceRecordType.STEP_COMPLETED,
+            TraceRecordType.STEP_FAILED,
             TraceRecordType.ERROR_RECORDED,
             TraceRecordType.TRACE_COMPLETED);
 
@@ -75,6 +76,19 @@ class LiveActivityProjectorTest
                 assertThat(projection.heldTerminal()).as(type.name()).isNull();
             }
         }
+    }
+
+    @Test
+    void projectsFailedStepWithExactErrorSummaryAndFailureIdentity()
+    {
+        ExecutionActivity activity = new LiveActivityProjector().project(
+                new ExecutionProjectionState("session", "route"),
+                record(TraceRecordType.STEP_FAILED, 1, TraceFrameType.STEP_EXECUTION,
+                        Map.of("failureId", "failure-step", "stepNumber", 1), null)).activity();
+
+        assertThat(activity.kind()).isEqualTo(ExecutionActivityKind.STEP_FAILED);
+        assertThat(activity.summary()).isEqualTo("Step failed");
+        assertThat(activity.details()).containsEntry("failureId", "failure-step");
     }
 
     @Test

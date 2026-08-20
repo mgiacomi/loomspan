@@ -50,6 +50,7 @@ const ALL_KINDS: ActivityKind[] = [
   "STEP_STARTED",
   "STEP_ACTION_REJECTED",
   "STEP_COMPLETED",
+  "STEP_FAILED",
   "ERROR_RECORDED",
   "TRACE_COMPLETED",
   "EXECUTION_OBSERVATION_ENDED",
@@ -78,6 +79,7 @@ describe("presentActivity", () => {
     expect(presentActivity(makeActivity("PLAN_VALIDATION_FAILED")).isError).toBe(true);
     expect(presentActivity(makeActivity("TOOL_CALL_FAILED")).isError).toBe(true);
     expect(presentActivity(makeActivity("MODEL_ATTEMPT_FAILED")).isError).toBe(true);
+    expect(presentActivity(makeActivity("STEP_FAILED")).isError).toBe(true);
     expect(presentActivity(makeActivity("STEP_COMPLETED")).isError).toBe(false);
   });
 

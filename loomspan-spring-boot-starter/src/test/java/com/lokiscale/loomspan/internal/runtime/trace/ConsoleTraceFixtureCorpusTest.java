@@ -81,6 +81,8 @@ class ConsoleTraceFixtureCorpusTest
             "current-plan-semantic-evidence",
             "planned-tool-success",
             "unplanned-tool-failure",
+            "timeout-step-failure",
+            "repeated-search-content",
             "incomplete-frame-duration",
             "overlapping-frame-duration");
     private static final Map<String, String> INVALID = Map.ofEntries(
@@ -101,6 +103,7 @@ class ConsoleTraceFixtureCorpusTest
             Map.entry("invalid-frame-relationship", "INVALID_FRAME_RELATIONSHIP"),
             Map.entry("cyclic-frame-relationship", "INVALID_FRAME_RELATIONSHIP"),
             Map.entry("invalid-terminal-failure-link", "INVALID_TERMINAL_FAILURE"),
+            Map.entry("plan-update-before-create", "INVALID_PLAN_LINEAGE"),
             Map.entry("inconsistent-attempt-identity", "INVALID_ATTEMPT"),
             Map.entry("negative-usage", "INVALID_USAGE"),
             Map.entry("overflowing-usage", "INVALID_USAGE"),
@@ -137,9 +140,14 @@ class ConsoleTraceFixtureCorpusTest
         assertThat(fileNames(committed)).containsExactlyElementsOf(fileNames(generated));
         for (String name : fileNames(generated))
         {
-            assertThat(Files.readAllBytes(committed.resolve(name)))
+            Path committedFile = committed.resolve(name);
+            Path generatedFile = generated.resolve(name);
+            assertThat(Files.readAllLines(committedFile, StandardCharsets.UTF_8))
+                    .as(name + " logical lines")
+                    .containsExactlyElementsOf(Files.readAllLines(generatedFile, StandardCharsets.UTF_8));
+            assertThat(Files.readAllBytes(committedFile))
                     .as(name)
-                    .isEqualTo(Files.readAllBytes(generated.resolve(name)));
+                    .isEqualTo(Files.readAllBytes(generatedFile));
         }
     }
 
@@ -195,10 +203,13 @@ class ConsoleTraceFixtureCorpusTest
         List<JsonNode> updates = records.stream()
                 .filter(node -> "PLAN_UPDATED".equals(node.path("recordType").asText()))
                 .toList();
-        assertThat(updates).hasSize(11);
-        assertThat(updates).allSatisfy(node ->
-                assertThat(node.at("/metadata/planId").asText()).isEqualTo("framework-primary-plan"));
-        assertThat(updates).allSatisfy(node -> assertThat(node.path("frameId").asText()).isEqualTo("planning-primary"));
+        assertThat(updates).hasSize(12);
+        assertThat(updates).filteredOn(node -> "framework-primary-plan".equals(node.at("/metadata/planId").asText()))
+                .hasSize(11)
+                .allSatisfy(node -> assertThat(node.path("frameId").asText()).isEqualTo("mission-root"));
+        assertThat(updates).filteredOn(node -> "framework-nested-plan".equals(node.at("/metadata/planId").asText()))
+                .singleElement()
+                .satisfies(node -> assertThat(node.path("frameId").asText()).isEqualTo("nested-mission"));
 
         assertThat(records).anySatisfy(node ->
         {
@@ -211,6 +222,39 @@ class ConsoleTraceFixtureCorpusTest
             assertThat(node.path("data").isNull()).isTrue();
             assertThat(node.at("/metadata/semanticContentPresent").asBoolean()).isTrue();
         });
+    }
+
+    @Test
+    @Order(2)
+    void timeoutAndFailedStepFixtureCarriesTypedLinkedEvidence() throws Exception
+    {
+        List<JsonNode> records = parseLines(fixtureRoot().resolve("traces/timeout-step-failure.ndjson"));
+        assertThat(records).filteredOn(node -> "MODEL_REQUEST_SENT".equals(node.path("recordType").asText())).hasSize(1);
+        assertThat(records).filteredOn(node -> "MODEL_ATTEMPT_FAILED".equals(node.path("recordType").asText()))
+                .singleElement()
+                .satisfies(node ->
+                {
+                    assertThat(node.at("/metadata/failureClassification").asText()).isEqualTo("TRANSIENT");
+                    assertThat(node.at("/metadata/failureCategory").asText()).isEqualTo("TIMEOUT");
+                    assertThat(node.at("/metadata/retryDecision").asText()).isEqualTo("ATTEMPTS_EXHAUSTED");
+                });
+        JsonNode error = records.stream().filter(node -> "ERROR_RECORDED".equals(node.path("recordType").asText())).findFirst().orElseThrow();
+        assertThat(records).filteredOn(node -> "STEP_FAILED".equals(node.path("recordType").asText()))
+                .singleElement()
+                .satisfies(node -> assertThat(node.at("/metadata/failureId").asText())
+                        .isEqualTo(error.at("/metadata/failureId").asText()));
+        assertThat(records).noneMatch(node -> "STEP_COMPLETED".equals(node.path("recordType").asText()));
+    }
+
+    @Test
+    @Order(2)
+    void repeatedSearchFixtureContainsTwoOccurrencesInOneContentValue() throws Exception
+    {
+        List<JsonNode> records = parseLines(fixtureRoot().resolve("traces/repeated-search-content.ndjson"));
+        JsonNode value = records.stream()
+                .filter(node -> "STRUCTURED_OUTPUT_RECORDED".equals(node.path("recordType").asText()))
+                .findFirst().orElseThrow().at("/data/value");
+        assertThat(value.asText().split("needle", -1)).hasSize(4);
     }
 
     @Test
@@ -247,6 +291,24 @@ class ConsoleTraceFixtureCorpusTest
                         retrySequenceId, attemptId, attemptNumber, Usage.ZERO, false, false));
                 attemptLifecycle.computeIfAbsent(attemptId, ignored -> new ArrayList<>())
                         .add(node.path("recordType").asText());
+                if ("MODEL_ATTEMPT_FAILED".equals(node.path("recordType").asText()))
+                {
+                    actualAttemptsById.put(attemptId, ordered(
+                            "retrySequenceId", retrySequenceId,
+                            "attemptId", attemptId,
+                            "attemptNumber", attemptNumber,
+                            "attemptReason", node.at("/metadata/attemptReason").asText(),
+                            "providerAttemptNumber", node.at("/metadata/providerAttemptNumber").asInt(),
+                            "outcome", "FAILED",
+                            "failureClassification", node.at("/metadata/failureClassification").asText(),
+                            "failureCategory", node.at("/metadata/failureCategory").asText(),
+                            "retryDecision", node.at("/metadata/retryDecision").asText(),
+                            "retryDelayMillis", node.at("/metadata/retryDelayMillis").asInt(),
+                            "retryDelaySource", node.at("/metadata/retryDelaySource").asText(),
+                            "usage", Usage.ZERO.asMap(),
+                            "usageComplete", false));
+                    continue;
+                }
                 if (!"MODEL_RESPONSE_RECEIVED".equals(node.path("recordType").asText()))
                 {
                     continue;
@@ -274,12 +336,13 @@ class ConsoleTraceFixtureCorpusTest
                     Stream.iterate(1, number -> number + 1).limit(numbers.size()).toList()));
             attemptLifecycle.forEach((attemptId, recordTypes) ->
             {
-                assertThat(recordTypes).startsWith(
-                        TraceRecordType.MODEL_REQUEST_PREPARED.name(),
-                        TraceRecordType.MODEL_REQUEST_SENT.name());
+                assertThat(recordTypes).startsWith(TraceRecordType.MODEL_REQUEST_SENT.name());
+                assertThat(recordTypes).filteredOn(TraceRecordType.MODEL_REQUEST_SENT.name()::equals).hasSize(1);
                 if (!name.startsWith("runtime-terminal-"))
                 {
-                    assertThat(recordTypes).endsWith(TraceRecordType.MODEL_RESPONSE_RECEIVED.name());
+                    assertThat(recordTypes.getLast()).isIn(
+                            TraceRecordType.MODEL_RESPONSE_RECEIVED.name(),
+                            TraceRecordType.MODEL_ATTEMPT_FAILED.name());
                 }
             });
 
@@ -428,11 +491,12 @@ class ConsoleTraceFixtureCorpusTest
         Map<String, Boolean> attemptsWithResponses = new LinkedHashMap<>();
         for (JsonNode record : records)
         {
-            if ("MODEL_REQUEST_PREPARED".equals(record.path("recordType").asText()))
+            if ("MODEL_REQUEST_SENT".equals(record.path("recordType").asText()))
             {
                 attemptsWithResponses.put(record.at("/metadata/attemptId").asText(), false);
             }
-            else if ("MODEL_RESPONSE_RECEIVED".equals(record.path("recordType").asText()))
+            else if ("MODEL_RESPONSE_RECEIVED".equals(record.path("recordType").asText())
+                    || "MODEL_ATTEMPT_FAILED".equals(record.path("recordType").asText()))
             {
                 attemptsWithResponses.put(record.at("/metadata/attemptId").asText(), true);
             }
@@ -695,9 +759,6 @@ class ConsoleTraceFixtureCorpusTest
             }
             case "chunked-payload" ->
             {
-                handle.append(TraceRecordType.MODEL_REQUEST_PREPARED,
-                        attempt("retry-1", "attempt-1", 1, Map.of()),
-                        Map.of("messages", List.of("user")));
                 handle.append(TraceRecordType.MODEL_REQUEST_SENT,
                         attempt("retry-1", "attempt-1", 1, Map.of()),
                         "x".repeat(5000));
@@ -706,9 +767,6 @@ class ConsoleTraceFixtureCorpusTest
             }
             case "chunked-json-payload" ->
             {
-                handle.append(TraceRecordType.MODEL_REQUEST_PREPARED,
-                        attempt("retry-1", "attempt-1", 1, Map.of()),
-                        Map.of("messages", List.of("user")));
                 handle.append(TraceRecordType.MODEL_REQUEST_SENT,
                         attempt("retry-1", "attempt-1", 1, Map.of()),
                         Map.of("content", "x".repeat(5000)));
@@ -753,6 +811,15 @@ class ConsoleTraceFixtureCorpusTest
                 terminalFailureId = executeToolLifecycleFixture(session, handle, true);
                 outcome = "FAILED";
             }
+            case "timeout-step-failure" ->
+            {
+                terminalFailureId = executeTimeoutStepFailureFixture(session, handle);
+                outcome = "FAILED";
+            }
+            case "repeated-search-content" -> handle.append(
+                    TraceRecordType.STRUCTURED_OUTPUT_RECORDED,
+                    Map.of("semanticContentPresent", true),
+                    ordered("value", "needle before needle middle needle after"));
             case "incomplete-frame-duration" ->
             {
                 ExecutionFrame rootFrame = frame("root", null, TraceFrameType.ROOT_MISSION, "root.skill");
@@ -797,7 +864,8 @@ class ConsoleTraceFixtureCorpusTest
         ExecutionFrame root = frame("mission-root", null, TraceFrameType.ROOT_MISSION, "shared.skill");
         ExecutionFrame primary = frame("planning-primary", "mission-root", TraceFrameType.PLANNING, "shared.skill");
         ExecutionFrame nestedSkill = frame("nested-skill", "mission-root", TraceFrameType.SKILL_EXECUTION, "shared.skill");
-        ExecutionFrame nested = frame("planning-nested", "nested-skill", TraceFrameType.PLANNING, "shared.skill");
+        ExecutionFrame nestedMission = frame("nested-mission", "nested-skill", TraceFrameType.ROOT_MISSION, "shared.skill");
+        ExecutionFrame nested = frame("planning-nested", "nested-mission", TraceFrameType.PLANNING, "shared.skill");
         ExecutionFrame tool = frame("tool-current", "mission-root", TraceFrameType.TOOL_INVOCATION, "lookupIncident");
         appendFrame(handle, TraceRecordType.FRAME_OPENED, root, CLOCK.instant());
         appendFrame(handle, TraceRecordType.FRAME_OPENED, primary, CLOCK.instant().plusSeconds(1));
@@ -806,16 +874,17 @@ class ConsoleTraceFixtureCorpusTest
         Map<String, Object> accepted = attempt("retry-primary", "attempt-accepted", 2, Map.of("planId", "framework-primary-plan"));
         handle.append(TraceRecordType.PLAN_CREATED, primary, TraceFrameType.PLANNING, accepted,
                 ordered("planId", "framework-primary-plan", "version", 0, "body", "p".repeat(3000)));
-        for (int version = 1; version <= 11; version++)
-        {
-            handle.append(TraceRecordType.PLAN_UPDATED, primary, TraceFrameType.PLANNING,
-                    Map.of("planId", "framework-primary-plan"),
-                    ordered("planId", "framework-primary-plan", "version", version, "body", "p".repeat(3000)));
-        }
         handle.append(TraceRecordType.ADVISOR_RESPONSE_MUTATION_RECORDED, primary, TraceFrameType.PLANNING,
                 attempt("retry-primary", "attempt-accepted", 2, Map.of("status", "passed")), Map.of("review", "accepted"));
         appendFrame(handle, TraceRecordType.FRAME_CLOSED, primary, CLOCK.instant().plusSeconds(3));
+        for (int version = 1; version <= 11; version++)
+        {
+            handle.append(TraceRecordType.PLAN_UPDATED, root, TraceFrameType.ROOT_MISSION,
+                    Map.of("planId", "framework-primary-plan"),
+                    ordered("planId", "framework-primary-plan", "version", version, "body", "p".repeat(3000)));
+        }
         appendFrame(handle, TraceRecordType.FRAME_OPENED, nestedSkill, CLOCK.instant().plusSeconds(4));
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, nestedMission, CLOCK.instant().plusSeconds(4));
         appendFrame(handle, TraceRecordType.FRAME_OPENED, nested, CLOCK.instant().plusSeconds(5));
         appendAttempt(handle, nested, "retry-nested", "attempt-nested", 1, 2, 1, "EXACT");
         handle.append(TraceRecordType.PLAN_CREATED, nested, TraceFrameType.PLANNING,
@@ -825,6 +894,10 @@ class ConsoleTraceFixtureCorpusTest
                 Map.of(), ordered("incident", "INC-2401", "accepted", true));
         handle.append(TraceRecordType.EVIDENCE_RECORDED, nested, TraceFrameType.PLANNING, Map.of(), JSON.nullNode());
         appendFrame(handle, TraceRecordType.FRAME_CLOSED, nested, CLOCK.instant().plusSeconds(7));
+        handle.append(TraceRecordType.PLAN_UPDATED, nestedMission, TraceFrameType.ROOT_MISSION,
+                Map.of("planId", "framework-nested-plan"),
+                ordered("planId", "framework-nested-plan", "version", 1, "body", "nested-updated"));
+        appendFrame(handle, TraceRecordType.FRAME_CLOSED, nestedMission, CLOCK.instant().plusSeconds(8));
         appendFrame(handle, TraceRecordType.FRAME_CLOSED, nestedSkill, CLOCK.instant().plusSeconds(8));
         appendFrame(handle, TraceRecordType.FRAME_OPENED, tool, CLOCK.instant().plusSeconds(8));
         handle.append(TraceRecordType.TOOL_CALL_STARTED, tool, TraceFrameType.TOOL_INVOCATION,
@@ -833,6 +906,48 @@ class ConsoleTraceFixtureCorpusTest
                 Map.of("capabilityName", "lookupIncident"), Map.of("status", "resolved"));
         appendFrame(handle, TraceRecordType.FRAME_CLOSED, tool, CLOCK.instant().plusSeconds(9));
         appendFrame(handle, TraceRecordType.FRAME_CLOSED, root, CLOCK.instant().plusSeconds(10));
+    }
+
+    private static String executeTimeoutStepFailureFixture(
+            LoomspanSession session,
+            DefaultExecutionTraceHandle handle) throws IOException
+    {
+        ExecutionFrame root = frame("root", null, TraceFrameType.ROOT_MISSION, "handleIncident");
+        ExecutionFrame step = frame("step", "root", TraceFrameType.STEP_EXECUTION, "handleIncident#step-1");
+        ExecutionFrame model = frame("model", "step", TraceFrameType.MODEL_CALL, "handleIncident#step-model");
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, root, CLOCK.instant());
+        session.pushFrame(root);
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, step, CLOCK.instant().plusSeconds(1));
+        session.pushFrame(step);
+        appendFrame(handle, TraceRecordType.FRAME_OPENED, model, CLOCK.instant().plusSeconds(2));
+        session.pushFrame(model);
+        handle.append(TraceRecordType.MODEL_REQUEST_SENT, model, TraceFrameType.MODEL_CALL,
+                attempt("retry-timeout", "attempt-timeout", 1, Map.of()),
+                Map.of("content", "inspect timeout"));
+        handle.append(TraceRecordType.MODEL_ATTEMPT_FAILED, model, TraceFrameType.MODEL_CALL,
+                attempt("retry-timeout", "attempt-timeout", 1, ordered(
+                        "failureClassification", "TRANSIENT",
+                        "failureCategory", "TIMEOUT",
+                        "retryDecision", "ATTEMPTS_EXHAUSTED",
+                        "retryDelayMillis", 0,
+                        "retryDelaySource", "NONE")),
+                Map.of("message", "Error reading response"));
+        handle.append(TraceRecordType.FRAME_CLOSED, model, TraceFrameType.MODEL_CALL,
+                ordered("timestampOverride", CLOCK.instant().plusSeconds(3).toString(), "status", "failed"), null);
+        session.popFrame();
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(CLOCK);
+        IllegalStateException failure = fixtureFailure("provider read timeout");
+        String failureId = stateService.recordFailure(session, failure, ordered("message", failure.getMessage(), "stepNumber", 1));
+        handle.append(TraceRecordType.STEP_FAILED, step, TraceFrameType.STEP_EXECUTION,
+                ordered("stepNumber", 1, "failureId", failureId, "message", failure.getMessage()),
+                Map.of("failureId", failureId));
+        handle.append(TraceRecordType.FRAME_CLOSED, step, TraceFrameType.STEP_EXECUTION,
+                ordered("timestampOverride", CLOCK.instant().plusSeconds(4).toString(), "status", "failed"), null);
+        session.popFrame();
+        handle.append(TraceRecordType.FRAME_CLOSED, root, TraceFrameType.ROOT_MISSION,
+                ordered("timestampOverride", CLOCK.instant().plusSeconds(5).toString(), "status", "failed"), null);
+        session.popFrame();
+        return failureId;
     }
 
     private static String executeToolLifecycleFixture(
@@ -919,7 +1034,6 @@ class ConsoleTraceFixtureCorpusTest
             String precision) throws IOException
     {
         Map<String, Object> metadata = attempt(retryId, attemptId, number, Map.of());
-        handle.append(TraceRecordType.MODEL_REQUEST_PREPARED, metadata, Map.of("messages", List.of("user")));
         handle.append(TraceRecordType.MODEL_REQUEST_SENT, metadata, Map.of("messages", List.of("user")));
         appendResponse(handle, retryId, attemptId, number, usage, precision);
     }
@@ -952,8 +1066,6 @@ class ConsoleTraceFixtureCorpusTest
                         Map<String, Object> metadata = attempt("retry-1", "attempt-1", 1, Map.of());
                         try
                         {
-                            handle.append(TraceRecordType.MODEL_REQUEST_PREPARED, modelFrame,
-                                    TraceFrameType.MODEL_CALL, metadata, Map.of("messages", List.of("user")));
                             handle.append(TraceRecordType.MODEL_REQUEST_SENT, modelFrame,
                                     TraceFrameType.MODEL_CALL, metadata, Map.of("messages", List.of("user")));
                         }
@@ -1017,7 +1129,6 @@ class ConsoleTraceFixtureCorpusTest
             int number) throws IOException
     {
         Map<String, Object> metadata = attempt(retryId, attemptId, number, Map.of());
-        handle.append(TraceRecordType.MODEL_REQUEST_PREPARED, metadata, Map.of("messages", List.of("user")));
         handle.append(TraceRecordType.MODEL_REQUEST_SENT, metadata, Map.of("messages", List.of("user")));
         handle.append(TraceRecordType.MODEL_RESPONSE_RECEIVED, metadata, Map.of("content", "fixture response"));
     }
@@ -1033,7 +1144,6 @@ class ConsoleTraceFixtureCorpusTest
             String precision) throws IOException
     {
         Map<String, Object> metadata = attempt(retryId, attemptId, number, Map.of());
-        handle.append(TraceRecordType.MODEL_REQUEST_PREPARED, frame, frame.traceFrameType(), metadata, Map.of("messages", List.of("user")));
         handle.append(TraceRecordType.MODEL_REQUEST_SENT, frame, frame.traceFrameType(), metadata, Map.of("messages", List.of("user")));
         appendResponse(handle, frame, retryId, attemptId, number, prompt, completion, precision);
     }
@@ -1141,6 +1251,7 @@ class ConsoleTraceFixtureCorpusTest
             case "validation-exhaustion" -> "failure-validation";
             case "nonterminal-error-then-success" -> "failure-recovered";
             case "unplanned-tool-failure" -> "failure-tool";
+            case "timeout-step-failure" -> "failure-timeout-step";
             default -> throw new IllegalStateException("Unexpected fixture failure for " + name);
         };
     }
@@ -1204,7 +1315,21 @@ class ConsoleTraceFixtureCorpusTest
                     expectedAttempt(name, "retry-outer", "attempt-outer-1", 1),
                     expectedAttempt(name, "retry-inner", "attempt-inner-1", 1),
                     expectedAttempt(name, "retry-inner", "attempt-inner-2", 2));
-            case "incomplete-frame-duration", "overlapping-frame-duration", "planned-tool-success", "unplanned-tool-failure" -> List.of();
+            case "incomplete-frame-duration", "overlapping-frame-duration", "planned-tool-success", "unplanned-tool-failure", "repeated-search-content" -> List.of();
+            case "timeout-step-failure" -> List.of(ordered(
+                    "retrySequenceId", "retry-timeout",
+                    "attemptId", "attempt-timeout",
+                    "attemptNumber", 1,
+                    "attemptReason", "INITIAL",
+                    "providerAttemptNumber", 1,
+                    "outcome", "FAILED",
+                    "failureClassification", "TRANSIENT",
+                    "failureCategory", "TIMEOUT",
+                    "retryDecision", "ATTEMPTS_EXHAUSTED",
+                    "retryDelayMillis", 0,
+                    "retryDelaySource", "NONE",
+                    "usage", Usage.ZERO.asMap(),
+                    "usageComplete", false));
             case "missing-response-usage" -> List.of(expectedAttempt(name, "retry-1", "attempt-1", 1));
             case "nested-frame-usage" -> List.of(
                     expectedAttempt(name, "retry-framed", "attempt-framed", 1),
@@ -1224,6 +1349,7 @@ class ConsoleTraceFixtureCorpusTest
     {
         return !name.equals("unavailable-usage")
                 && !name.equals("missing-response-usage")
+                && !name.equals("timeout-step-failure")
                 && !name.startsWith("runtime-terminal-");
     }
 
@@ -1300,6 +1426,10 @@ class ConsoleTraceFixtureCorpusTest
             case "runtime-terminal-failure", "runtime-terminal-abort" -> List.of(
                     expectedFrame("root", null, "ROOT_MISSION", "root.skill", 3000, 2000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
                     expectedFrame("model", "root", "MODEL_CALL", "root.skill#mission-model", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
+            case "timeout-step-failure" -> List.of(
+                    expectedFrame("root", null, "ROOT_MISSION", "handleIncident", 5000, 2000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
+                    expectedFrame("step", "root", "STEP_EXECUTION", "handleIncident#step-1", 3000, 2000, Usage.ZERO, Usage.ZERO, Usage.ZERO),
+                    expectedFrame("model", "step", "MODEL_CALL", "handleIncident#step-model", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
             case "repeated-skill-invocations" -> List.of(
                     expectedFrame("root", null, "ROOT_MISSION", "root.skill", 7000, 3000, Usage.ZERO, new Usage(5, 3), new Usage(5, 3)),
                     expectedFrame("skill-1", "root", "SKILL_EXECUTION", "root.skill", 2000, 2000, new Usage(2, 1), Usage.ZERO, new Usage(2, 1)),
@@ -1318,8 +1448,9 @@ class ConsoleTraceFixtureCorpusTest
             case "current-plan-semantic-evidence" -> List.of(
                     expectedFrame("mission-root", null, "ROOT_MISSION", "shared.skill", 10000, 3000, Usage.ZERO, new Usage(6, 3), new Usage(6, 3)),
                     expectedFrame("planning-primary", "mission-root", "PLANNING", "shared.skill", 2000, 2000, new Usage(4, 2), Usage.ZERO, new Usage(4, 2)),
-                    expectedFrame("nested-skill", "mission-root", "SKILL_EXECUTION", "shared.skill", 4000, 2000, Usage.ZERO, new Usage(2, 1), new Usage(2, 1)),
-                    expectedFrame("planning-nested", "nested-skill", "PLANNING", "shared.skill", 2000, 2000, new Usage(2, 1), Usage.ZERO, new Usage(2, 1)),
+                    expectedFrame("nested-skill", "mission-root", "SKILL_EXECUTION", "shared.skill", 4000, 0, Usage.ZERO, new Usage(2, 1), new Usage(2, 1)),
+                    expectedFrame("nested-mission", "nested-skill", "ROOT_MISSION", "shared.skill", 4000, 2000, Usage.ZERO, new Usage(2, 1), new Usage(2, 1)),
+                    expectedFrame("planning-nested", "nested-mission", "PLANNING", "shared.skill", 2000, 2000, new Usage(2, 1), Usage.ZERO, new Usage(2, 1)),
                     expectedFrame("tool-current", "mission-root", "TOOL_INVOCATION", "lookupIncident", 1000, 1000, Usage.ZERO, Usage.ZERO, Usage.ZERO));
             default -> List.of();
         };
@@ -1372,8 +1503,8 @@ class ConsoleTraceFixtureCorpusTest
     {
         return switch (name)
         {
-            case "chunked-payload" -> List.of(expectedPayload(4, "payload-1", "text/plain", 2));
-            case "chunked-json-payload" -> List.of(expectedPayload(4, "payload-1", "application/json", 2));
+            case "chunked-payload" -> List.of(expectedPayload(3, "payload-1", "text/plain", 2));
+            case "chunked-json-payload" -> List.of(expectedPayload(3, "payload-1", "application/json", 2));
             default -> List.of();
         };
     }
@@ -1582,6 +1713,12 @@ class ConsoleTraceFixtureCorpusTest
         List<String> invalidTerminalFailure = new ArrayList<>(terminalFailure);
         replaceFirstLineContaining(invalidTerminalFailure, "\"recordType\":\"TRACE_COMPLETED\"", "failure-terminal", "missing-terminal-failure");
         writeInvalid(root, "invalid-terminal-failure-link", invalidTerminalFailure);
+
+        List<String> planUpdateBeforeCreate = new ArrayList<>(Files.readAllLines(
+                root.resolve("traces/current-plan-semantic-evidence.ndjson"), StandardCharsets.UTF_8));
+        planUpdateBeforeCreate.removeIf(line -> line.contains("\"recordType\":\"PLAN_CREATED\"")
+                && line.contains("framework-primary-plan"));
+        writeInvalid(root, "plan-update-before-create", planUpdateBeforeCreate);
 
         List<String> inconsistentAttempt = new ArrayList<>(base);
         replaceFirstLineContaining(inconsistentAttempt, "\"recordType\":\"MODEL_RESPONSE_RECEIVED\"", "\"attemptId\":\"attempt-1\"", "\"attemptId\":\"attempt-other\"");

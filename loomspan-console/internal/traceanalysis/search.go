@@ -32,62 +32,62 @@ type searchQueryCanonical struct {
 // Search scans physical record bytes followed by reconstructed logical
 // payload bytes. Each call consumes at most maxSearchWorkBytes and
 // maxSearchWorkRecords, and a cursor can stop within either kind of value.
-func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, query SearchQuery) (Page[SearchResult], *consolecore.Error) {
+func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, query SearchQuery) (SearchPage, *consolecore.Error) {
 	if query.Text == "" {
-		return Page[SearchResult]{}, consolecore.NewError(consolecore.CodeInvalidArgument,
+		return SearchPage{}, consolecore.NewError(consolecore.CodeInvalidArgument,
 			"The search text must not be empty.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	if domain := validateLiteralText(scopeID, query.Text); domain != nil {
-		return Page[SearchResult]{}, domain
+		return SearchPage{}, domain
 	}
 	query.Filter.LiteralText = ""
 	if domain := validateRecordFilter(scopeID, query.Filter); domain != nil {
-		return Page[SearchResult]{}, domain
+		return SearchPage{}, domain
 	}
 	query.Filter.Types = normalizeStringSet(query.Filter.Types)
 	pageSize, domain := validatePageSize(scopeID, query.PageSize)
 	if domain != nil {
-		return Page[SearchResult]{}, domain
+		return SearchPage{}, domain
 	}
 	fingerprint, err := canonicalizeRequest(searchQueryCanonical{Text: query.Text, Filter: query.Filter, PageSize: pageSize})
 	if err != nil {
-		return Page[SearchResult]{}, consolecore.NewError(consolecore.CodeConsoleError,
+		return SearchPage{}, consolecore.NewError(consolecore.CodeConsoleError,
 			"The search query could not be canonicalized.", scopeID.ID(), consolecore.Details{}, err)
 	}
 
 	lease, decoded, _, domain := service.leaseForCursor(scopeID, query.Handle, query.Cursor, cursorOpSearch)
 	if domain != nil {
-		return Page[SearchResult]{}, domain
+		return SearchPage{}, domain
 	}
 	success := false
 	defer func() { _ = lease.Close(success) }()
 	state := searchCursorState{Phase: "records"}
 	if decoded.Schema != "" {
 		if decoded.SearchState == nil {
-			return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("search continuation has no progress state"))
+			return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("search continuation has no progress state"))
 		}
 		if d := validateCursorFingerprint(decoded, fingerprint, ownerCursorKey(lease.Owner()), scopeID.ID(), query.Handle); d != nil {
-			return Page[SearchResult]{}, d
+			return SearchPage{}, d
 		}
 		state = *decoded.SearchState
 	}
 	if err := ctx.Err(); err != nil {
-		return Page[SearchResult]{}, canceledError(err)
+		return SearchPage{}, canceledError(err)
 	}
 
 	m, err := readManifest(lease)
 	if err != nil {
-		return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+		return SearchPage{}, storageError(scopeID.ID(), err)
 	}
 	traceCtx := TraceContext{Evidence: scopeID, Handle: query.Handle, TraceID: m.TraceID, SessionID: m.SessionID}
 	needle := []byte(query.Text)
 	if decoded.Schema != "" {
 		if state.KMPPartial >= len(needle) || state.RecordPosition > m.RecordCount ||
 			state.PayloadPosition > int64(m.PayloadCount) {
-			return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("search continuation progress is out of bounds"))
+			return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("search continuation progress is out of bounds"))
 		}
 		if state.Phase == "records" && (state.PayloadPosition != 0 || state.PayloadIndexOffset != 0) {
-			return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("record search continuation contains payload progress"))
+			return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("record search continuation contains payload progress"))
 		}
 	}
 	failure := buildKMPFailureTable(needle)
@@ -101,38 +101,38 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 			if err == nil {
 				err = fmt.Errorf("record index has invalid size %d", indexSize)
 			}
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		recordCount := indexSize / recordIndexRowWidth
 		indexReader, err := lease.OpenComponent(artifact.ComponentName(ComponentRecordIndex))
 		if err != nil {
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		defer indexReader.Close()
 		rawReader, err := lease.OpenComponent(artifact.ComponentRawArtifact)
 		if err != nil {
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		defer rawReader.Close()
 
 		for state.RecordPosition < recordCount {
 			if err := ctx.Err(); err != nil {
-				return Page[SearchResult]{}, canceledError(err)
+				return SearchPage{}, canceledError(err)
 			}
 			if workBytes >= maxSearchWorkBytes || workRecords >= maxSearchWorkRecords {
 				return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
 			}
 			row, err := readRecordIndexRowAt(indexReader, state.RecordPosition)
 			if err != nil {
-				return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+				return SearchPage{}, storageError(scopeID.ID(), err)
 			}
 			raw, err := readRawRecordBytesFrom(rawReader, row)
 			if err != nil {
-				return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+				return SearchPage{}, storageError(scopeID.ID(), err)
 			}
 			record, decodeDomain := decodeRecord(raw, RawAddress{Offset: row.Offset, Length: row.Length, TerminatorLength: row.TerminatorLength})
 			if decodeDomain != nil {
-				return Page[SearchResult]{}, storageError(scopeID.ID(), fmt.Errorf("decode record %d: %s", row.Sequence, decodeDomain.Message))
+				return SearchPage{}, storageError(scopeID.ID(), fmt.Errorf("decode record %d: %s", row.Sequence, decodeDomain.Message))
 			}
 			if record.IsChunk || !recordMatchesFilter(record, query.Filter) {
 				state.RecordPosition++
@@ -148,7 +148,7 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 			if !record.IsEnvelope && record.Data != nil {
 				contentRef, encodeErr := encodeRecordContentReference(scopeID, query.Handle, record.Sequence)
 				if encodeErr != nil {
-					return Page[SearchResult]{}, storageError(scopeID.ID(), encodeErr)
+					return SearchPage{}, storageError(scopeID.ID(), encodeErr)
 				}
 				fields = append(fields, struct {
 					name string
@@ -161,13 +161,13 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 				fieldIndex = 1
 			}
 			if fieldIndex >= len(fields) {
-				return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("search record field is unavailable"))
+				return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("search record field is unavailable"))
 			}
 			for ; fieldIndex < len(fields); fieldIndex++ {
 				field := fields[fieldIndex]
 				state.RecordField = field.name
 				if state.ByteOffset > int64(len(field.data)) {
-					return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("search record offset is out of bounds"))
+					return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("search record offset is out of bounds"))
 				}
 				limit := int64(len(field.data))
 				if remaining := maxSearchWorkBytes - workBytes; limit-state.ByteOffset > remaining {
@@ -178,7 +178,7 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 					state.ByteOffset++
 					workBytes++
 					if state.KMPPartial == len(needle) {
-						items = append(items, SearchResult{Context: traceCtx, Sequence: row.Sequence, RecordType: string(record.Type), FrameID: record.FrameID, MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: field.name, ContentRef: field.ref})
+						items = append(items, SearchResult{Context: traceCtx, Sequence: row.Sequence, RecordType: string(record.Type), FrameID: record.FrameID, MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: field.name, contentRef: field.ref})
 						state.KMPPartial = failure[state.KMPPartial-1]
 						if len(items) == pageSize {
 							return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
@@ -200,22 +200,22 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 	if state.PayloadPosition < int64(m.PayloadCount) {
 		payloadIndexSize, err := lease.ComponentSize(artifact.ComponentName(ComponentPayloadIndex))
 		if err != nil {
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		if state.PayloadIndexOffset >= payloadIndexSize {
 			if decoded.Schema != "" {
-				return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("payload index continuation offset is out of bounds"))
+				return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("payload index continuation offset is out of bounds"))
 			}
-			return Page[SearchResult]{}, storageError(scopeID.ID(), fmt.Errorf("payload index is empty or truncated"))
+			return SearchPage{}, storageError(scopeID.ID(), fmt.Errorf("payload index is empty or truncated"))
 		}
 		payloadIndex, err := lease.OpenComponent(artifact.ComponentName(ComponentPayloadIndex))
 		if err != nil {
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		defer payloadIndex.Close()
 		payloadStore, err := lease.OpenComponent(artifact.ComponentName(ComponentPayloadStore))
 		if err != nil {
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		defer payloadStore.Close()
 		var filterRecordIndex artifact.ComponentReader
@@ -227,22 +227,22 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 				if sizeErr == nil {
 					sizeErr = fmt.Errorf("record index has invalid size %d", recordIndexSize)
 				}
-				return Page[SearchResult]{}, storageError(scopeID.ID(), sizeErr)
+				return SearchPage{}, storageError(scopeID.ID(), sizeErr)
 			}
 			filterRecordCount = recordIndexSize / recordIndexRowWidth
 			filterRecordIndex, err = lease.OpenComponent(artifact.ComponentName(ComponentRecordIndex))
 			if err != nil {
-				return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+				return SearchPage{}, storageError(scopeID.ID(), err)
 			}
 			defer filterRecordIndex.Close()
 			filterRawRecords, err = lease.OpenComponent(artifact.ComponentRawArtifact)
 			if err != nil {
-				return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+				return SearchPage{}, storageError(scopeID.ID(), err)
 			}
 			defer filterRawRecords.Close()
 		}
 		if _, err := payloadIndex.Seek(state.PayloadIndexOffset, io.SeekStart); err != nil {
-			return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+			return SearchPage{}, storageError(scopeID.ID(), err)
 		}
 		for position := state.PayloadPosition; position < int64(m.PayloadCount); position++ {
 			if workBytes >= maxSearchWorkBytes || workRecords >= maxSearchWorkRecords {
@@ -252,9 +252,9 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 			encoded, err := readLengthPrefixed(payloadIndex)
 			if err != nil {
 				if decoded.Schema != "" {
-					return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("payload index continuation does not address a row: %w", err))
+					return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("payload index continuation does not address a row: %w", err))
 				}
-				return Page[SearchResult]{}, storageError(scopeID.ID(), fmt.Errorf("read payload index: %w", err))
+				return SearchPage{}, storageError(scopeID.ID(), fmt.Errorf("read payload index: %w", err))
 			}
 			nextIndexOffset := rowOffset + int64(4+len(encoded))
 			workBytes += int64(4 + len(encoded))
@@ -262,15 +262,15 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 			var payload payloadIndexRow
 			if err := json.Unmarshal(encoded, &payload); err != nil {
 				if decoded.Schema != "" {
-					return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("payload index continuation does not address a row: %w", err))
+					return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("payload index continuation does not address a row: %w", err))
 				}
-				return Page[SearchResult]{}, storageError(scopeID.ID(), fmt.Errorf("parse payload index: %w", err))
+				return SearchPage{}, storageError(scopeID.ID(), fmt.Errorf("parse payload index: %w", err))
 			}
 			if state.ByteOffset > payload.StoreLength {
 				if decoded.Schema != "" {
-					return Page[SearchResult]{}, cursorError(scopeID.ID(), fmt.Errorf("search payload offset is out of bounds"))
+					return SearchPage{}, cursorError(scopeID.ID(), fmt.Errorf("search payload offset is out of bounds"))
 				}
-				return Page[SearchResult]{}, storageError(scopeID.ID(), fmt.Errorf("search payload offset is out of bounds"))
+				return SearchPage{}, storageError(scopeID.ID(), fmt.Errorf("search payload offset is out of bounds"))
 			}
 			if hasRecordSelectionFilter(query.Filter) {
 				recordPosition, recordErr := lowerBoundRecordSequence(filterRecordIndex, filterRecordCount, payload.Sequence)
@@ -278,23 +278,23 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 					if recordErr == nil {
 						recordErr = fmt.Errorf("payload record %d was not found", payload.Sequence)
 					}
-					return Page[SearchResult]{}, storageError(scopeID.ID(), recordErr)
+					return SearchPage{}, storageError(scopeID.ID(), recordErr)
 				}
 				recordRow, recordErr := readRecordIndexRowAt(filterRecordIndex, recordPosition)
 				if recordErr != nil || recordRow.Sequence != payload.Sequence {
 					if recordErr == nil {
 						recordErr = fmt.Errorf("payload record %d was not found", payload.Sequence)
 					}
-					return Page[SearchResult]{}, storageError(scopeID.ID(), recordErr)
+					return SearchPage{}, storageError(scopeID.ID(), recordErr)
 				}
 				raw, readErr := readRawRecordBytesFrom(filterRawRecords, recordRow)
 				if readErr != nil {
-					return Page[SearchResult]{}, storageError(scopeID.ID(), readErr)
+					return SearchPage{}, storageError(scopeID.ID(), readErr)
 				}
 				workBytes += int64(len(raw))
 				record, decodeDomain := decodeRecord(raw, RawAddress{Offset: recordRow.Offset, Length: recordRow.Length, TerminatorLength: recordRow.TerminatorLength})
 				if decodeDomain != nil {
-					return Page[SearchResult]{}, storageError(scopeID.ID(), fmt.Errorf("decode record %d: %s", recordRow.Sequence, decodeDomain.Message))
+					return SearchPage{}, storageError(scopeID.ID(), fmt.Errorf("decode record %d: %s", recordRow.Sequence, decodeDomain.Message))
 				}
 				if !recordMatchesFilter(record, query.Filter) {
 					state.PayloadPosition++
@@ -319,12 +319,12 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 				return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
 			}
 			if _, err := payloadStore.Seek(payload.StoreOffset+state.ByteOffset, io.SeekStart); err != nil {
-				return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+				return SearchPage{}, storageError(scopeID.ID(), err)
 			}
 			buffer := make([]byte, searchReadBufferSize)
 			for state.ByteOffset < payload.StoreLength {
 				if err := ctx.Err(); err != nil {
-					return Page[SearchResult]{}, canceledError(err)
+					return SearchPage{}, canceledError(err)
 				}
 				if workBytes >= maxSearchWorkBytes {
 					return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
@@ -332,7 +332,7 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 				want := min(int64(len(buffer)), payload.StoreLength-state.ByteOffset, maxSearchWorkBytes-workBytes)
 				n, err := io.ReadFull(payloadStore, buffer[:want])
 				if err != nil {
-					return Page[SearchResult]{}, storageError(scopeID.ID(), err)
+					return SearchPage{}, storageError(scopeID.ID(), err)
 				}
 				for _, b := range buffer[:n] {
 					state.KMPPartial = advanceKMP(b, needle, failure, state.KMPPartial)
@@ -341,10 +341,10 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 					if state.KMPPartial == len(needle) {
 						contentRef, encodeErr := encodeEnvelopeContentReference(scopeID, query.Handle, payload.PayloadID)
 						if encodeErr != nil {
-							return Page[SearchResult]{}, storageError(scopeID.ID(), encodeErr)
+							return SearchPage{}, storageError(scopeID.ID(), encodeErr)
 						}
 						items = append(items, SearchResult{Context: traceCtx, Sequence: payload.Sequence,
-							MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: "content", ContentRef: contentRef})
+							MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: "content", contentRef: contentRef})
 						state.KMPPartial = failure[state.KMPPartial-1]
 						if len(items) == pageSize {
 							more := state.ByteOffset < payload.StoreLength || position+1 < int64(m.PayloadCount)
@@ -360,7 +360,8 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 		}
 	}
 	success = true
-	return Page[SearchResult]{Context: traceCtx, Items: items, SearchLimitations: searchLimitations(state)}, nil
+	items, descriptors := normalizeSearchContent(items)
+	return SearchPage{Context: traceCtx, Items: items, SearchLimitations: searchLimitations(state), ContentDescriptors: descriptors}, nil
 }
 
 func hasRecordSelectionFilter(filter RecordFilter) bool {
@@ -372,17 +373,37 @@ func hasRecordSelectionFilter(filter RecordFilter) bool {
 }
 
 func (service *Service) finishSearchPage(scopeID evidence.Reference, ownerKey string, handle artifact.Handle, fingerprint string,
-	traceCtx TraceContext, state searchCursorState, items []SearchResult, hasMore bool, success *bool) (Page[SearchResult], *consolecore.Error) {
+	traceCtx TraceContext, state searchCursorState, items []SearchResult, hasMore bool, success *bool) (SearchPage, *consolecore.Error) {
 	var next string
 	var err error
 	if hasMore {
 		next, err = encodeSearchCursor(ownerKey, handle, fingerprint, state)
 		if err != nil {
-			return Page[SearchResult]{}, cursorError(scopeID.ID(), err)
+			return SearchPage{}, cursorError(scopeID.ID(), err)
 		}
 	}
 	*success = true
-	return Page[SearchResult]{Context: traceCtx, Items: items, NextCursor: next, HasMore: hasMore, SearchLimitations: searchLimitations(state)}, nil
+	items, descriptors := normalizeSearchContent(items)
+	return SearchPage{Context: traceCtx, Items: items, NextCursor: next, HasMore: hasMore, SearchLimitations: searchLimitations(state), ContentDescriptors: descriptors}, nil
+}
+
+func normalizeSearchContent(items []SearchResult) ([]SearchResult, []SearchContentDescriptor) {
+	descriptors := make([]SearchContentDescriptor, 0)
+	ids := map[string]string{}
+	for index := range items {
+		if items[index].contentRef == "" {
+			continue
+		}
+		id := ids[items[index].contentRef]
+		if id == "" {
+			id = fmt.Sprintf("c%d", len(descriptors)+1)
+			ids[items[index].contentRef] = id
+			descriptors = append(descriptors, SearchContentDescriptor{ContentID: id, ContentRef: items[index].contentRef})
+		}
+		items[index].ContentID = id
+		items[index].contentRef = ""
+	}
+	return items, descriptors
 }
 
 func searchLimitations(state searchCursorState) []SearchLimitation {

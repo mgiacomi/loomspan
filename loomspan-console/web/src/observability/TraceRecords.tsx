@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { getContentRange, getRawRecordRange, getTraceRecords } from "../api/client";
 import type { TraceRange, TraceSource } from "../api/contracts";
-import type { TraceFailure, TraceRecord } from "../api/contracts";
+import type { TraceFailure, TracePlanLandmark, TraceRecord } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
 import { comparePlans, toPlanSnapshot } from "./planComparison";
 import type { PlanComparison, PlanSnapshot } from "./planComparison";
@@ -41,7 +41,7 @@ const warningRecordTypes = new Set([
   "STEP_ACTION_REJECTED",
 ]);
 
-const errorRecordTypes = new Set(["ERROR_RECORDED", "TOOL_CALL_FAILED"]);
+const errorRecordTypes = new Set(["ERROR_RECORDED", "TOOL_CALL_FAILED", "STEP_FAILED"]);
 
 function recordSeverity(record: TraceRecord, linkedFailure?: TraceFailure): RecordSeverity {
   if (linkedFailure || errorRecordTypes.has(record.type)) return "error";
@@ -933,6 +933,17 @@ function RecordDetailView({ detail, onOpenRelated, onSelectFailure }: { detail: 
   </>;
 }
 
+function PlanLandmarks({ plan, onFrame }: { plan: TracePlanLandmark; onFrame: (frameId: string) => void }) {
+  return <dl className="trace-step-facts" role="group" aria-label={`Plan ${plan.planId} landmarks`}>
+    <div><dt>Plan ID</dt><dd>{plan.planId}</dd></div>
+    <div><dt>Trace root frame</dt><dd><button type="button" onClick={() => onFrame(plan.traceRootFrameId)}>{plan.traceRootFrameId}</button></dd></div>
+    <div><dt>Owning mission frame</dt><dd><button type="button" onClick={() => onFrame(plan.missionFrameId)}>{plan.missionFrameId}</button></dd></div>
+    <div><dt>Planning frame</dt><dd><button type="button" onClick={() => onFrame(plan.planningFrameId)}>{plan.planningFrameId}</button></dd></div>
+    {plan.attemptId && <div><dt>Accepted attempt</dt><dd>{plan.attemptId}</dd></div>}
+    {plan.retrySequenceId && <div><dt>Retry sequence</dt><dd>{plan.retrySequenceId}</dd></div>}
+  </dl>;
+}
+
 function PlanChanges({ comparison, previousSequence }: { comparison: PlanComparison; previousSequence: number }) {
   const hasChanges = comparison.plan.length > 0 || comparison.tasks.length > 0;
   return <section className="trace-plan-changes" aria-label="Plan changes">
@@ -1149,8 +1160,7 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
       const isPlanCreated = record.type === "PLAN_CREATED";
       const isPlanUpdated = record.type === "PLAN_UPDATED";
       const isPlanRecord = isPlanCreated || isPlanUpdated;
-      const isPreparedRequest = record.type === "MODEL_REQUEST_PREPARED";
-      const isModelRequest = isPreparedRequest || record.type === "MODEL_REQUEST_SENT";
+      const isModelRequest = record.type === "MODEL_REQUEST_SENT";
       const isModelResponse = record.type === "MODEL_RESPONSE_RECEIVED";
       const isModelRecord = isModelRequest || isModelResponse;
       const isStepStarted = record.type === "STEP_STARTED";
@@ -1166,8 +1176,8 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
         : record.type === "STEP_ACTION_VALIDATED" ? "validated"
           : record.type === "STEP_ACTION_REJECTED" ? "rejected"
             : undefined;
-      const modelLabel = isPreparedRequest ? "Prepared request" : isModelRequest ? "Request" : "Response";
-      const modelRegionLabel = isPreparedRequest ? "Prepared model request" : isModelRequest ? "Model request" : "Model response";
+      const modelLabel = isModelRequest ? "Request" : "Response";
+      const modelRegionLabel = isModelRequest ? "Model request" : "Model response";
       const key = `${traceId}:${record.sequence}`;
       const isPlanExpanded = expanded === `${key}:plan`;
       const isModelExpanded = expanded === `${key}:model`;
@@ -1181,7 +1191,9 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
       const stepEntry = stepCache[key];
       const stepActionEntry = stepActionCache[key];
       const recordDetailEntry = recordDetailCache[key];
-      const linkedFailure = failures.find((failure) => failure.sequence === record.sequence);
+      const linkedFailure = record.failureId
+        ? failures.find((failure) => failure.failureId === record.failureId)
+        : failures.find((failure) => failure.sequence === record.sequence);
       const severity = recordSeverity(record, linkedFailure);
       const severityLabel = severity === "error" ? "Failure" : severity === "warning" ? "Retry or warning" : undefined;
       return (
@@ -1238,6 +1250,7 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
             <tr key={`${record.sequence}-plan`}>
               <td colSpan={5}>
                 <div id={`plan-detail-${record.sequence}`} className="trace-plan-expanded" role="region" aria-label={`${isPlanUpdated ? "Plan update" : "Plan"} for record ${record.sequence}`}>
+                  {record.plan && <PlanLandmarks plan={record.plan} onFrame={(frameId) => related({ frameIds: [frameId] })} />}
                   {!traceId && <p role="status">Trace context unavailable.</p>}
                   {traceId && entry?.loading && <p role="status">Loading plan&hellip;</p>}
                   {entry?.error && <p role="alert">{entry.error}</p>}

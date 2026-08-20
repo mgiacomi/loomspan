@@ -103,7 +103,7 @@ func ValidateCase(value Case, repository string) error {
 		}
 	}
 	for _, id := range value.RequirementIDs {
-		if !strings.HasPrefix(id, "PR19-") && !strings.HasPrefix(id, "PR28-") && !strings.HasPrefix(id, "WF-") {
+		if !strings.HasPrefix(id, "PR19-") && !strings.HasPrefix(id, "PR28-") && !strings.HasPrefix(id, "PR30-") && !strings.HasPrefix(id, "WF-") {
 			return fmt.Errorf("unknown requirement ID %q", id)
 		}
 	}

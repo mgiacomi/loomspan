@@ -30,8 +30,11 @@ import okio.Okio;
 import java.io.IOException;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import javax.net.ssl.SSLException;
 
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -104,6 +107,53 @@ class SpringAiProviderIntegrationTest
 
         var genericIo = translator.translate(new GenAiIOException("decode failed", new IOException("invalid body")));
         assertThat(genericIo.classification()).isEqualTo(ProviderFailureClassification.UNKNOWN);
+    }
+
+    @Test
+    void translatesOpenAiInterruptedReadTimeoutAsTransientTimeout()
+    {
+        var translator = integration.create("openai", openAi()).failureTranslator();
+
+        var observed = translator.translate(new RuntimeException("Error reading response",
+                new InterruptedIOException("timeout")));
+        assertThat(observed.classification()).isEqualTo(ProviderFailureClassification.TRANSIENT);
+        assertThat(observed.category()).isEqualTo(ProviderFailureCategory.TIMEOUT);
+
+        var direct = translator.translate(new InterruptedIOException("read timed out"));
+        assertThat(direct.classification()).isEqualTo(ProviderFailureClassification.TRANSIENT);
+        assertThat(direct.category()).isEqualTo(ProviderFailureCategory.TIMEOUT);
+
+        var socket = translator.translate(new SocketTimeoutException("read timed out"));
+        assertThat(socket.classification()).isEqualTo(ProviderFailureClassification.TRANSIENT);
+        assertThat(socket.category()).isEqualTo(ProviderFailureCategory.TIMEOUT);
+    }
+
+    @Test
+    void doesNotTreatCancellationOrGenericInterruptedIoAsTimeout()
+    {
+        var translator = integration.create("openai", openAi()).failureTranslator();
+        CancellationException cancellation = new CancellationException("caller canceled");
+        cancellation.initCause(new InterruptedIOException("timeout"));
+        assertThat(translator.translate(cancellation).category()).isEqualTo(ProviderFailureCategory.UNKNOWN);
+        assertThat(translator.translate(new RuntimeException(new InterruptedException("caller interrupted"))).category())
+                .isEqualTo(ProviderFailureCategory.UNKNOWN);
+        assertThat(translator.translate(new InterruptedIOException("stream closed")).category())
+                .isEqualTo(ProviderFailureCategory.UNKNOWN);
+        assertThat(translator.translate(new IOException("stream was reset: CANCEL")).category())
+                .isEqualTo(ProviderFailureCategory.UNKNOWN);
+        assertThat(translator.translate(new IOException("invalid body")).category())
+                .isEqualTo(ProviderFailureCategory.UNKNOWN);
+
+        try
+        {
+            Thread.currentThread().interrupt();
+            assertThat(translator.translate(new InterruptedIOException("timeout")).category())
+                    .isEqualTo(ProviderFailureCategory.UNKNOWN);
+        }
+        finally
+        {
+            Thread.interrupted();
+        }
     }
 
     @Test
@@ -198,6 +248,14 @@ class SpringAiProviderIntegrationTest
     {
         LoomspanProperties.ConnectionProperties properties = new LoomspanProperties.ConnectionProperties();
         properties.setDriver(AiDriver.GEMINI);
+        properties.setApiKey("test-key");
+        return properties;
+    }
+
+    private static LoomspanProperties.ConnectionProperties openAi()
+    {
+        LoomspanProperties.ConnectionProperties properties = new LoomspanProperties.ConnectionProperties();
+        properties.setDriver(AiDriver.OPENAI);
         properties.setApiKey("test-key");
         return properties;
     }

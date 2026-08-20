@@ -31,6 +31,7 @@ const (
 	KindStepStarted               ActivityKind = "STEP_STARTED"
 	KindStepActionRejected        ActivityKind = "STEP_ACTION_REJECTED"
 	KindStepCompleted             ActivityKind = "STEP_COMPLETED"
+	KindStepFailed                ActivityKind = "STEP_FAILED"
 	KindErrorRecorded             ActivityKind = "ERROR_RECORDED"
 	KindTraceCompleted            ActivityKind = "TRACE_COMPLETED"
 	KindExecutionObservationEnded ActivityKind = "EXECUTION_OBSERVATION_ENDED"
@@ -42,7 +43,7 @@ var allKinds = map[ActivityKind]bool{
 	KindPlanCreated: true, KindPlanUpdated: true, KindPlanValidationFailed: true,
 	KindPlanRetryRequested: true, KindToolCallStarted: true, KindToolCallCompleted: true,
 	KindToolCallFailed: true, KindStepStarted: true, KindStepActionRejected: true,
-	KindStepCompleted: true, KindErrorRecorded: true, KindTraceCompleted: true,
+	KindStepCompleted: true, KindStepFailed: true, KindErrorRecorded: true, KindTraceCompleted: true,
 	KindExecutionObservationEnded: true,
 }
 
@@ -68,6 +69,7 @@ func KindLabels() map[ActivityKind]string {
 		KindStepStarted:               "Step started",
 		KindStepActionRejected:        "Step action rejected",
 		KindStepCompleted:             "Step completed",
+		KindStepFailed:                "Step failed",
 		KindErrorRecorded:             "Execution error recorded",
 		KindTraceCompleted:            "Execution completed",
 		KindExecutionObservationEnded: "Execution observation ended",

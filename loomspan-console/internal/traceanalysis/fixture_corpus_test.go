@@ -158,7 +158,7 @@ func TestFixtureCorpusExposesCurrentEntrySkillPlanIdentityAndAcceptedAttempt(t *
 	if queryDomain != nil {
 		t.Fatalf("query records: %v", queryDomain)
 	}
-	primaryCreated, nestedCreated, updates, aggregateOmissions, explicitNull := 0, 0, 0, 0, 0
+	primaryCreated, nestedCreated, primaryUpdates, nestedUpdates, aggregateOmissions, explicitNull := 0, 0, 0, 0, 0, 0
 	for _, record := range page.Items {
 		if record.Content != nil && record.Content.InlineOmission == InlineOmissionAggregate {
 			aggregateOmissions++
@@ -174,26 +174,33 @@ func TestFixtureCorpusExposesCurrentEntrySkillPlanIdentityAndAcceptedAttempt(t *
 		case "framework-primary-plan":
 			if record.Type == string(RecordPlanCreated) {
 				primaryCreated++
-				if plan.RootFrameID != "mission-root" || plan.PlanningFrameID != "planning-primary" || plan.AttemptID != "attempt-accepted" || plan.RetrySequenceID != "retry-primary" {
+				if plan.TraceRootFrameID != "mission-root" || plan.MissionFrameID != "mission-root" || plan.PlanningFrameID != "planning-primary" || plan.AttemptID != "attempt-accepted" || plan.RetrySequenceID != "retry-primary" {
 					t.Fatalf("primary lineage=%+v", plan)
 				}
 			} else {
-				updates++
+				primaryUpdates++
 				if plan.AttemptID != "" || plan.RetrySequenceID != "" {
 					t.Fatalf("update synthesized lineage: %+v", plan)
 				}
 			}
 		case "framework-nested-plan":
-			nestedCreated++
-			if plan.RootFrameID != "mission-root" || plan.PlanningFrameID != "planning-nested" || plan.AttemptID != "attempt-nested" {
-				t.Fatalf("nested lineage=%+v", plan)
+			if record.Type == string(RecordPlanCreated) {
+				nestedCreated++
+				if plan.TraceRootFrameID != "mission-root" || plan.MissionFrameID != "nested-mission" || plan.PlanningFrameID != "planning-nested" || plan.AttemptID != "attempt-nested" {
+					t.Fatalf("nested lineage=%+v", plan)
+				}
+			} else {
+				nestedUpdates++
+				if plan.TraceRootFrameID != "mission-root" || plan.MissionFrameID != "nested-mission" || plan.PlanningFrameID != "planning-nested" || plan.AttemptID != "" || plan.RetrySequenceID != "" {
+					t.Fatalf("nested update lineage=%+v", plan)
+				}
 			}
 		default:
 			t.Fatalf("unexpected inferred plan: %+v", plan)
 		}
 	}
-	if primaryCreated != 1 || nestedCreated != 1 || updates != 11 || aggregateOmissions == 0 || explicitNull != 1 {
-		t.Fatalf("primary=%d nested=%d updates=%d aggregateOmissions=%d explicitNull=%d", primaryCreated, nestedCreated, updates, aggregateOmissions, explicitNull)
+	if primaryCreated != 1 || nestedCreated != 1 || primaryUpdates != 11 || nestedUpdates != 1 || aggregateOmissions == 0 || explicitNull != 1 {
+		t.Fatalf("primary=%d nested=%d primaryUpdates=%d nestedUpdates=%d aggregateOmissions=%d explicitNull=%d", primaryCreated, nestedCreated, primaryUpdates, nestedUpdates, aggregateOmissions, explicitNull)
 	}
 	search, searchDomain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "INC-2401", PageSize: 10})
 	if searchDomain != nil {
@@ -204,10 +211,38 @@ func TestFixtureCorpusExposesCurrentEntrySkillPlanIdentityAndAcceptedAttempt(t *
 	}
 	seenSequences := map[int64]bool{}
 	for _, match := range search.Items {
-		if match.SearchedField != "content" || match.ContentRef == "" || seenSequences[match.Sequence] {
+		if match.SearchedField != "content" || match.ContentID == "" || seenSequences[match.Sequence] {
 			t.Fatalf("non-compact or duplicate semantic match: %+v", match)
 		}
 		seenSequences[match.Sequence] = true
+	}
+	if len(search.ContentDescriptors) != 2 {
+		t.Fatalf("content descriptors=%+v", search.ContentDescriptors)
+	}
+}
+
+func TestGeneratedRepeatedContentFixtureUsesOnePageDescriptor(t *testing.T) {
+	traceBytes, err := os.ReadFile(filepath.Join(fixtureRoot(t), "traces", "repeated-search-content.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newServiceTestHarnessForVersion(t, "trace-repeated-search-content", string(traceBytes), fixtureCompatibilityVersion)
+	page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "needle", PageSize: 2})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	if len(page.Items) != 2 || !page.HasMore || page.NextCursor == "" || len(page.ContentDescriptors) != 1 {
+		t.Fatalf("first page=%+v", page)
+	}
+	if page.Items[0].Sequence != page.Items[1].Sequence || page.Items[0].ContentID != "c1" || page.Items[1].ContentID != "c1" || page.Items[0].MatchOffset == page.Items[1].MatchOffset {
+		t.Fatalf("first matches=%+v", page.Items)
+	}
+	continued, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "needle", PageSize: 2, Cursor: page.NextCursor})
+	if domain != nil || len(continued.Items) != 1 || continued.HasMore || len(continued.ContentDescriptors) != 1 || continued.Items[0].ContentID != "c1" {
+		t.Fatalf("continued page=%+v domain=%v", continued, domain)
+	}
+	if continued.ContentDescriptors[0].ContentRef != page.ContentDescriptors[0].ContentRef {
+		t.Fatalf("descriptor changed across pages: first=%+v continued=%+v", page.ContentDescriptors, continued.ContentDescriptors)
 	}
 }
 

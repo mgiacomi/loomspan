@@ -41,6 +41,13 @@ function appendPage<T, P extends TraceAnalysisPage<T>>(current: P, next: P): P {
   return { ...next, items: [...current.items, ...next.items] };
 }
 
+function appendSearchPage(current: TraceSearchPage, next: TraceSearchPage): TraceSearchPage {
+  const prefix = `p${current.items.length}-`;
+  const rebasedDescriptors = next.contentDescriptors.map((descriptor) => ({ ...descriptor, contentId: `${prefix}${descriptor.contentId}` }));
+  const rebasedItems = next.items.map((item) => ({ ...item, contentId: item.contentId ? `${prefix}${item.contentId}` : undefined }));
+  return { ...next, items: [...current.items, ...rebasedItems], contentDescriptors: [...current.contentDescriptors, ...rebasedDescriptors] };
+}
+
 function mergeFrames(current: TraceAnalysisPage<TraceFrame> | undefined, added: TraceFrame[]) {
   if (!current) return undefined;
   const replacements = new Map(added.map((frame) => [frame.frameId, frame]));
@@ -401,7 +408,14 @@ export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailabl
         }} />}
         {state.view === "records" && <>
           <form onSubmit={(event) => { event.preventDefault(); search(); }}><label>Literal search <input value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label><button type="submit" disabled={!searchText || pending.has("search")}>Search</button></form>
-          {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p>{searchResults.search && <p>{searchResults.search.workComplete ? "Search complete" : "Search has more work"}; {searchResults.search.caseSensitive ? "case-sensitive" : "case-insensitive"}; fields {searchResults.search.searchedFields.join(", ")}{searchResults.search.limitations.map((value) => `; ${value.code}: ${value.message}`).join("")}</p>}<ol>{searchResults.items.map((match) => <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> &middot; {match.searchedField} bytes {match.matchOffset}&ndash;{match.matchOffset + match.matchLength}</li>)}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => loadMore("search-page", searchResults, (cursor) => searchTraceEvidence(traceId, searchText, cursor, source), setSearchResults)}>Load more matches</button>}</section>}
+          {searchResults && <section aria-label="Literal search results"><p role="status">{searchResults.items.length} literal matches</p>{searchResults.search && <p>{searchResults.search.workComplete ? "Search complete" : "Search has more work"}; {searchResults.search.caseSensitive ? "case-sensitive" : "case-insensitive"}; fields {searchResults.search.searchedFields.join(", ")}{searchResults.search.limitations.map((value) => `; ${value.code}: ${value.message}`).join("")}</p>}<ol>{searchResults.items.map((match) => {
+            const contentRef = match.contentId ? searchResults.contentDescriptors.find((descriptor) => descriptor.contentId === match.contentId)?.contentRef : undefined;
+            return <li key={`${match.sequence}-${match.searchedField}-${match.matchOffset}`}><button type="button" onClick={() => select({ view: "records", recordSequence: match.sequence, frameId: match.frameId || undefined, failureId: undefined })}>{match.recordType} record {match.sequence}</button> &middot; {match.searchedField} bytes {match.matchOffset}&ndash;{match.matchOffset + match.matchLength}{contentRef && <> &middot; <button type="button" onClick={() => readContent(contentRef)}>Read match content</button></>}</li>;
+          })}</ol>{searchResults.hasMore && <button type="button" disabled={pending.has("search-page")} onClick={() => {
+            if (!searchResults.nextCursor || pending.has("search-page")) return;
+            begin("search-page");
+            void searchTraceEvidence(traceId, searchText, searchResults.nextCursor, source).then(verifyScope).then((next) => setSearchResults(appendSearchPage(searchResults, next))).catch((value) => reportError(value, true)).finally(() => end("search-page"));
+          }}>Load more matches</button>}</section>}
           <TraceRecords traceId={traceId} source={source} records={records?.items ?? []} failures={failures?.items ?? []} selectedRecordSequence={state.recordSequence} selectedFailureId={state.failureId} onSelectRecord={(record) => select({ recordSequence: record.sequence, frameId: record.frameId || undefined, failureId: undefined })} onSelectFailure={viewFailure} onRelatedFrame={selectRelatedFrame} onContent={readContent} />
           <div className="trace-continuations" role="group" aria-label="Additional evidence pages">
             {records?.hasMore && <button type="button" disabled={pending.has("records")} onClick={() => loadMore("records", records, (cursor) => getTraceRecords(traceId, cursor, {}, source), setRecords)}>Load more records</button>}

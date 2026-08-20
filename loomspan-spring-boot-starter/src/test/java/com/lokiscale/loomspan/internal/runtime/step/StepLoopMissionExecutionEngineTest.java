@@ -141,6 +141,10 @@ class StepLoopMissionExecutionEngineTest {
         assertThat(chatClient.systemMessagesSeen()).hasSize(3);
         assertThat(chatClient.systemMessagesSeen().get(1)).contains("READY TASKS", "t-2");
         assertThat(chatClient.systemMessagesSeen().get(1)).doesNotContain("t-2: Look up expenses (waiting on: t-1)");
+        List<TraceRecord> records = readRecords(session);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.STEP_STARTED)).hasSize(3);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.STEP_COMPLETED)).hasSize(3);
+        assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.STEP_FAILED);
     }
 
     @Test
@@ -215,8 +219,6 @@ class StepLoopMissionExecutionEngineTest {
                 .startsWith("STEP_PROMPT_SENTINEL")
                 .contains("You are executing a planned mission step by step."));
 
-        assertThat(readRecords(session))
-                .noneMatch(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED);
     }
 
     @Test
@@ -281,10 +283,33 @@ class StepLoopMissionExecutionEngineTest {
         }
 
         List<TraceRecord> records = readRecords(session);
-        assertThat(records).anyMatch(record -> record.recordType() == TraceRecordType.STEP_COMPLETED
-                && "failed".equals(record.metadata().get("status")));
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.STEP_FAILED))
+                .singleElement()
+                .satisfies(record -> assertThat(record.metadata().get("failureId")).isNotNull());
+        assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.STEP_COMPLETED);
         assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.ERROR_RECORDED
                 && String.valueOf(record.data()).contains("deadlock"));
+    }
+
+    @Test
+    void surfacesModelFailureAsExplicitTerminalFailure() {
+        DefaultExecutionStateService stateService = new DefaultExecutionStateService(FIXED_CLOCK);
+        PlanningService planningService = new InitializingPlanningService(stateService, singleTaskPlan());
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId("step-loop-model-failure", "test.entry", 3);
+
+        try (ExecutorService missionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+            StepLoopMissionExecutionEngine engine = engine(stateService, planningService, missionExecutor);
+            assertThatThrownBy(() -> executeMission(engine, session, definition(), new SequenceChatClient(), List.of()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("No more queued chat responses");
+        }
+
+        List<TraceRecord> records = readRecords(session);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.STEP_FAILED)).hasSize(1);
+        assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.STEP_COMPLETED);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED)
+                .filter(record -> record.frameType() == TraceFrameType.STEP_EXECUTION))
+                .allSatisfy(record -> assertThat(record.metadata()).containsEntry("status", "failed"));
     }
 
     @Test
@@ -921,6 +946,8 @@ class StepLoopMissionExecutionEngineTest {
         List<TraceRecord> records = readRecords(session);
         assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.ERROR_RECORDED
                 && String.valueOf(record.data()).contains("Step action validation exhausted"))).hasSize(1);
+        assertThat(records.stream().filter(record -> record.recordType() == TraceRecordType.STEP_FAILED)).hasSize(1);
+        assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.STEP_COMPLETED);
     }
 
     @Test
@@ -949,6 +976,8 @@ class StepLoopMissionExecutionEngineTest {
         assertThat(records.stream()
                 .filter(record -> record.recordType() == TraceRecordType.FRAME_CLOSED))
                 .allSatisfy(record -> assertThat(record.metadata()).containsEntry("status", "aborted"));
+        assertThat(records).noneMatch(record -> record.recordType() == TraceRecordType.STEP_FAILED
+                || record.recordType() == TraceRecordType.STEP_COMPLETED);
     }
 
     @Test

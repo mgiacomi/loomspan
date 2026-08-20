@@ -446,18 +446,18 @@ func TestActivityValidationRejectsZeroTimestamp(t *testing.T) {
 	}
 }
 
-func TestAll18ActivityKindsAreValid(t *testing.T) {
+func TestAllActivityKindsAreValid(t *testing.T) {
 	kinds := []ActivityKind{
 		KindTraceStarted, KindFrameOpened, KindFrameClosed,
 		KindModelRequestSent, KindModelResponseReceived, KindModelAttemptFailed,
 		KindPlanCreated, KindPlanUpdated, KindPlanValidationFailed,
 		KindPlanRetryRequested, KindToolCallStarted, KindToolCallCompleted,
 		KindToolCallFailed, KindStepStarted, KindStepActionRejected,
-		KindStepCompleted, KindErrorRecorded, KindTraceCompleted,
+		KindStepCompleted, KindStepFailed, KindErrorRecorded, KindTraceCompleted,
 		KindExecutionObservationEnded,
 	}
-	if len(kinds) != 19 {
-		t.Fatalf("expected 19 kinds, got %d", len(kinds))
+	if len(kinds) != 20 {
+		t.Fatalf("expected 20 kinds, got %d", len(kinds))
 	}
 	for _, kind := range kinds {
 		if !IsValidKind(kind) {
@@ -468,8 +468,8 @@ func TestAll18ActivityKindsAreValid(t *testing.T) {
 
 func TestKindLabelsCoverAllKinds(t *testing.T) {
 	labels := KindLabels()
-	if len(labels) != 19 {
-		t.Fatalf("expected 19 labels, got %d", len(labels))
+	if len(labels) != 20 {
+		t.Fatalf("expected 20 labels, got %d", len(labels))
 	}
 	for _, kind := range []ActivityKind{
 		KindTraceStarted, KindFrameOpened, KindFrameClosed,
@@ -477,7 +477,7 @@ func TestKindLabelsCoverAllKinds(t *testing.T) {
 		KindPlanCreated, KindPlanUpdated, KindPlanValidationFailed,
 		KindPlanRetryRequested, KindToolCallStarted, KindToolCallCompleted,
 		KindToolCallFailed, KindStepStarted, KindStepActionRejected,
-		KindStepCompleted, KindErrorRecorded, KindTraceCompleted,
+		KindStepCompleted, KindStepFailed, KindErrorRecorded, KindTraceCompleted,
 		KindExecutionObservationEnded,
 	} {
 		if labels[kind] == "" {

@@ -82,6 +82,7 @@ public final class ExecutionJournalProjector
             case TOOL_CALL_STARTED -> entry(record, JournalLevel.INFO, toolCallType(record), summarizeToolCall(record));
             case TOOL_CALL_FAILED -> entry(record, JournalLevel.ERROR, JournalEntryType.TOOL_FAILURE, summarizeToolFailure(record));
             case TOOL_CALL_COMPLETED -> entry(record, JournalLevel.INFO, JournalEntryType.TOOL_RESULT, summarizeToolResult(record));
+            case STEP_FAILED -> entry(record, JournalLevel.ERROR, JournalEntryType.STEP_FAILURE, summarizeError(record));
             case ERROR_RECORDED -> entry(record, JournalLevel.ERROR, JournalEntryType.ERROR, summarizeError(record));
             default -> null;
         };

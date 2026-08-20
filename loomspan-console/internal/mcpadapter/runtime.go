@@ -33,10 +33,10 @@ type runtimeStatusDTO struct {
 }
 
 func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator, evaluationCapabilities *[]string) {
-	mcp.AddTool(server, &mcp.Tool{
+	addValidatedTool(server, &mcp.Tool{
 		Name: RuntimeToolName, Description: "Return current Loomspan Console runtime and target status without contacting the target.",
 		Annotations: readOnlyAnnotations,
-	},
+	}, runtimeOutputSchema(),
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, RuntimeOutput, error) {
 			output, err := buildRuntimeOutputWithCapabilities(ctx, provider, credentials, evaluationCapabilities)
 			if err != nil {

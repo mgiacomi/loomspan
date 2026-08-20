@@ -449,6 +449,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
 
         String stepFrameStatus = "completed";
         Throwable stepFailure = null;
+        StepAction lastAction = null;
         boolean forceVerboseToolArgumentGuidance = false;
         try
         {
@@ -459,6 +460,7 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
             String invalidActionFeedback = null;
             while (true)
             {
+                lastAction = null;
                 String stepPrompt = StepPromptBuilder.buildStepPrompt(
                         plan,
                         objective,
@@ -497,15 +499,13 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                         IllegalStateException failure = new IllegalStateException(
                                 "Model failed to produce a valid step action after %d attempts at step %d for skill '%s'."
                                         .formatted(MAX_INVALID_ACTION_RETRIES + 1, stepNumber, skillName));
-                        recordTerminalFailure(session, skillName, stepNumber, failure,
-                                "Model failed to produce a valid step action after %d attempts."
-                                        .formatted(MAX_INVALID_ACTION_RETRIES + 1));
                         throw failure;
                     }
                     invalidActionFeedback = "Failed to parse model response as StepAction";
                     invalidActionRetryCount++;
                     continue;
                 }
+                lastAction = action;
 
                 executionStateService.recordStepEvent(session, stepFrame, TraceRecordType.STEP_ACTION_PROPOSED,
                         Map.of("stepAction", actionName(action),
@@ -531,8 +531,6 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                                 Map.of("stepAction", actionName(action)));
                         IllegalStateException failure = new IllegalStateException("Final response validation exhausted at step %d for skill '%s': %s"
                                 .formatted(stepNumber, skillName, validation.rejectionReason()));
-                        recordTerminalFailure(session, skillName, stepNumber, failure,
-                                "Final response validation exhausted: " + validation.rejectionReason());
                         throw failure;
                     }
                 }
@@ -546,8 +544,6 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
                     {
                         IllegalStateException failure = new IllegalStateException("Step action validation exhausted at step %d for skill '%s': %s"
                                 .formatted(stepNumber, skillName, validation.rejectionReason()));
-                        recordTerminalFailure(session, skillName, stepNumber, failure,
-                                "Step action validation exhausted: " + validation.rejectionReason());
                         throw failure;
                     }
                     invalidActionFeedback = validation.rejectionReason();
@@ -578,10 +574,25 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
         {
             stepFailure = ex;
             boolean callerOwnsCleanup = cleanupOwner.get() == CleanupOwner.CALLER;
-            stepFrameStatus = callerOwnsCleanup || Thread.currentThread().isInterrupted() ? "aborted" : "failed";
-            if (!callerOwnsCleanup)
+            boolean aborted = callerOwnsCleanup || Thread.currentThread().isInterrupted();
+            stepFrameStatus = aborted ? "aborted" : "failed";
+            if (!aborted)
             {
-                executionStateService.recordFailure(session, ex, Map.of("message", "Step execution failed"));
+                String failureId = executionStateService.recordFailure(session, ex,
+                        Map.of("message", "Step execution failed", "stepNumber", stepNumber, "skillName", skillName));
+                LinkedHashMap<String, Object> metadata = new LinkedHashMap<>();
+                metadata.put("stepNumber", stepNumber);
+                metadata.put("failureId", failureId);
+                metadata.put("exceptionType", ex.getClass().getName());
+                metadata.put("message", truncate(ex.getMessage() == null ? "Step execution failed" : ex.getMessage(), 500));
+                if (lastAction != null)
+                {
+                    metadata.put("stepAction", actionName(lastAction));
+                    if (lastAction.taskId() != null) metadata.put("taskId", lastAction.taskId());
+                    if (lastAction.toolName() != null) metadata.put("toolName", lastAction.toolName());
+                }
+                executionStateService.recordStepEvent(session, stepFrame, TraceRecordType.STEP_FAILED,
+                        metadata, Map.of("failureId", failureId));
             }
             throw ex;
         }
@@ -684,11 +695,6 @@ public class StepLoopMissionExecutionEngine implements MissionExecutionEngine
         catch (RuntimeException ex)
         {
             planningService.markToolFailed(session, action.taskId(), action.toolName(), ex);
-            executionStateService.recordStepEvent(session, stepFrame, TraceRecordType.STEP_COMPLETED,
-                    Map.of("stepAction", "CALL_TOOL", "stepNumber", stepNumber,
-                            "taskId", action.taskId(), "toolName", action.toolName(), "status", "failed"),
-                    Map.of("error", "Tool execution failed"));
-
             RuntimeException unwrapped = unwrapMissionFailure(ex);
             if (unwrapped instanceof LoomspanStackOverflowException || unwrapped instanceof LoomspanMissionTimeoutException)
             {

@@ -483,8 +483,7 @@ class ExecutionTraceContractTest {
 
     private static List<TraceRecord> modelRecords(LoomspanSession session) {
         return readRecords(session).stream()
-                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED
-                        || record.recordType() == TraceRecordType.MODEL_REQUEST_SENT
+                .filter(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_SENT
                         || record.recordType() == TraceRecordType.MODEL_RESPONSE_RECEIVED)
                 .toList();
     }

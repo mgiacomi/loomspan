@@ -95,6 +95,7 @@ type RecordSummary struct {
 	Context         TraceContext
 	Sequence        int64
 	Type            string
+	FailureID       string
 	FrameID         string
 	ParentFrameID   string
 	FrameType       string
@@ -168,12 +169,13 @@ type RecordFacts struct {
 }
 
 type PlanLandmark struct {
-	PlanID          string
-	Sequence        int64
-	RootFrameID     string
-	PlanningFrameID string
-	AttemptID       string
-	RetrySequenceID string
+	PlanID           string `json:"planId"`
+	Sequence         int64  `json:"sequence"`
+	TraceRootFrameID string `json:"traceRootFrameId"`
+	MissionFrameID   string `json:"missionFrameId"`
+	PlanningFrameID  string `json:"planningFrameId"`
+	AttemptID        string `json:"attemptId,omitempty"`
+	RetrySequenceID  string `json:"retrySequenceId,omitempty"`
 }
 
 // InlinePayload is a small reconstructed logical payload inlined into a record
@@ -311,9 +313,17 @@ type Page[T any] struct {
 	Items      []T
 	NextCursor string
 	HasMore    bool
-	// SearchLimitations is populated by literal search when semantic values
-	// cannot safely participate in exact text matching.
-	SearchLimitations []SearchLimitation
+}
+
+// SearchPage is the dedicated literal-search page. Descriptor maps belong only
+// to search responses and are deliberately absent from ordinary generic pages.
+type SearchPage struct {
+	Context            TraceContext
+	Items              []SearchResult
+	NextCursor         string
+	HasMore            bool
+	SearchLimitations  []SearchLimitation
+	ContentDescriptors []SearchContentDescriptor
 }
 
 // SearchLimitation explains a class of semantic content excluded from a
@@ -377,6 +387,12 @@ type SearchResult struct {
 	MatchLength int
 	// SearchedField reports which field the match was found in.
 	SearchedField string
-	// ContentRef identifies the semantic content value for content matches.
+	// ContentID identifies a page-local content descriptor for content matches.
+	ContentID  string
+	contentRef string
+}
+
+type SearchContentDescriptor struct {
+	ContentID  string
 	ContentRef string
 }

@@ -35,10 +35,9 @@ import (
 )
 
 const semanticTrace = `{"traceId":"trace-t","sessionId":"session-t","sequence":1,"timestamp":1784894400.000000000,"recordType":"TRACE_STARTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"tracePath":"traces/t.ndjson","consoleCompatibilityVersion":"development"},"data":{"sessionId":"session-t"}}
-{"traceId":"trace-t","sessionId":"session-t","sequence":2,"timestamp":1784894400.000000000,"recordType":"MODEL_REQUEST_PREPARED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"retrySequenceId":"retry-1","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1},"data":{"messages":["user"]}}
-{"traceId":"trace-t","sessionId":"session-t","sequence":3,"timestamp":1784894400.000000000,"recordType":"MODEL_REQUEST_SENT","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"retrySequenceId":"retry-1","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1},"data":{"messages":["user"]}}
-{"traceId":"trace-t","sessionId":"session-t","sequence":4,"timestamp":1784894400.000000000,"recordType":"MODEL_RESPONSE_RECEIVED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"retrySequenceId":"retry-1","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1,"usage":{"promptUnits":10,"completionUnits":4,"totalUnits":14,"precision":"EXACT"}},"data":{"content":"fixture response"}}
-{"traceId":"trace-t","sessionId":"session-t","sequence":5,"timestamp":1784894400.000000000,"recordType":"TRACE_COMPLETED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"outcome":"SUCCEEDED","sessionUsageSnapshot":{"promptUnits":10,"completionUnits":4,"totalUnits":14},"errored":false,"persistencePolicy":"ALWAYS"},"data":null}
+{"traceId":"trace-t","sessionId":"session-t","sequence":2,"timestamp":1784894400.000000000,"recordType":"MODEL_REQUEST_SENT","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"retrySequenceId":"retry-1","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1},"data":{"messages":["user"]}}
+{"traceId":"trace-t","sessionId":"session-t","sequence":3,"timestamp":1784894400.000000000,"recordType":"MODEL_RESPONSE_RECEIVED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"retrySequenceId":"retry-1","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1,"usage":{"promptUnits":10,"completionUnits":4,"totalUnits":14,"precision":"EXACT"}},"data":{"content":"fixture response"}}
+{"traceId":"trace-t","sessionId":"session-t","sequence":4,"timestamp":1784894400.000000000,"recordType":"TRACE_COMPLETED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"fixture-thread","metadata":{"outcome":"SUCCEEDED","sessionUsageSnapshot":{"promptUnits":10,"completionUnits":4,"totalUnits":14},"errored":false,"persistencePolicy":"ALWAYS"},"data":null}
 `
 
 type realSemanticHarness struct {
@@ -303,6 +302,62 @@ func fixtureTraceParity(t *testing.T) {
 		if coverage[family] == 0 {
 			t.Fatalf("semantic parity corpus did not exercise %s", family)
 		}
+	}
+}
+
+func TestPlanAndSearchAdaptersPreserveSameSemantics(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "loomspan-console-fixtures", "traces", "current-plan-semantic-evidence.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = bytes.ReplaceAll(raw, []byte(`"consoleCompatibilityVersion":"0.1.0-SNAPSHOT"`), []byte(`"consoleCompatibilityVersion":"development"`))
+	h := newRealSemanticHarnessFromRaw(t, raw)
+	options := newMCPTestOptions(t, nil)
+	options.TraceAnalysis = h.analysis
+	options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
+	browserPost := newSemanticBrowserPost(t, h)
+	traceID := h.acquired.Metadata.TraceID
+
+	_, records, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: traceID, Filter: traceanalysis.RecordFilter{Types: []string{string(traceanalysis.RecordPlanCreated), string(traceanalysis.RecordPlanUpdated)}}, PageSize: 64})
+	if err != nil || records.Result == nil {
+		t.Fatalf("MCP plans=%#v err=%v", records, err)
+	}
+	browserPlans := browserPost("/api/console/v1/traces/analysis/records", `{"source":"IMPORTED","traceId":"`+traceID+`","pageSize":64,"filter":{"types":["PLAN_CREATED","PLAN_UPDATED"]}}`)["items"].([]any)
+	if len(browserPlans) != len(records.Result.Items) {
+		t.Fatalf("browser plans=%d MCP plans=%d", len(browserPlans), len(records.Result.Items))
+	}
+	for index, item := range browserPlans {
+		browserPlan := item.(map[string]any)["plan"]
+		encoded, marshalErr := json.Marshal(records.Result.Items[index].Facts.Plan)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		var mcpPlan any
+		if err := json.Unmarshal(encoded, &mcpPlan); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(browserPlan, mcpPlan) {
+			t.Fatalf("plan %d mismatch: browser=%#v MCP=%#v", index, browserPlan, mcpPlan)
+		}
+	}
+
+	_, search, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: traceID, Filter: traceanalysis.RecordFilter{LiteralText: "INC-2401"}, PageSize: 64})
+	if err != nil || search.Result == nil || search.Result.Search == nil || search.Result.ContentDescriptors == nil {
+		t.Fatalf("MCP search=%#v err=%v", search, err)
+	}
+	browserSearch := browserPost("/api/console/v1/traces/analysis/search", `{"source":"IMPORTED","traceId":"`+traceID+`","text":"INC-2401","pageSize":64}`)
+	assertAdapterItemsEqual(t, browserSearch["items"], search.Result.Matches)
+	assertAdapterItemsEqual(t, browserSearch["contentDescriptors"], *search.Result.ContentDescriptors)
+	encoded, err := json.Marshal(search.Result.Search)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcpSearch any
+	if err := json.Unmarshal(encoded, &mcpSearch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(browserSearch["search"], mcpSearch) || browserSearch["hasMore"] != search.Result.HasMore {
+		t.Fatalf("search mismatch: browser=%#v MCP=%#v", browserSearch, search.Result)
 	}
 }
 

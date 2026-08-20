@@ -60,7 +60,6 @@ public final class ProviderAttemptCallAdvisor implements CallAdvisor
             requireNotInterrupted();
             sessionUsageService.reserveProviderAttempt(session, context.skillName());
             Map<String, Object> attempt = context.nextAttempt(providerAttempt);
-            executionStateService.recordModelRequestPrepared(session, frame, context, attempt, requestPayload);
             executionStateService.recordModelRequestSent(session, frame, context, attempt, requestPayload);
 
             ChatClientResponse response;

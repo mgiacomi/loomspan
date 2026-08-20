@@ -126,11 +126,27 @@ class ExecutionJournalProjectionContractTest {
     }
 
     @Test
+    void projectsFailedStepAsStepFailureSeparateFromItsDiagnosticError() {
+        List<JournalEntry> entries = projector.project(List.of(
+                record(1, TraceRecordType.STEP_FAILED, "step-frame", "rootVisibleSkill#step-1",
+                        Map.of("failureId", "failure-step", "message", "provider read timeout"),
+                        Map.of("failureId", "failure-step")),
+                record(2, TraceRecordType.ERROR_RECORDED, "step-frame", "rootVisibleSkill#step-1",
+                        Map.of("failureId", "failure-step"), Map.of("message", "provider read timeout"))))
+                .getEntriesSnapshot();
+
+        assertThat(entries).extracting(JournalEntry::type)
+                .containsExactly(JournalEntryType.STEP_FAILURE, JournalEntryType.ERROR);
+        assertThat(entries.getFirst().payload().get("sourceRecordType").textValue())
+                .isEqualTo(TraceRecordType.STEP_FAILED.name());
+        assertThat(entries.getFirst().payload().get("message").textValue()).isEqualTo("provider read timeout");
+    }
+
+    @Test
     void ignoresRawTraceRecordsThatAreNotPartOfTheDeveloperFacingProjection() {
         List<JournalEntry> entries = projector.project(List.of(
                 record(1, TraceRecordType.TRACE_STARTED, null, null, Map.of(), Map.of("sessionId", "session-1")),
                 record(2, TraceRecordType.FRAME_OPENED, "frame-1", "rootVisibleSkill", Map.of(), Map.of("openedAt", "2026-03-24T12:00:00Z")),
-                record(3, TraceRecordType.MODEL_REQUEST_PREPARED, "frame-1", "rootVisibleSkill", Map.of("segment", "mission"), Map.of("system", "do work")),
                 record(4, TraceRecordType.MODEL_REQUEST_SENT, "frame-1", "rootVisibleSkill", Map.of("segment", "mission"), Map.of("objective", "hello")),
                 record(5, TraceRecordType.MODEL_RESPONSE_RECEIVED, "frame-1", "rootVisibleSkill", Map.of("segment", "mission"), Map.of("content", "done")),
                 record(6, TraceRecordType.FRAME_CLOSED, "frame-1", "rootVisibleSkill", Map.of("status", "completed"), Map.of("closedAt", "2026-03-24T12:00:01Z")),

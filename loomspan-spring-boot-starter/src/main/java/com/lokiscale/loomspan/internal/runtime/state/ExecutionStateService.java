@@ -53,9 +53,6 @@ public interface ExecutionStateService
             Map<String, Object> metadata,
             Object payload);
 
-    void recordModelRequestPrepared(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
-            Map<String, Object> attempt, Object payload);
-
     void recordModelRequestSent(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
             Map<String, Object> attempt, Object payload);
 

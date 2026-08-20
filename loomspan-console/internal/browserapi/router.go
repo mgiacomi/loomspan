@@ -48,7 +48,7 @@ type TraceAnalysisService interface {
 	QueryGaps(context.Context, evidence.Reference, traceanalysis.GapQuery) (traceanalysis.Page[traceanalysis.Gap], *consolecore.Error)
 	QueryUncertainties(context.Context, evidence.Reference, traceanalysis.UncertaintyQuery) (traceanalysis.Page[traceanalysis.Uncertainty], *consolecore.Error)
 	GetUsageBreakdown(context.Context, evidence.Reference, artifact.Handle) (traceanalysis.UsageBreakdown, *consolecore.Error)
-	Search(context.Context, evidence.Reference, traceanalysis.SearchQuery) (traceanalysis.Page[traceanalysis.SearchResult], *consolecore.Error)
+	Search(context.Context, evidence.Reference, traceanalysis.SearchQuery) (traceanalysis.SearchPage, *consolecore.Error)
 	ReadContentRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
 	ReadRawRecordRange(context.Context, evidence.Reference, traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error)
 }

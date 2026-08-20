@@ -114,7 +114,7 @@ func (router *Router) traceAnalysisRecords(w http.ResponseWriter, r *http.Reques
 	}
 	items := make([]recordDTO, 0, len(v.Items))
 	for _, x := range v.Items {
-		item := recordDTO{Sequence: x.Sequence, Type: x.Type, FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, FrameType: x.FrameType, Route: x.Route, ThreadName: x.ThreadName, TimestampMillis: x.TimestampMillis, Representation: x.Representation, IsChunk: x.IsChunk, IsEnvelope: x.IsEnvelope}
+		item := recordDTO{Sequence: x.Sequence, Type: x.Type, FailureID: x.FailureID, FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, FrameType: x.FrameType, Route: x.Route, ThreadName: x.ThreadName, TimestampMillis: x.TimestampMillis, Representation: x.Representation, IsChunk: x.IsChunk, IsEnvelope: x.IsEnvelope}
 		if x.Content != nil {
 			inline := string(x.Content.InlineContent)
 			if x.Content.Encoding == traceanalysis.ContentEncodingBinary && len(x.Content.InlineContent) > 0 {
@@ -124,7 +124,7 @@ func (router *Router) traceAnalysisRecords(w http.ResponseWriter, r *http.Reques
 		}
 		if x.Facts.Plan != nil {
 			p := x.Facts.Plan
-			item.Plan = &planLandmarkDTO{PlanID: p.PlanID, Sequence: p.Sequence, RootFrameID: p.RootFrameID, PlanningFrameID: p.PlanningFrameID, AttemptID: p.AttemptID, RetrySequenceID: p.RetrySequenceID}
+			item.Plan = &planLandmarkDTO{PlanID: p.PlanID, Sequence: p.Sequence, TraceRootFrameID: p.TraceRootFrameID, MissionFrameID: p.MissionFrameID, PlanningFrameID: p.PlanningFrameID, AttemptID: p.AttemptID, RetrySequenceID: p.RetrySequenceID}
 		}
 		items = append(items, item)
 	}
@@ -329,13 +329,17 @@ func (router *Router) traceAnalysisSearch(w http.ResponseWriter, r *http.Request
 	}
 	items := make([]searchDTO, 0, len(v.Items))
 	for _, x := range v.Items {
-		items = append(items, searchDTO{Sequence: x.Sequence, RecordType: x.RecordType, FrameID: x.FrameID, MatchOffset: x.MatchOffset, MatchLength: x.MatchLength, SearchedField: x.SearchedField, ContentRef: x.ContentRef})
+		items = append(items, searchDTO{Sequence: x.Sequence, RecordType: x.RecordType, FrameID: x.FrameID, MatchOffset: x.MatchOffset, MatchLength: x.MatchLength, SearchedField: x.SearchedField, ContentID: x.ContentID})
+	}
+	descriptors := make([]searchContentDescriptorDTO, 0, len(v.ContentDescriptors))
+	for _, descriptor := range v.ContentDescriptors {
+		descriptors = append(descriptors, searchContentDescriptorDTO{ContentID: descriptor.ContentID, ContentRef: descriptor.ContentRef})
 	}
 	limitations := make([]searchLimitationDTO, 0, len(v.SearchLimitations))
 	for _, limitation := range v.SearchLimitations {
 		limitations = append(limitations, searchLimitationDTO{Code: limitation.Code, Message: limitation.Message})
 	}
-	router.writeEvidenceJSON(w, s, searchPageDTO{pageDTO: pageDTO[searchDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)}, Search: searchCoverageDTO{Query: b.Text, CaseSensitive: true, Representation: "LOGICAL", SearchedFields: []string{"metadata", "content"}, SemanticContentCoverage: "AVAILABLE_COMPLETE_TEXT", WorkComplete: !v.HasMore, Limitations: limitations}})
+	router.writeEvidenceJSON(w, s, searchPageDTO{pageDTO: pageDTO[searchDTO]{Source: s.Source, TargetScopeID: string(s.TargetScope), Items: items, HasMore: v.HasMore, NextCursor: nullCursor(v.NextCursor)}, ContentDescriptors: descriptors, Search: searchCoverageDTO{Query: b.Text, CaseSensitive: true, Representation: "LOGICAL", SearchedFields: []string{"metadata", "content"}, SemanticContentCoverage: "AVAILABLE_COMPLETE_TEXT", WorkComplete: !v.HasMore, Limitations: limitations}})
 }
 func (router *Router) traceAnalysisPayloadRange(w http.ResponseWriter, r *http.Request, _ string) {
 	router.traceAnalysisRange(w, r, true)
@@ -464,6 +468,7 @@ func (value frameDTO) MarshalJSON() ([]byte, error) {
 type recordDTO struct {
 	Sequence        int64                 `json:"sequence"`
 	Type            string                `json:"type"`
+	FailureID       string                `json:"failureId,omitempty"`
 	FrameID         string                `json:"frameId"`
 	ParentFrameID   string                `json:"parentFrameId"`
 	FrameType       string                `json:"frameType"`
@@ -489,12 +494,13 @@ type contentDescriptorDTO struct {
 	InlineContent     string `json:"inlineContent,omitempty"`
 }
 type planLandmarkDTO struct {
-	PlanID          string `json:"planId"`
-	Sequence        int64  `json:"sequence"`
-	RootFrameID     string `json:"rootFrameId"`
-	PlanningFrameID string `json:"planningFrameId"`
-	AttemptID       string `json:"attemptId,omitempty"`
-	RetrySequenceID string `json:"retrySequenceId,omitempty"`
+	PlanID           string `json:"planId"`
+	Sequence         int64  `json:"sequence"`
+	TraceRootFrameID string `json:"traceRootFrameId"`
+	MissionFrameID   string `json:"missionFrameId"`
+	PlanningFrameID  string `json:"planningFrameId"`
+	AttemptID        string `json:"attemptId,omitempty"`
+	RetrySequenceID  string `json:"retrySequenceId,omitempty"`
 }
 type pageDTO[T any] struct {
 	Source        evidence.Source `json:"source"`
@@ -616,7 +622,11 @@ type searchDTO struct {
 	MatchOffset   int64  `json:"matchOffset"`
 	MatchLength   int    `json:"matchLength"`
 	SearchedField string `json:"searchedField"`
-	ContentRef    string `json:"contentRef,omitempty"`
+	ContentID     string `json:"contentId,omitempty"`
+}
+type searchContentDescriptorDTO struct {
+	ContentID  string `json:"contentId"`
+	ContentRef string `json:"contentRef"`
 }
 type searchLimitationDTO struct {
 	Code    string `json:"code"`
@@ -633,7 +643,8 @@ type searchCoverageDTO struct {
 }
 type searchPageDTO struct {
 	pageDTO[searchDTO]
-	Search searchCoverageDTO `json:"search"`
+	ContentDescriptors []searchContentDescriptorDTO `json:"contentDescriptors"`
+	Search             searchCoverageDTO            `json:"search"`
 }
 
 func nullCursor(v string) *string {

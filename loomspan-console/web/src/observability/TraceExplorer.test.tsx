@@ -105,8 +105,8 @@ test("artifact expiration during a range clears stale content and reports the pr
   expect(screen.queryByText("one")).toBeNull();
 });
 
-test("search is deliberate and forwards literal text only after submission", async () => {
-  api.searchTraceEvidence.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 1, recordType: "MODEL_RESPONSE_RECEIVED", frameId: "f-1", matchOffset: 2, matchLength: 4, searchedField: "payload" }], hasMore: false, nextCursor: null });
+test("search is deliberate and resolves page-local content descriptors", async () => {
+  api.searchTraceEvidence.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 1, recordType: "MODEL_RESPONSE_RECEIVED", frameId: "f-1", matchOffset: 2, matchLength: 4, searchedField: "payload", contentId: "c1" }], contentDescriptors: [{ contentId: "c1", contentRef: "opaque-match-content" }], search: { workComplete: true, caseSensitive: true, searchedFields: ["payload"], limitations: [] }, hasMore: false, nextCursor: null });
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
@@ -117,14 +117,38 @@ test("search is deliberate and forwards literal text only after submission", asy
   await screen.findByText("1 literal matches");
   fireEvent.click(screen.getByRole("button", { name: "MODEL_RESPONSE_RECEIVED record 1" }));
   expect(screen.getByRole("region", { name: "Literal search results" })).toHaveTextContent("payload bytes 2–6");
+  fireEvent.click(screen.getByRole("button", { name: "Read match content" }));
+  await vi.waitFor(() => expect(api.getContentRange).toHaveBeenCalledWith("trace-1", "opaque-match-content", undefined, "TARGET"));
   expect(api.searchTraceEvidence).toHaveBeenCalledWith("trace-1", "needle", undefined, "TARGET");
+});
+
+test("rebases repeated page-local content IDs across search continuation pages", async () => {
+  const search = { workComplete: false, caseSensitive: true, searchedFields: ["content"], limitations: [] };
+  api.searchTraceEvidence
+    .mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 1, recordType: "STRUCTURED_OUTPUT_RECORDED", matchOffset: 0, matchLength: 6, searchedField: "content", contentId: "c1" }], contentDescriptors: [{ contentId: "c1", contentRef: "first-page-content" }], search, hasMore: true, nextCursor: "search-next" })
+    .mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ sequence: 1, recordType: "STRUCTURED_OUTPUT_RECORDED", matchOffset: 14, matchLength: 6, searchedField: "content", contentId: "c1" }], contentDescriptors: [{ contentId: "c1", contentRef: "second-page-content" }], search: { ...search, workComplete: true }, hasMore: false, nextCursor: null });
+
+  render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
+  await screen.findByText(/FAILED/);
+  fireEvent.click(screen.getByRole("tab", { name: "Records" }));
+  fireEvent.change(screen.getByLabelText("Literal search"), { target: { value: "needle" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Load more matches" }));
+
+  await vi.waitFor(() => expect(screen.getAllByRole("button", { name: "Read match content" })).toHaveLength(2));
+  const reads = screen.getAllByRole("button", { name: "Read match content" });
+  fireEvent.click(reads[0]);
+  await vi.waitFor(() => expect(api.getContentRange).toHaveBeenCalledWith("trace-1", "first-page-content", undefined, "TARGET"));
+  await screen.findByText("<a>x</a>");
+  fireEvent.click(screen.getAllByRole("button", { name: "Read match content" })[1]);
+  await vi.waitFor(() => expect(api.getContentRange).toHaveBeenCalledWith("trace-1", "second-page-content", undefined, "TARGET"));
 });
 
 test("continues hierarchy, record, and literal-search pages with their returned cursors", async () => {
   const page = (items: unknown[], hasMore: boolean, nextCursor: string | null) => ({ source: "TARGET", targetScopeId: "scope-1", items, hasMore, nextCursor });
   api.getTraceFrames.mockResolvedValueOnce(page([{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: null, selfDurationMillis: null }], true, "frames-next")).mockResolvedValueOnce(page([{ frameId: "f-2", parentFrameId: null, childFrameIds: [], frameType: "TOOL", route: "next", inclusiveDurationMillis: 1, selfDurationMillis: 1 }], false, null));
   api.getTraceRecords.mockResolvedValueOnce(page([{ sequence: 1, type: "PAYLOAD", frameId: "f-1", route: "hello", timestampMillis: 1, representation: "LOGICAL", content: { role: "RECONSTRUCTED", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, contentRef: "p-1" } }], true, "records-next")).mockResolvedValueOnce(page([{ sequence: 2, type: "EVENT", frameId: "f-2", route: "next", timestampMillis: 2, representation: "LOGICAL",  }], false, null));
-  api.searchTraceEvidence.mockResolvedValueOnce(page([], true, "search-next")).mockResolvedValueOnce(page([], false, null));
+  api.searchTraceEvidence.mockResolvedValueOnce({ ...page([], true, "search-next"), contentDescriptors: [], search: { workComplete: false, caseSensitive: true, searchedFields: ["metadata", "content"], limitations: [] } }).mockResolvedValueOnce({ ...page([], false, null), contentDescriptors: [], search: { workComplete: true, caseSensitive: true, searchedFields: ["metadata", "content"], limitations: [] } });
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("button", { name: "Load more frames" }));

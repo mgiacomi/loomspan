@@ -63,17 +63,16 @@ function makeLargeChunkedPayloadArtifact(): Buffer {
   const records: Array<Record<string, unknown>> = [
     { ...common, sequence: 1, recordType: "TRACE_STARTED", metadata: { tracePath: "generated/large-chunked-payload.ndjson", consoleCompatibilityVersion: "0.1.0-SNAPSHOT" }, data: { sessionId } },
     { ...common, sequence: 2, recordType: "TRACE_CAPTURE_POLICY_RECORDED", metadata: { persistencePolicy: "ALWAYS" }, data: null },
-    { ...common, sequence: 3, recordType: "MODEL_REQUEST_PREPARED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1 }, data: { messages: ["user"] } },
-    { ...common, sequence: 4, recordType: "MODEL_REQUEST_SENT", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, payloadId: "payload-large", chunkCount, payloadChunked: true, contentType: "application/json" }, data: null },
+    { ...common, sequence: 3, recordType: "MODEL_REQUEST_SENT", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, payloadId: "payload-large", chunkCount, payloadChunked: true, contentType: "application/json" }, data: null },
   ];
   for (let index = 0; index < chunkCount; index++) {
     const prefix = index === 0 ? '{"content":"' : "";
     const suffix = index === chunkCount - 1 ? '"}' : "";
-    records.push({ ...common, sequence: 5 + index, recordType: "PAYLOAD_CHUNK_APPENDED", metadata: { payloadId: "payload-large", chunkIndex: index, chunkCount, contentType: "application/json" }, data: prefix + "x".repeat(chunkBytes) + suffix });
+    records.push({ ...common, sequence: 4 + index, recordType: "PAYLOAD_CHUNK_APPENDED", metadata: { payloadId: "payload-large", chunkIndex: index, chunkCount, contentType: "application/json" }, data: prefix + "x".repeat(chunkBytes) + suffix });
   }
   records.push(
-    { ...common, sequence: 5 + chunkCount, recordType: "MODEL_RESPONSE_RECEIVED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, usage: { promptUnits: 2, completionUnits: 1, totalUnits: 3, precision: "EXACT" } }, data: { content: "done" } },
-    { ...common, sequence: 6 + chunkCount, recordType: "TRACE_COMPLETED", metadata: { outcome: "SUCCEEDED", sessionUsageSnapshot: { promptUnits: 2, completionUnits: 1, totalUnits: 3 }, errored: false, persistencePolicy: "ALWAYS" }, data: null },
+    { ...common, sequence: 4 + chunkCount, recordType: "MODEL_RESPONSE_RECEIVED", metadata: { retrySequenceId: "retry-1", attemptId: "attempt-1", attemptNumber: 1, attemptReason: "INITIAL", providerAttemptNumber: 1, usage: { promptUnits: 2, completionUnits: 1, totalUnits: 3, precision: "EXACT" } }, data: { content: "done" } },
+    { ...common, sequence: 5 + chunkCount, recordType: "TRACE_COMPLETED", metadata: { outcome: "SUCCEEDED", sessionUsageSnapshot: { promptUnits: 2, completionUnits: 1, totalUnits: 3 }, errored: false, persistencePolicy: "ALWAYS" }, data: null },
   );
   return Buffer.from(records.map((record) => JSON.stringify(record)).join("\n") + "\n");
 }

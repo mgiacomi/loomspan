@@ -20,19 +20,15 @@ import com.lokiscale.loomspan.internal.core.TraceRecordType;
 import com.lokiscale.loomspan.internal.runtime.SimpleChatClient;
 import com.lokiscale.loomspan.internal.model.ModelInteractionResult;
 import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
-import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceCoverageValidator;
 import com.lokiscale.loomspan.internal.serialization.LoomspanJacksonCodecs;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
-import com.lokiscale.loomspan.internal.runtime.usage.ModelUsageExtractor;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot;
 import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageService;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -46,8 +42,6 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class PlanningServiceTest {
 
@@ -657,8 +651,6 @@ class PlanningServiceTest {
         assertThat(systemPrompt).contains("invoiceParser: Short child tool description");
         assertThat(systemPrompt).doesNotContain("invoiceParser: PARENT_PROMPT_SENTINEL");
 
-        assertThat(readRecords(session))
-                .noneMatch(record -> record.recordType() == TraceRecordType.MODEL_REQUEST_PREPARED);
     }
 
     @Test

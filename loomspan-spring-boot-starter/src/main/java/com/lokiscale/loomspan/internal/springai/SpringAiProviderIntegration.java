@@ -45,6 +45,7 @@ import java.io.ByteArrayInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.ConnectException;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
@@ -57,7 +58,9 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 
 /** Official Spring AI provider integration boundary. */
 public final class SpringAiProviderIntegration
@@ -265,6 +268,10 @@ public final class SpringAiProviderIntegration
             {
                 return transientTransport(ProviderFailureCategory.TIMEOUT);
             }
+            if (current instanceof InterruptedIOException && isProviderReadTimeout(failure))
+            {
+                return transientTransport(ProviderFailureCategory.TIMEOUT);
+            }
             if (current instanceof ConnectException || current instanceof SocketException
                     || current instanceof EOFException || current instanceof UnknownHostException)
             {
@@ -273,6 +280,29 @@ public final class SpringAiProviderIntegration
             current = current.getCause();
         }
         return ProviderFailureDetails.unknown();
+    }
+
+    private boolean isProviderReadTimeout(Throwable failure)
+    {
+        if (Thread.currentThread().isInterrupted()) return false;
+        IdentityHashMap<Throwable, Boolean> seen = new IdentityHashMap<>();
+        boolean timeout = false;
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 12 && seen.put(current, Boolean.TRUE) == null; depth++)
+        {
+            if (current instanceof CancellationException || current instanceof InterruptedException) return false;
+            if (current instanceof InterruptedIOException interrupted)
+            {
+                String message = interrupted.getMessage();
+                if (message != null)
+                {
+                    String normalized = message.toLowerCase(Locale.ROOT);
+                    timeout |= normalized.contains("timeout") || normalized.contains("timed out");
+                }
+            }
+            current = current.getCause();
+        }
+        return timeout;
     }
 
     private ProviderFailureDetails googleHttpFailure(ApiException response)

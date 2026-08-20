@@ -10,14 +10,12 @@ import com.lokiscale.loomspan.internal.core.PlanTaskStatus;
 import com.lokiscale.loomspan.internal.core.TraceRecord;
 import com.lokiscale.loomspan.internal.core.TraceRecordType;
 import com.lokiscale.loomspan.internal.runtime.SimpleChatClient;
-import com.lokiscale.loomspan.internal.runtime.evidence.EvidenceContract;
 import com.lokiscale.loomspan.internal.runtime.state.DefaultExecutionStateService;
 import com.lokiscale.loomspan.internal.skill.EffectiveSkillExecutionConfiguration;
 import com.lokiscale.loomspan.internal.skill.YamlSkillDefinition;
 import com.lokiscale.loomspan.internal.skill.YamlSkillManifest;
 import org.junit.jupiter.api.Test;
 import com.lokiscale.loomspan.internal.runtime.tool.BoundCapability;
-import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -28,8 +26,6 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class EvidencePlanningIntegrationTest
 {

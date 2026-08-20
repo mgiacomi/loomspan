@@ -53,7 +53,7 @@
     "totalUnits" : 3
   },
   "payloads" : [ {
-    "logicalRecordSequence" : 4,
+    "logicalRecordSequence" : 3,
     "payloadId" : "payload-1",
     "contentType" : "text/plain",
     "chunkCount" : 2

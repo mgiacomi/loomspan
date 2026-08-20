@@ -11,7 +11,6 @@ const (
 	RecordFrameOpened              TraceRecordType = "FRAME_OPENED"
 	RecordFrameMetadata            TraceRecordType = "FRAME_METADATA_RECORDED"
 	RecordPayloadChunkAppended     TraceRecordType = "PAYLOAD_CHUNK_APPENDED"
-	RecordModelRequestPrepared     TraceRecordType = "MODEL_REQUEST_PREPARED"
 	RecordModelRequestSent         TraceRecordType = "MODEL_REQUEST_SENT"
 	RecordAdvisorRequestMutation   TraceRecordType = "ADVISOR_REQUEST_MUTATION_RECORDED"
 	RecordModelResponseReceived    TraceRecordType = "MODEL_RESPONSE_RECEIVED"
@@ -36,6 +35,7 @@ const (
 	RecordStepActionValidated      TraceRecordType = "STEP_ACTION_VALIDATED"
 	RecordStepActionRejected       TraceRecordType = "STEP_ACTION_REJECTED"
 	RecordStepCompleted            TraceRecordType = "STEP_COMPLETED"
+	RecordStepFailed               TraceRecordType = "STEP_FAILED"
 	RecordErrorRecorded            TraceRecordType = "ERROR_RECORDED"
 	RecordFrameClosed              TraceRecordType = "FRAME_CLOSED"
 	RecordTraceCompleted           TraceRecordType = "TRACE_COMPLETED"
@@ -46,14 +46,14 @@ const (
 func RecordTypeValues() []string {
 	return []string{
 		string(RecordTraceStarted), string(RecordTraceCapturePolicy), string(RecordFrameOpened), string(RecordFrameMetadata),
-		string(RecordPayloadChunkAppended), string(RecordModelRequestPrepared), string(RecordModelRequestSent),
+		string(RecordPayloadChunkAppended), string(RecordModelRequestSent),
 		string(RecordAdvisorRequestMutation), string(RecordModelResponseReceived), string(RecordModelAttemptFailed),
 		string(RecordAdvisorResponseMutation), string(RecordModelThoughtCaptured), string(RecordPlanCreated), string(RecordPlanUpdated),
 		string(RecordPlanValidationFailed), string(RecordPlanRetryRequested), string(RecordPlanQualityWarning),
 		string(RecordToolCallStarted), string(RecordToolCallCompleted), string(RecordToolCallFailed), string(RecordEvidenceRecorded),
 		string(RecordEvidenceValidationFailed), string(RecordEvidenceValidationPassed), string(RecordLinterRecorded),
 		string(RecordStructuredOutputRecorded), string(RecordStepStarted), string(RecordStepActionProposed),
-		string(RecordStepActionValidated), string(RecordStepActionRejected), string(RecordStepCompleted), string(RecordErrorRecorded),
+		string(RecordStepActionValidated), string(RecordStepActionRejected), string(RecordStepCompleted), string(RecordStepFailed), string(RecordErrorRecorded),
 		string(RecordFrameClosed), string(RecordTraceCompleted),
 	}
 }

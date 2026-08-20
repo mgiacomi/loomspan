@@ -1,0 +1,128 @@
+{
+  "case" : "timeout-step-failure",
+  "valid" : true,
+  "traceId" : "trace-timeout-step-failure",
+  "sessionId" : "session-timeout-step-failure",
+  "outcome" : "FAILED",
+  "terminalFailureId" : "failure-timeout-step",
+  "attributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "terminalUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "unattributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "usageComplete" : false,
+  "attempts" : [ {
+    "retrySequenceId" : "retry-timeout",
+    "attemptId" : "attempt-timeout",
+    "attemptNumber" : 1,
+    "attemptReason" : "INITIAL",
+    "providerAttemptNumber" : 1,
+    "outcome" : "FAILED",
+    "failureClassification" : "TRANSIENT",
+    "failureCategory" : "TIMEOUT",
+    "retryDecision" : "ATTEMPTS_EXHAUSTED",
+    "retryDelayMillis" : 0,
+    "retryDelaySource" : "NONE",
+    "usage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "usageComplete" : false
+  } ],
+  "retries" : [ {
+    "retrySequenceId" : "retry-timeout",
+    "usage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "usageComplete" : false
+  } ],
+  "validationLinks" : [ ],
+  "frames" : [ {
+    "frameId" : "root",
+    "parentFrameId" : null,
+    "frameType" : "ROOT_MISSION",
+    "inclusiveDurationMillis" : 5000,
+    "selfDurationMillis" : 2000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "route" : "handleIncident"
+  }, {
+    "frameId" : "step",
+    "parentFrameId" : "root",
+    "frameType" : "STEP_EXECUTION",
+    "inclusiveDurationMillis" : 3000,
+    "selfDurationMillis" : 2000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "route" : "handleIncident#step-1"
+  }, {
+    "frameId" : "model",
+    "parentFrameId" : "step",
+    "frameType" : "MODEL_CALL",
+    "inclusiveDurationMillis" : 1000,
+    "selfDurationMillis" : 1000,
+    "directUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "descendantUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "inclusiveUsage" : {
+      "promptUnits" : 0,
+      "completionUnits" : 0,
+      "totalUnits" : 0
+    },
+    "route" : "handleIncident#step-model"
+  } ],
+  "unframedAttributedUsage" : {
+    "promptUnits" : 0,
+    "completionUnits" : 0,
+    "totalUnits" : 0
+  },
+  "payloads" : [ ],
+  "gaps" : [ ],
+  "uncertainties" : [ ]
+}

@@ -15,6 +15,7 @@ import (
 // one canonical record. Search matches remain query-specific and are computed
 // from the already selected record rather than persisted here.
 type persistedRecordFacts struct {
+	Plan        *PlanLandmark     `json:"plan,omitempty"`
 	Attempts    []attemptResult   `json:"attempts,omitempty"`
 	Retries     []retryResult     `json:"retries,omitempty"`
 	Validations []validationLink  `json:"validations,omitempty"`
@@ -23,11 +24,17 @@ type persistedRecordFacts struct {
 }
 
 func (facts persistedRecordFacts) empty() bool {
-	return len(facts.Attempts) == 0 && len(facts.Retries) == 0 && len(facts.Validations) == 0 && len(facts.Failures) == 0 && len(facts.Payloads) == 0
+	return facts.Plan == nil && len(facts.Attempts) == 0 && len(facts.Retries) == 0 && len(facts.Validations) == 0 && len(facts.Failures) == 0 && len(facts.Payloads) == 0
 }
 
-func buildPersistedRecordFacts(attempts []attemptResult, retries []retryResult, validations []validationLink, failures []failureResult, payloads []payloadIndexRow) map[int64]persistedRecordFacts {
+func buildPersistedRecordFacts(plans map[int64]PlanLandmark, attempts []attemptResult, retries []retryResult, validations []validationLink, failures []failureResult, payloads []payloadIndexRow) map[int64]persistedRecordFacts {
 	out := map[int64]persistedRecordFacts{}
+	for sequence, plan := range plans {
+		copy := plan
+		facts := out[sequence]
+		facts.Plan = &copy
+		out[sequence] = facts
+	}
 	retryOwnerSequence := make(map[string]int64, len(retries))
 	for _, attempt := range attempts {
 		if attempt.ownerSequence <= 0 {
@@ -131,14 +138,9 @@ func (reader *recordFactReader) Read(ctx context.Context, position int64) (persi
 
 func materializeRecordFacts(stored persistedRecordFacts, rec *Record, filter RecordFilter, ref evidence.Reference, handle artifact.Handle, traceCtx TraceContext) (RecordFacts, error) {
 	facts := RecordFacts{Attempts: []AttemptSummary{}, Retries: []RetrySummary{}, Validations: []ValidationSummary{}, Failures: []FailureSummary{}, Payloads: []PayloadDescriptor{}, SearchMatches: []SearchResult{}}
-	if rec.Type == RecordPlanCreated || rec.Type == RecordPlanUpdated {
-		if planID, present, err := rec.metadataString("planId"); present && err == nil && planID != "" {
-			facts.Plan = &PlanLandmark{PlanID: planID, Sequence: rec.Sequence, PlanningFrameID: rec.FrameID}
-			if rec.Type == RecordPlanCreated {
-				facts.Plan.AttemptID, _, _ = rec.metadataString("attemptId")
-				facts.Plan.RetrySequenceID, _, _ = rec.metadataString("retrySequenceId")
-			}
-		}
+	if stored.Plan != nil {
+		copy := *stored.Plan
+		facts.Plan = &copy
 	}
 	for _, a := range stored.Attempts {
 		contentRef := ""

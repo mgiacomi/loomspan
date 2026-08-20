@@ -170,10 +170,10 @@ func TestParserRejectsNonPositiveSequence(t *testing.T) {
 	}
 }
 
-// TestParserRejectsUnsupportedEnum proves an unknown recordType is rejected as
-// UNSUPPORTED_VALUE.
-func TestParserRejectsUnsupportedEnum(t *testing.T) {
-	raw := `{"traceId":"t","sessionId":"s","sequence":1,"timestamp":1784894400.000000000,"recordType":"FUTURE_TYPE","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{},"data":null}` + "\n"
+// TestParserRejectsRemovedPreparedRequest proves obsolete current-version
+// vocabulary is rejected rather than silently normalized into a sent request.
+func TestParserRejectsRemovedPreparedRequest(t *testing.T) {
+	raw := `{"traceId":"t","sessionId":"s","sequence":1,"timestamp":1784894400.000000000,"recordType":"MODEL_REQUEST_PREPARED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{},"data":null}` + "\n"
 	_, domain := collectRecords(t, raw)
 	if domain == nil {
 		t.Fatal("expected error for unsupported enum")

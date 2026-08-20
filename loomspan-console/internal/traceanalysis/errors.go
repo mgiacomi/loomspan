@@ -27,6 +27,7 @@ const (
 	CategoryInvalidTerminalFailure   InvalidityCategory = "INVALID_TERMINAL_FAILURE"
 	CategoryInvalidAttempt           InvalidityCategory = "INVALID_ATTEMPT"
 	CategoryInvalidUsage             InvalidityCategory = "INVALID_USAGE"
+	CategoryInvalidPlanLineage       InvalidityCategory = "INVALID_PLAN_LINEAGE"
 	CategoryLineTooLarge             InvalidityCategory = "LINE_TOO_LARGE"
 	CategoryExcessiveJSONDepth       InvalidityCategory = "EXCESSIVE_JSON_DEPTH"
 	CategoryTruncatedInput           InvalidityCategory = "TRUNCATED_INPUT"

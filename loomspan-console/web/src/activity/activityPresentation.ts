@@ -30,6 +30,7 @@ const ERROR_KINDS: ReadonlySet<ActivityKind> = new Set([
   "PLAN_VALIDATION_FAILED",
   "TOOL_CALL_FAILED",
   "MODEL_ATTEMPT_FAILED",
+  "STEP_FAILED",
 ]);
 
 const FRAME_BOUNDARY_KINDS: ReadonlySet<ActivityKind> = new Set([
@@ -100,6 +101,7 @@ function describeActivity(
       break;
     case "STEP_STARTED":
     case "STEP_COMPLETED":
+    case "STEP_FAILED":
     case "STEP_ACTION_REJECTED": {
       const step = number(details, "stepNumber");
       headline = step === null ? null : `Step ${step}`;

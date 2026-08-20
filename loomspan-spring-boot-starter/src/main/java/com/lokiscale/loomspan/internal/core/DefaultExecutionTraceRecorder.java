@@ -40,13 +40,6 @@ public final class DefaultExecutionTraceRecorder implements ExecutionTraceRecord
     }
 
     @Override
-    public void recordModelRequestPrepared(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
-            Map<String, Object> attempt, Object payload)
-    {
-        recordAgainstFrame(session, frame, TraceRecordType.MODEL_REQUEST_PREPARED, context.metadata(attempt), payload);
-    }
-
-    @Override
     public void recordModelRequestSent(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
             Map<String, Object> attempt, Object payload)
     {

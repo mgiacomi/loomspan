@@ -81,23 +81,6 @@ test("reconstructs a chunked model request and presents messages by role", async
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 });
 
-test("presents a prepared request inline instead of exposing the generic payload action", async () => {
-  const request = JSON.stringify({
-    messages: [{ messageType: "USER", text: "Prepared model input" }],
-  });
-  getContentRangeMock.mockResolvedValue(range(request));
-  renderRecords([record(8, "MODEL_REQUEST_PREPARED", "prepared-payload")]);
-
-  expect(screen.queryByRole("button", { name: "Read content" })).toBeNull();
-  expect(screen.queryByRole("region", { name: "Prepared model request for record 8" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Prepared request" }));
-
-  const detail = await screen.findByRole("region", { name: "Prepared model request for record 8" });
-  expect(within(detail).getByRole("heading", { name: "user" })).toBeVisible();
-  expect(detail).toHaveTextContent("Prepared model input");
-  expect(getContentRangeMock).toHaveBeenCalledWith("trace-1", "prepared-payload", undefined, "TARGET");
-});
-
 test("extracts and pretty prints JSON content from an inline model response", async () => {
   const content = { stepAction: "CALL_TOOL", toolName: "understandIntent", toolArguments: { customerId: "CUST-1001" } };
   const value = record(12, "MODEL_RESPONSE_RECEIVED");

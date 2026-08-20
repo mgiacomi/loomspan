@@ -2,12 +2,35 @@ package traceanalysis
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/artifact"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 )
+
+func TestSearchContentDescriptorsArePageLocalAndDeduplicated(t *testing.T) {
+	items, descriptors := normalizeSearchContent([]SearchResult{
+		{Sequence: 1, MatchOffset: 1, contentRef: "opaque-one"},
+		{Sequence: 1, MatchOffset: 9, contentRef: "opaque-one"},
+		{Sequence: 2, MatchOffset: 2, contentRef: "opaque-two"},
+		{Sequence: 3, MatchOffset: 3},
+	})
+	if len(descriptors) != 2 || descriptors[0].ContentID != "c1" || descriptors[0].ContentRef != "opaque-one" || descriptors[1].ContentID != "c2" || descriptors[1].ContentRef != "opaque-two" {
+		t.Fatalf("descriptors=%+v", descriptors)
+	}
+	if items[0].ContentID != "c1" || items[1].ContentID != "c1" || items[2].ContentID != "c2" || items[3].ContentID != "" {
+		t.Fatalf("items=%+v", items)
+	}
+	encoded, err := json.Marshal(SearchPage{Items: items, ContentDescriptors: descriptors})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(encoded), "opaque-one") != 1 || strings.Count(string(encoded), "opaque-two") != 1 {
+		t.Fatalf("opaque references repeated: %s", encoded)
+	}
+}
 
 func TestServiceSearchFindsLiteralAcrossReconstructedPayloadChunks(t *testing.T) {
 	trace := strings.Join([]string{
@@ -30,7 +53,7 @@ func TestServiceSearchFindsLiteralAcrossReconstructedPayloadChunks(t *testing.T)
 		t.Fatalf("expected one reconstructed-payload match, got %d", len(page.Items))
 	}
 	match := page.Items[0]
-	if match.SearchedField != "content" || match.Sequence != 3 || match.MatchOffset != 4 || match.ContentRef == "" {
+	if match.SearchedField != "content" || match.Sequence != 3 || match.MatchOffset != 4 || match.ContentID != "c1" || len(page.ContentDescriptors) != 1 || page.ContentDescriptors[0].ContentRef == "" {
 		t.Fatalf("unexpected payload match: %+v", match)
 	}
 }

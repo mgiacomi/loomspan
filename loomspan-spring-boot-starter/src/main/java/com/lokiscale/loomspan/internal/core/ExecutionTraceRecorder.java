@@ -12,9 +12,6 @@ public interface ExecutionTraceRecorder
 
     void recordFrameClosed(LoomspanSession session, ExecutionFrame frame, Map<String, Object> metadata);
 
-    void recordModelRequestPrepared(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
-            Map<String, Object> attempt, Object payload);
-
     void recordModelRequestSent(LoomspanSession session, ExecutionFrame frame, ModelTraceContext context,
             Map<String, Object> attempt, Object payload);
 

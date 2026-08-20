@@ -58,11 +58,13 @@ func responseRecord(seq int, frameID, retryID, attemptID string, attemptNum int,
 		`,"totalUnits":` + itoa(total) + `,"precision":"` + precision + `"}},"data":{"content":"r"}}`
 }
 
-// requestRecord builds a MODEL_REQUEST_PREPARED or MODEL_REQUEST_SENT record.
-func requestRecord(seq int, retryID, attemptID string, attemptNum int, prepared bool) string {
-	rt := "MODEL_REQUEST_PREPARED"
-	if !prepared {
-		rt = "MODEL_REQUEST_SENT"
+// requestRecord builds the sent boundary. Legacy two-boundary test layouts use
+// a harmless thought record in the former first slot so sequence fixtures stay
+// compact while the attempt graph sees exactly one send.
+func requestRecord(seq int, retryID, attemptID string, attemptNum int, formerFirstSlot bool) string {
+	rt := "MODEL_REQUEST_SENT"
+	if formerFirstSlot {
+		rt = "MODEL_THOUGHT_CAPTURED"
 	}
 	return `{"traceId":"t","sessionId":"s","sequence":` + itoa(seq) +
 		`,"timestamp":` + timestampForSeq(seq) +
@@ -684,7 +686,7 @@ func TestAttemptsRejectInconsistentIdentityNumberAndLifecycleOrder(t *testing.T)
 	t.Run("inconsistent_retry_id", func(t *testing.T) {
 		// Same attemptId but different retrySequenceId in the SENT record.
 		raw := startedRecord(1) + "\n" +
-			requestRecord(2, "retry-1", "attempt-1", 1, true) + "\n" +
+			requestRecord(2, "retry-1", "attempt-1", 1, false) + "\n" +
 			`{"traceId":"t","sessionId":"s","sequence":3,"timestamp":` + timestampForSeq(3) +
 			`,"recordType":"MODEL_REQUEST_SENT","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th",` +
 			`"metadata":{"retrySequenceId":"retry-2","attemptId":"attempt-1","attemptNumber":1,"attemptReason":"INITIAL","providerAttemptNumber":1},"data":{"messages":["u"]}}` + "\n" +
@@ -698,29 +700,29 @@ func TestAttemptsRejectInconsistentIdentityNumberAndLifecycleOrder(t *testing.T)
 		}
 	})
 
-	t.Run("response_without_prepared_and_sent", func(t *testing.T) {
-		// RESPONSE_RECEIVED with no preceding PREPARED/SENT.
+	t.Run("response_without_sent", func(t *testing.T) {
+		// RESPONSE_RECEIVED with no preceding SENT.
 		raw := startedRecord(1) + "\n" +
 			responseRecord(2, "", "retry-1", "attempt-1", 1, 10, 4, 14, "EXACT") + "\n" +
 			completionRecord(3, "SUCCEEDED", 10, 4, 14, "") + "\n"
 		_, cat, ok := processTrace(t, raw)
 		if ok {
-			t.Fatal("expected error for response without prepared/sent")
+			t.Fatal("expected error for response without sent")
 		}
 		if cat != CategoryInvalidAttempt {
 			t.Fatalf("expected INVALID_ATTEMPT, got %s", cat)
 		}
 	})
 
-	t.Run("duplicate_prepared", func(t *testing.T) {
-		// Two PREPARED records for the same attempt.
+	t.Run("duplicate_sent", func(t *testing.T) {
+		// Two SENT records for the same attempt.
 		raw := startedRecord(1) + "\n" +
-			requestRecord(2, "retry-1", "attempt-1", 1, true) + "\n" +
-			requestRecord(3, "retry-1", "attempt-1", 1, true) + "\n" +
+			requestRecord(2, "retry-1", "attempt-1", 1, false) + "\n" +
+			requestRecord(3, "retry-1", "attempt-1", 1, false) + "\n" +
 			completionRecord(4, "SUCCEEDED", 0, 0, 0, "") + "\n"
 		_, cat, ok := processTrace(t, raw)
 		if ok {
-			t.Fatal("expected error for duplicate prepared")
+			t.Fatal("expected error for duplicate sent")
 		}
 		if cat != CategoryInvalidAttempt {
 			t.Fatalf("expected INVALID_ATTEMPT, got %s", cat)

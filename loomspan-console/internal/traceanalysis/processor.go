@@ -117,6 +117,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 
 	validator := newValidator(scopeID)
 	frames := newFrameGraph()
+	plans := newPlanGraph()
 	attempts := newAttemptGraph()
 	failures := newFailureGraph()
 	usage := newUsageCalculator()
@@ -202,6 +203,9 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 			}
 		}
 		frames.associateRecord(rec)
+		if d := plans.onRecord(rec, frames); d != nil {
+			return d
+		}
 
 		// Attempts and usage.
 		if isModelRecord(rec.Type) {
@@ -327,6 +331,10 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	if d := frames.validate(); d != nil {
 		return artifact.ProcessResult{}, d
 	}
+	planLandmarks, planDomain := plans.landmarks(frames, scopeID)
+	if planDomain != nil {
+		return artifact.ProcessResult{}, planDomain
+	}
 	frameResults, gaps, uncertainties, ok := frames.results()
 	if !ok {
 		return artifact.ProcessResult{}, invalidityError(CategoryContradictoryUsage, scopeID)
@@ -345,7 +353,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	}
 	failureResults := failureResultsInOrder(failures)
 	payloadResults := payloadIndexRows(assembler)
-	recordFacts := buildPersistedRecordFacts(attemptResults, retryResults, validationLinks, failureResults, payloadResults)
+	recordFacts := buildPersistedRecordFacts(planLandmarks, attemptResults, retryResults, validationLinks, failureResults, payloadResults)
 
 	// Write immutable indexes.
 	if d := writer.flushRecordIndex(); d != nil {
@@ -504,7 +512,7 @@ func storageError(scopeID string, cause error) *consolecore.Error {
 // isModelRecord reports whether a record type is a consumed model lifecycle
 // record whose attempt identity must be validated.
 func isModelRecord(t TraceRecordType) bool {
-	return t == RecordModelRequestPrepared || t == RecordModelRequestSent || t == RecordModelResponseReceived || t == RecordModelAttemptFailed
+	return t == RecordModelRequestSent || t == RecordModelResponseReceived || t == RecordModelAttemptFailed
 }
 
 // buildAttemptResults produces the neutral attempt and retry results in
