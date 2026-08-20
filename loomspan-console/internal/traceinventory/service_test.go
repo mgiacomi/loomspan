@@ -2,6 +2,7 @@ package traceinventory
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -144,19 +145,28 @@ func TestInventoryMarksImportedCatalogCollisionAndSuppressesCatalogRow(t *testin
 	}
 }
 
-func TestInventoryChecksCatalogCompletenessWhenInstalledPageIsFull(t *testing.T) {
+func TestInventoryCatalogFailurePreservesByteAdmissionCompletenessAndContinuation(t *testing.T) {
 	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	newer := installed(evidence.SourceTarget, "newer", when)
 	older := installed(evidence.SourceTarget, "older", when.Add(-time.Minute))
 	catalog := &fakeCatalog{listError: consolecore.NewError(consolecore.CodeTargetUnavailable, "unavailable", "", consolecore.Details{}, nil)}
-	result, domain := New(
+	service := New(
 		&fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: []artifact.StoredEntry{newer.stored, older.stored}}, lookups: merge(newer.lookups, older.lookups)},
 		catalog,
 		&fakeTarget{scope: target.Scope{ID: "scope-1"}},
 		func() time.Time { return when },
-	).List(context.Background(), Query{PageSize: 1})
-	if domain != nil || result.HasMore || result.Complete || len(result.Items) != 1 || len(result.Limitations) != 1 || catalog.listCalls != 1 {
-		t.Fatalf("result=%#v domain=%v catalogCalls=%d", result, domain, catalog.listCalls)
+	)
+	admitOne := func() func(Entry) bool {
+		count := 0
+		return func(Entry) bool { count++; return count <= 1 }
+	}
+	first, domain := service.List(context.Background(), Query{PageSize: 64, Admit: admitOne()})
+	if domain != nil || !first.HasMore || first.Complete || first.Continuation == "" || len(first.Items) != 1 || first.Items[0].TraceID != "newer" || len(first.Limitations) != 1 || catalog.listCalls != 1 {
+		t.Fatalf("first=%#v domain=%v catalogCalls=%d", first, domain, catalog.listCalls)
+	}
+	second, domain := service.List(context.Background(), Query{PageSize: 64, Continuation: first.Continuation, Admit: admitOne()})
+	if domain != nil || second.HasMore || second.Complete || second.Continuation != "" || len(second.Items) != 1 || second.Items[0].TraceID != "older" || len(second.Limitations) != 1 || catalog.listCalls != 2 {
+		t.Fatalf("second=%#v domain=%v catalogCalls=%d", second, domain, catalog.listCalls)
 	}
 }
 
@@ -180,7 +190,7 @@ func TestInventoryContinuationRepresentsRemainingCatalogWork(t *testing.T) {
 			}}
 			service := New(artifacts, catalog, &fakeTarget{scope: target.Scope{ID: "scope-1"}}, func() time.Time { return when })
 			first, domain := service.List(context.Background(), Query{PageSize: 1})
-			if domain != nil || len(first.Items) != 1 || !first.HasMore || first.Complete || first.Continuation == "" || catalog.listCalls != 1 {
+			if domain != nil || len(first.Items) != 1 || !first.HasMore || !first.Complete || first.Continuation == "" || catalog.listCalls != 1 {
 				t.Fatalf("first=%#v domain=%v catalogCalls=%d", first, domain, catalog.listCalls)
 			}
 			second, domain := service.List(context.Background(), Query{PageSize: 1, Continuation: first.Continuation})
@@ -221,6 +231,52 @@ func TestUnifiedInventoryContinuationRejectsChangedSelectionAndInstalledSet(t *t
 		if _, domain = service.List(context.Background(), Query{PageSize: 1, Continuation: token}); domain == nil || domain.Code != consolecore.CodeInvalidCursor {
 			t.Fatalf("token accepted: %v", domain)
 		}
+	}
+}
+
+func TestByteBudgetPaginationPreservesCompletenessAndReconstructsInventory(t *testing.T) {
+	when := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	values := []installedValue{
+		installed(evidence.SourceImported, "newest", when),
+		installed(evidence.SourceImported, "middle", when.Add(-time.Minute)),
+		installed(evidence.SourceImported, "oldest", when.Add(-2*time.Minute)),
+	}
+	entries := make([]artifact.StoredEntry, 0, len(values))
+	lookups := map[string]artifact.LookupResult{}
+	for _, value := range values {
+		entries = append(entries, value.stored)
+		lookups = merge(lookups, value.lookups)
+	}
+	service := New(&fakeArtifacts{snapshot: artifact.StorageSnapshot{Entries: entries}, lookups: lookups}, nil, &fakeTarget{err: noTarget()}, func() time.Time { return when })
+	continuation := ""
+	var traceIDs []string
+	for {
+		admitted := 0
+		page, domain := service.List(context.Background(), Query{PageSize: 64, Continuation: continuation, Admit: func(Entry) bool {
+			admitted++
+			return admitted <= 1
+		}})
+		if domain != nil || !page.Complete {
+			t.Fatalf("page=%+v domain=%v", page, domain)
+		}
+		for _, entry := range page.Items {
+			traceIDs = append(traceIDs, entry.TraceID)
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.Continuation
+	}
+	if !reflect.DeepEqual(traceIDs, []string{"newest", "middle", "oldest"}) {
+		t.Fatalf("inventory traversal=%v", traceIDs)
+	}
+	_, domain := service.List(context.Background(), Query{PageSize: 64, Admit: func(Entry) bool { return false }})
+	if domain == nil || domain.Code != consolecore.CodeLimitExceeded || !strings.Contains(domain.Message, "Narrow the filters") {
+		t.Fatalf("oversized inventory domain=%v", domain)
+	}
+	retry, domain := service.List(context.Background(), Query{PageSize: 64})
+	if domain != nil || len(retry.Items) == 0 || retry.Items[0].TraceID != "newest" {
+		t.Fatalf("inventory retry after oversized item=%+v domain=%v", retry, domain)
 	}
 }
 

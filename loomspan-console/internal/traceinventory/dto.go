@@ -37,6 +37,9 @@ type Query struct {
 	ImportedFrom  *time.Time
 	ImportedTo    *time.Time
 	Order         Order
+	// Admit is an internal server-owned complete-item admission policy. It is
+	// deliberately excluded from continuation fingerprints.
+	Admit func(Entry) bool `json:"-"`
 }
 
 type LimitationCode string

@@ -58,6 +58,7 @@ func (service *Service) GetSummary(ctx context.Context, scopeID evidence.Referen
 		TerminalFailureID:  m.TerminalFailureID,
 		ConfiguredLimits:   m.ConfiguredLimits,
 		RecordCount:        m.RecordCount,
+		RecordCountsByType: cloneRecordCounts(m.RecordCountsByType),
 		FrameCount:         m.FrameCount,
 		AttemptCount:       m.AttemptCount,
 		RetryCount:         m.RetryCount,
@@ -73,6 +74,14 @@ func (service *Service) GetSummary(ctx context.Context, scopeID evidence.Referen
 		UnframedAttributed: usageFacts.unframedAttributed,
 		UsageComplete:      m.UsageComplete,
 	}, nil
+}
+
+func cloneRecordCounts(source map[TraceRecordType]int64) map[TraceRecordType]int64 {
+	result := make(map[TraceRecordType]int64, len(source))
+	for recordType, count := range source {
+		result[recordType] = count
+	}
+	return result
 }
 
 // usageFacts holds the parsed usage index values.

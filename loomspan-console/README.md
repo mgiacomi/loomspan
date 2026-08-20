@@ -263,10 +263,15 @@ installed server-surface promise and remains advertised independently of the
 current target, authentication, compatibility, live availability, or evidence
 state.
 
-List and activity calls require `pageSize` from 1 through 64. A returned
+Skill and active-execution lists default an omitted `pageSize` to 16; recent
+activity requires `pageSize`. Explicit values are from 1 through 64. For trace
+inventory/frame/record/search calls, `pageSize` is a maximum: Console may stop
+earlier at a complete item to keep the encoded MCP result within its ordinary
+32 KiB navigation budget. A returned
 `continuation` is an opaque, current-process, operation/state-bound Loomspan token;
-clients pass it back only to the same operation (and the same `sessionId` for
-activity). It is not an application cursor or authority credential. `hasMore`
+clients repeat every original argument unchanged and add it to the same operation
+(and the same `sessionId` for activity). It is not an application cursor or
+authority credential. `hasMore`
 on activity means more matching items are retained now, not that a live stream
 will produce more. Recent activity is bounded current context, not durable or
 lossless execution history.
@@ -289,8 +294,10 @@ The finalized-trace workflow is `list traces -> get trace -> compact frames ->
 record descriptors/search -> selected content read`. Inventory supports source,
 outcome, exact entry-skill/session, and independent finalized/acquired/imported
 time filters with explicit `FINALIZED_DESC`, `ACQUIRED_DESC`, and
-`IMPORTED_DESC` ordering. `evidenceSources`, `acquiredAt`, `importedAt`, and
-`finalizedAt` remain independent facts. Inventory emits one candidate per `traceId`;
+`IMPORTED_DESC` ordering. `finalizedAt` is when execution wrote its terminal
+trace fact; `acquiredAt` is when Console installed target evidence and may be
+later; `importedAt` is when evidence entered through import. These facts never
+substitute for one another. Inventory emits one candidate per `traceId`;
 `hasMore` reports pagination while `complete` and compact `limitations` report
 whether absence or uniqueness is safe to conclude. `ambiguous: true` and
 `AMBIGUOUS_TRACE` never silently prefer one evidence owner.
@@ -301,11 +308,30 @@ caller-managed artifact repair. `TARGET_CHANGED` requires restarting by
 `traceId`; stale continuations restart their query by `traceId`, and stale
 content references require a refreshed record descriptor by `traceId`.
 
-Trace pages accept at most 64 items. Content descriptors are returned without
-bytes by default. Explicit `inlineContent` includes complete values no larger
-than 8 KiB in record order under a 32 KiB aggregate source-byte budget; an
-omitted value retains its descriptor and reason. Content and raw reads use exact source-byte
-offsets, default to 64 KiB, and accept at most 16 MiB (16,777,216 source bytes)
+`LOOMSPAN_get_trace.retryCount` is the number of validated attempts whose
+`attemptNumber > 1`, not the number of retry sequences. A frame's
+`directRetryCount` counts those later attempts explicitly attributed to that
+frame; `PLAN_RETRY_REQUESTED` is unrelated planning-quality evidence.
+`recordCountsByType` is the complete histogram of nonzero physical record
+types, so omitted known keys mean zero and its values sum to `recordCount`.
+Use selected keys with the paginated record query; do not infer logical
+failures, gaps, uncertainties, usage completeness, or terminal outcome from
+the physical histogram.
+
+Frame queries default to `COMPACT`, which retains orientation/count facts but
+omits duration, usage, and identity detail. `DETAILED` supplies elapsed-
+millisecond duration and rich usage/retry/validation/failure/gap/uncertainty
+facts. A frame has an optional scalar close `outcome`; no close status means it
+is absent. Record timestamps are epoch milliseconds; frame durations are
+elapsed milliseconds.
+
+Trace pages accept at most 64 complete items. Content descriptors are returned
+without bytes by default. Explicit `inlineContent` includes complete values no
+larger than 8 KiB in record order under a 32 KiB aggregate source-byte budget;
+an omitted value retains its descriptor and typed reason. Content and raw
+reads use exact source-byte offsets. Omit both `start` and `continuation` for
+the initial read at zero; supply at most one. The default is 1 KiB, while an
+explicit request may select at most 16 MiB (16,777,216 source bytes)
 per call. A larger request returns `LIMIT_EXCEEDED` with `rangeBytes` and the
 shared limit; successful responses are never silently shortened to the limit.
 Continue while `hasMore` is true to reconstruct all retained bytes. Base64

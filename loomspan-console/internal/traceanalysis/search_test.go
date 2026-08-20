@@ -58,6 +58,45 @@ func TestServiceSearchFindsLiteralAcrossReconstructedPayloadChunks(t *testing.T)
 	}
 }
 
+func TestByteAdmissionResumesRejectedPayloadMatchWithPageLocalDescriptor(t *testing.T) {
+	trace := strings.Join([]string{
+		startedRecord(1),
+		requestRecord(2, "retry-1", "attempt-1", 1, true),
+		chunkEnvelopeRecord(3, "payload-1", "text/plain", 2),
+		chunkRecord(4, "payload-1", "text/plain", 0, 2, "hello-o-"),
+		chunkRecord(5, "payload-1", "text/plain", 1, 2, "world-o-world"),
+		responseRecord(6, "", "retry-1", "attempt-1", 1, 2, 1, 3, "EXACT"),
+		completionRecord(7, "SUCCEEDED", 2, 1, 3, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", trace)
+	continuation := ""
+	var offsets []int64
+	var descriptorRef string
+	for {
+		admitted := 0
+		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "o-wo", PageSize: 64, Cursor: continuation, Admit: func(SearchResult, string) bool { admitted++; return admitted <= 1 }})
+		if domain != nil {
+			t.Fatal(domain)
+		}
+		if len(page.Items) != 1 || len(page.ContentDescriptors) != 1 || page.Items[0].ContentID != "c1" {
+			t.Fatalf("page-local search state=%+v", page)
+		}
+		offsets = append(offsets, page.Items[0].MatchOffset)
+		if descriptorRef == "" {
+			descriptorRef = page.ContentDescriptors[0].ContentRef
+		} else if descriptorRef != page.ContentDescriptors[0].ContentRef {
+			t.Fatalf("descriptor reference changed: %q != %q", descriptorRef, page.ContentDescriptors[0].ContentRef)
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.NextCursor
+	}
+	if len(offsets) != 2 || offsets[0] == offsets[1] {
+		t.Fatalf("payload match traversal=%v", offsets)
+	}
+}
+
 func TestServiceSearchAppliesRecordFiltersToOrdinaryAndEnvelopeContent(t *testing.T) {
 	trace := strings.Join([]string{
 		startedRecord(1),

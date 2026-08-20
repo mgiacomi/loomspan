@@ -119,7 +119,7 @@ func TestEveryInstalledToolRepresentativeOutputsValidateAgainstBothSchemas(t *te
 			validateTypedEnvelope(t, "traces-list", traceListOutputSchema(), listTracesResult{ObservedAt: now, Items: []traceInventoryItemDTO{}, Complete: true, Limitations: []traceLimitationDTO{}})
 		}},
 		{"trace-summary", func(t *testing.T) {
-			validateTypedEnvelope(t, "trace-summary", traceSummaryOutputSchema(), getTraceResult{Evidence: evidence, Summary: traceSummaryDTO{Outcome: "FAILED", RootFrameIDs: []string{"root"}, UsageComplete: true}})
+			validateTypedEnvelope(t, "trace-summary", traceSummaryOutputSchema(), getTraceResult{Evidence: evidence, Summary: traceSummaryDTO{Outcome: "FAILED", RecordCountsByType: map[string]int64{}, RootFrameIDs: []string{"root"}, UsageComplete: true}})
 		}},
 		{"frames", func(t *testing.T) {
 			validateTypedEnvelope(t, "frames", frameQueryOutputSchema(), queryFramesResult{Evidence: evidence, Projection: "COMPACT", Items: []frameDTO{}})
@@ -158,8 +158,8 @@ func TestCompactSchemasRetainDecisionAndNavigationFields(t *testing.T) {
 		{"execution-detail", executionDetailOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "execution": map[string]any{"sessionId": "s", "traceId": "t", "status": "RUNNING", "phase": "STEP", "activePath": []any{}, "usage": map[string]any{}, "configuredLimits": map[string]any{}}}}},
 		{"activity", activityOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"cursor": "c", "sessionId": "s", "traceId": "t", "timestamp": "2026-08-19T00:00:00Z", "kind": "STEP_COMPLETED", "summary": "done", "details": map[string]any{}}}, "hasMore": false, "beginningUnavailable": false}}},
 		{"traces-list", traceListOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"traceId": "t", "evidenceSources": []any{"TARGET"}}}, "complete": true, "hasMore": false}}},
-		{"trace-summary", traceSummaryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "summary": map[string]any{"outcome": "FAILED", "recordCount": 1, "frameCount": 1, "attemptCount": 1, "retryCount": 0, "failureCount": 1, "rootFrameIds": []any{"root"}, "usageComplete": true}}}},
-		{"frames", frameQueryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "projection": "COMPACT", "items": []any{map[string]any{"frameId": "f", "childFrameIds": []any{}, "frameType": "ROOT_MISSION", "openedTimestampMillis": 1, "outcomes": []any{"FAILED"}}}, "hasMore": false}}},
+		{"trace-summary", traceSummaryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "summary": map[string]any{"outcome": "FAILED", "recordCount": 1, "recordCountsByType": map[string]any{"TRACE_COMPLETED": 1}, "frameCount": 1, "attemptCount": 1, "retryCount": 0, "failureCount": 1, "rootFrameIds": []any{"root"}, "usageComplete": true}}}},
+		{"frames", frameQueryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "projection": "COMPACT", "items": []any{map[string]any{"frameId": "f", "childFrameIds": []any{}, "frameType": "ROOT_MISSION", "openedTimestampMillis": 1, "outcome": "failed"}}, "hasMore": false}}},
 		{"records", recordQueryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "items": []any{map[string]any{"sequence": 1, "type": "STEP_COMPLETED", "threadName": "main", "timestampMillis": 1, "representation": "LOGICAL", "raw": map[string]any{}, "facts": map[string]any{}}}, "hasMore": false}}},
 		{"record-content", recordQueryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "items": []any{map[string]any{"sequence": 1, "type": "MODEL_RESPONSE_RECEIVED", "threadName": "main", "timestampMillis": 1, "representation": "LOGICAL", "raw": map[string]any{}, "facts": map[string]any{}, "content": map[string]any{"role": "DATA", "available": true, "complete": true, "contentRef": "opaque"}}}, "hasMore": false}}},
 		{"record-search-descriptor", recordQueryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "matches": []any{map[string]any{"sequence": 1, "recordType": "MODEL_RESPONSE_RECEIVED", "matchOffset": 2, "matchLength": 4, "searchedField": "content", "contentId": "c1"}}, "contentDescriptors": []any{map[string]any{"contentId": "c1", "contentRef": "opaque"}}, "search": map[string]any{}, "hasMore": false}}},
@@ -187,6 +187,34 @@ func TestCompactSchemasRetainDecisionAndNavigationFields(t *testing.T) {
 	} {
 		if err := validateCompactInstance(t, recordQueryOutputSchema(), instance); err == nil {
 			t.Fatalf("%s was accepted", name)
+		}
+	}
+}
+
+func TestTraceSummaryHistogramSchemaRejectsUnknownAndInvalidCounts(t *testing.T) {
+	base := map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "summary": map[string]any{"outcome": "SUCCEEDED", "recordCount": 1, "recordCountsByType": map[string]any{"TRACE_STARTED": 1}, "frameCount": 0, "attemptCount": 0, "retryCount": 0, "failureCount": 0, "rootFrameIds": []any{}, "usageComplete": true}}}
+	resolved, err := traceSummaryOutputSchema().Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resolved.Validate(base); err != nil {
+		t.Fatalf("valid histogram rejected: %v", err)
+	}
+	for name, counts := range map[string]map[string]any{
+		"unknown":  {"UNKNOWN": 1},
+		"negative": {"TRACE_STARTED": -1},
+		"fraction": {"TRACE_STARTED": 1.5},
+		"string":   {"TRACE_STARTED": "1"},
+	} {
+		candidate, _ := json.Marshal(base)
+		var instance map[string]any
+		_ = json.Unmarshal(candidate, &instance)
+		instance["result"].(map[string]any)["summary"].(map[string]any)["recordCountsByType"] = counts
+		if err := resolved.Validate(instance); err == nil {
+			t.Fatalf("%s histogram accepted", name)
+		}
+		if err := validateCompleteRecordCounts(instance); err == nil {
+			t.Fatalf("complete validator accepted %s histogram", name)
 		}
 	}
 }

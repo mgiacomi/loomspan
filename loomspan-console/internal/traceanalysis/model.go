@@ -204,11 +204,12 @@ type frameResult struct {
 	InclusiveUsage          Usage    `json:"inclusiveUsage"`
 	InclusiveUsageComplete  bool     `json:"inclusiveUsageComplete"`
 	SkillNames              []string `json:"skillNames,omitempty"`
-	Outcomes                []string `json:"outcomes,omitempty"`
+	Outcome                 *string  `json:"outcome,omitempty"`
 	AttemptIDs              []string `json:"attemptIds,omitempty"`
 	RetrySequenceIDs        []string `json:"retrySequenceIds,omitempty"`
 	ValidationStatuses      []string `json:"validationStatuses,omitempty"`
 	FailureIDs              []string `json:"failureIds,omitempty"`
+	DirectRetryCount        int      `json:"directRetryCount"`
 }
 
 type failureResult struct {

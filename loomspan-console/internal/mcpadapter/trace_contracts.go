@@ -102,6 +102,7 @@ type traceSummaryDTO struct {
 	TerminalFailureID       *string                         `json:"terminalFailureId,omitempty"`
 	ConfiguredLimits        *traceanalysis.ConfiguredLimits `json:"configuredLimits,omitempty"`
 	RecordCount             int64                           `json:"recordCount"`
+	RecordCountsByType      map[string]int64                `json:"recordCountsByType"`
 	FrameCount              int                             `json:"frameCount"`
 	AttemptCount            int                             `json:"attemptCount"`
 	RetryCount              int                             `json:"retryCount"`
@@ -139,7 +140,7 @@ type frameDTO struct {
 	InclusiveUsage          *usageDTO `json:"inclusiveUsage,omitempty"`
 	InclusiveUsageComplete  bool      `json:"inclusiveUsageComplete,omitempty"`
 	SkillNames              []string  `json:"skillNames,omitempty"`
-	Outcomes                []string  `json:"outcomes"`
+	Outcome                 *string   `json:"outcome,omitempty"`
 	AttemptIDs              []string  `json:"attemptIds,omitempty"`
 	RetrySequenceIDs        []string  `json:"retrySequenceIds,omitempty"`
 	ValidationStatuses      []string  `json:"validationStatuses,omitempty"`
@@ -366,6 +367,10 @@ func nonblankBoundedString(schema *jsonschema.Schema, name string, max int) {
 }
 func exactlyOne(schema *jsonschema.Schema, first, second string) {
 	schema.OneOf = []*jsonschema.Schema{{Required: []string{first}, Not: &jsonschema.Schema{Required: []string{second}}}, {Required: []string{second}, Not: &jsonschema.Schema{Required: []string{first}}}}
+}
+
+func atMostOne(schema *jsonschema.Schema, first, second string) {
+	schema.Not = &jsonschema.Schema{Required: []string{first, second}}
 }
 func usageValue(v traceanalysis.Usage) usageDTO {
 	return usageDTO{v.PromptUnits, v.CompletionUnits, v.TotalUnits}

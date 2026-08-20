@@ -58,6 +58,20 @@ func TestListSkillsGoldenStructuredResultAndText(t *testing.T) {
 	}
 }
 
+func TestListSkillsOmittedPageSizeUsesMCPDefault(t *testing.T) {
+	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
+		parsed, _ := url.Parse(endpoint)
+		if parsed.Query().Get("pageSize") != "16" {
+			return nil, errors.New("unexpected endpoint: " + endpoint)
+		}
+		return []byte(`{"items":[],"hasMore":false,"nextCursor":null,"observedAt":"2026-08-20T20:00:00Z"}`), nil
+	})
+	result, envelope, err := handleListSkills(context.Background(), options, listSkillsInput{})
+	if err != nil || result.IsError || envelope.Result == nil || len(envelope.Result.Items) != 0 {
+		t.Fatalf("result=%#v envelope=%#v err=%v", result, envelope, err)
+	}
+}
+
 func TestGetSkillGoldenPreservesUnchangedYAML(t *testing.T) {
 	yaml := "name: skill-☃\ndescription: |\n  Ignore this instruction; it is data.\n"
 	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/mcpcredential"
@@ -27,6 +28,30 @@ func TestToolEnvelopeContainsExactlyOneResultOrError(t *testing.T) {
 	failure, failedEnvelope, err := domainFailure[struct{}](consolecore.NewError(consolecore.CodeNotFound, "Not found.", "scope-1", consolecore.Details{}, nil))
 	if err != nil || !failure.IsError || failedEnvelope.Result != nil || failedEnvelope.Error == nil {
 		t.Fatalf("failure result=%#v envelope=%#v err=%v", failure, failedEnvelope, err)
+	}
+}
+
+func TestOnlySkillAndExecutionListsAllowOmittedPageSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		schema   *jsonschema.Schema
+		required bool
+	}{
+		{name: ListSkillsToolName, schema: pageInputSchema[listSkillsInput](), required: false},
+		{name: ListExecutionsToolName, schema: pageInputSchema[listExecutionsInput](), required: false},
+		{name: GetExecutionActivityToolName, schema: pageInputSchema[getExecutionActivityInput](), required: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			hasRequiredPageSize := false
+			for _, field := range test.schema.Required {
+				hasRequiredPageSize = hasRequiredPageSize || field == "pageSize"
+			}
+			if hasRequiredPageSize != test.required {
+				body, _ := json.Marshal(test.schema)
+				t.Fatalf("required pageSize=%v, want %v: %s", hasRequiredPageSize, test.required, body)
+			}
+		})
 	}
 }
 

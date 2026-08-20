@@ -60,7 +60,7 @@ Do not load every document by default. Start with the routing entry most relevan
 | Attachments and virtual files | Not yet documented | Requires separate source verification |
 | Model selection and connections | Initial, source-verified | Framework model aliases, named connections, drivers, thinking levels, migration, and diagnostics |
 | Execution limits and quotas | Foundational | Trace guidance covers model-attempt and usage quota effects plus run-start diagnostic comparison; complete limit configuration remains undocumented |
-| Traces and debugging | Source-verified | Source-aware finalized/acquired/imported discovery, compact/detailed frames, typed plan/accepted-attempt lineage, descriptor-first semantic reads and limits, page-local search content joins, retries, usage, failures, optional exact raw forensics, and current-run limitations |
+| Traces and debugging | Source-verified | Independent finalized/acquired/imported discovery, actual-retry cardinality, compact/detailed frames with scalar close outcome, complete physical record-type histogram discovery, descriptor/inline/exact semantic reads, lossless byte-budgeted traversal, page-local search joins, usage/failures, optional raw forensics, and current-run limitations |
 | Testing skill trees | Not yet documented | The design checklist gives initial review prompts only |
 
 ## Normative Language

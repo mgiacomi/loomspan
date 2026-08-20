@@ -25,7 +25,7 @@ const frame = {
   inclusiveUsage: { promptUnits: 1, completionUnits: 1, totalUnits: 2 },
   inclusiveUsageComplete: true,
   skillNames: [],
-  outcomes: [],
+  outcome: null,
   attemptIds: [],
   retrySequenceIds: [],
   validationStatuses: [],
@@ -67,7 +67,7 @@ test("timeline bar tooltip formats readable and exact inclusive duration", () =>
 });
 test("timeline bars expose retry warnings and failures with distinct states", () => {
   const retry = { ...frame, frameId: "retry", frameType: "RETRY", route: "retry", openedTimestampMillis: 15, closedTimestampMillis: 20 };
-  const failed = { ...frame, frameId: "failed", route: "failed", openedTimestampMillis: 20, closedTimestampMillis: 25, outcomes: ["FAILED"], failureIds: ["failure-1"] };
+  const failed = { ...frame, frameId: "failed", route: "failed", openedTimestampMillis: 20, closedTimestampMillis: 25, outcome: "failed", failureIds: ["failure-1"] };
   render(<TraceTimeline frames={[frame, retry, failed]} onSelect={vi.fn()} />);
   expect(document.querySelector('[data-frame-id="frame-1"]')?.previousElementSibling).toHaveClass("trace-timeline-bar-normal");
   expect(document.querySelector('[data-frame-id="retry"]')?.previousElementSibling).toHaveClass("trace-timeline-bar-warning");

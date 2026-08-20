@@ -67,6 +67,10 @@ appropriate when the developer explicitly needs it. Tools are the complete
 MCP path; no custom Loomspan resources are advertised. Do not impose a fixed
 call count, order, or report template.
 
+Keep `LOOMSPAN_query_trace_records` descriptor-default unless narrowed to a
+specific frame, failure, record type, sequence range, or deliberately small
+page.
+
 ## Preserve evidence boundaries
 
 Use stable model-facing identifiers in the explanation: for example

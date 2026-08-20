@@ -7,11 +7,35 @@ read-only tools and no custom resource templates. Runtime discovery advertises
 six capability IDs, including
 `loomspan.trace-inspection.v1` and
 `loomspan.raw-artifact-inspection.v1`. Trace reads retain exact source-byte
-offsets with a 64 KiB default and a 16 MiB (16,777,216-byte) shared per-call
-maximum. Automated MCP-over-HTTP tests cover exact UTF-8 and worst-case base64
+offsets with a 1 KiB default and a 16 MiB (16,777,216-byte) shared per-call
+maximum. Ordinary complete navigation results use a 32 KiB ceiling and default
+range results use 48 KiB; pagination admits only complete items. Automated
+MCP-over-HTTP tests cover exact UTF-8 and worst-case base64
 framing at 1, 4, and 16 MiB, concurrent clients, and explicit rejection of the
 32 and 64 MiB candidates; representative-client checks are post-implementation
 compatibility observations.
+
+PR 31 checked-in full HTTP measurements include the JSON-RPC response envelope,
+structured content, and the deterministic text fallback:
+
+| Response class | Post-change bytes | Committed ceiling |
+| --- | ---: | ---: |
+| `tools/list` | 22,839 | 23,552 |
+| Inventory page (byte-stopped) | 12,012 | 32,768 |
+| COMPACT frame page (byte-stopped) | 21,241 | 32,768 |
+| DETAILED frame page (byte-stopped) | 20,751 | 32,768 |
+| Record-descriptor page (byte-stopped) | 20,077 | 32,768 |
+| Inline-content page (byte-stopped) | 18,472 | 32,768 |
+| Literal-search page (byte-stopped) | 20,624 | 32,768 |
+| Default adversarial TEXT semantic range | 29,225 | 49,152 |
+| Default adversarial BASE64 raw range | 26,177 | 49,152 |
+
+The pre-change repository recorded only the complete 20,304-byte `tools/list`;
+the other baseline classes were not measured before implementation and are not
+fabricated here. No executable Codex or second supported host threshold was
+available during this implementation, so the manual host rows remain `Not
+run`; the committed ceilings are implementation safety bounds, not claims of
+25% headroom below an unobserved host threshold.
 
 The release also carries the byte-identical, client-neutral
 `skills/loomspan-runtime-debugging/` package. Installation is a user-selected
@@ -39,7 +63,7 @@ As post-implementation checks are performed, record the client version,
 operating system, configuration scope, protocol observed when available, and
 results. Never record the live key or an Authorization header.
 
-Validation date for this change: **2026-08-14**. Platform for unexecuted rows:
+Validation date for this change: **2026-08-19**. Platform for unexecuted rows:
 Windows x86_64 development workstation. Replace “not run” entries when the
 corresponding client becomes available, recording product/build version,
 protocol observed, configuration mechanism, and concise results. Incomplete

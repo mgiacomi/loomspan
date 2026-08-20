@@ -30,6 +30,7 @@ type TraceSummary struct {
 	TerminalFailureID  *string
 	ConfiguredLimits   *ConfiguredLimits
 	RecordCount        int64
+	RecordCountsByType map[TraceRecordType]int64
 	FrameCount         int
 	AttemptCount       int
 	RetryCount         int
@@ -72,7 +73,7 @@ type FrameSummary struct {
 	InclusiveUsage          Usage
 	InclusiveUsageComplete  bool
 	SkillNames              []string
-	Outcomes                []string
+	Outcome                 *string
 	AttemptIDs              []string
 	RetrySequenceIDs        []string
 	ValidationStatuses      []string

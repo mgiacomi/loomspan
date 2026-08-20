@@ -6,10 +6,11 @@ import (
 	"fmt"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const maxToolsListResponseBytes = 20 << 10
+const maxToolsListResponseBytes = 23 << 10
 
 func compactFalseSchema() *jsonschema.Schema { return &jsonschema.Schema{Not: &jsonschema.Schema{}} }
 
@@ -47,11 +48,49 @@ func newCompleteOutputValidator[Out any](toolName string) func(Out) error {
 		if err := json.Unmarshal(encoded, &instance); err != nil {
 			return fmt.Errorf("INTERNAL: %s result could not be validated: %w", toolName, err)
 		}
+		if toolName == GetTraceToolName {
+			if err := validateCompleteRecordCounts(instance); err != nil {
+				return fmt.Errorf("INTERNAL: %s result violates its complete contract: %w", toolName, err)
+			}
+		}
 		if err := resolved.Validate(instance); err != nil {
 			return fmt.Errorf("INTERNAL: %s result violates its complete contract: %w", toolName, err)
 		}
 		return nil
 	}
+}
+
+func validateCompleteRecordCounts(instance any) error {
+	envelope, ok := instance.(map[string]any)
+	if !ok || envelope["result"] == nil {
+		return nil
+	}
+	result, ok := envelope["result"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("result is not an object")
+	}
+	summary, ok := result["summary"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("summary is not an object")
+	}
+	counts, ok := summary["recordCountsByType"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("recordCountsByType is not an object")
+	}
+	known := make(map[string]struct{}, len(traceanalysis.RecordTypeValues()))
+	for _, recordType := range traceanalysis.RecordTypeValues() {
+		known[recordType] = struct{}{}
+	}
+	for recordType, raw := range counts {
+		if _, ok := known[recordType]; !ok {
+			return fmt.Errorf("recordCountsByType contains unknown key %q", recordType)
+		}
+		count, ok := raw.(float64)
+		if !ok || count < 0 || count != float64(int64(count)) {
+			return fmt.Errorf("recordCountsByType[%q] is not a nonnegative integer", recordType)
+		}
+	}
+	return nil
 }
 
 func compactString() *jsonschema.Schema  { return &jsonschema.Schema{Type: "string"} }
@@ -154,15 +193,20 @@ func traceListOutputSchema() *jsonschema.Schema {
 	return compactEnvelopeSchema(result)
 }
 func traceSummaryOutputSchema() *jsonschema.Schema {
-	summary := compactObject([]string{"outcome", "recordCount", "frameCount", "attemptCount", "retryCount", "failureCount", "rootFrameIds", "usageComplete"}, map[string]*jsonschema.Schema{
+	recordCounts := make(map[string]*jsonschema.Schema, len(traceanalysis.RecordTypeValues()))
+	for _, recordType := range traceanalysis.RecordTypeValues() {
+		zero := float64(0)
+		recordCounts[recordType] = &jsonschema.Schema{Type: "integer", Minimum: &zero}
+	}
+	summary := compactObject([]string{"outcome", "recordCount", "recordCountsByType", "frameCount", "attemptCount", "retryCount", "failureCount", "rootFrameIds", "usageComplete"}, map[string]*jsonschema.Schema{
 		"outcome": compactString(), "recordCount": compactInteger(), "frameCount": compactInteger(), "attemptCount": compactInteger(), "retryCount": compactInteger(),
-		"failureCount": compactInteger(), "rootFrameIds": compactArray(compactString()), "usageComplete": compactBoolean(),
+		"recordCountsByType": compactObject(nil, recordCounts, false), "failureCount": compactInteger(), "rootFrameIds": compactArray(compactString()), "usageComplete": compactBoolean(),
 	}, true)
 	return compactEnvelopeSchema(compactObject([]string{"evidence", "summary"}, map[string]*jsonschema.Schema{"evidence": compactEvidenceSchema(), "summary": summary}, true))
 }
 func frameQueryOutputSchema() *jsonschema.Schema {
-	frame := compactObject([]string{"frameId", "childFrameIds", "frameType", "openedTimestampMillis", "outcomes"}, map[string]*jsonschema.Schema{
-		"frameId": compactString(), "childFrameIds": compactArray(compactString()), "frameType": compactString(), "openedTimestampMillis": compactInteger(), "outcomes": compactArray(compactString()),
+	frame := compactObject([]string{"frameId", "childFrameIds", "frameType", "openedTimestampMillis"}, map[string]*jsonschema.Schema{
+		"frameId": compactString(), "childFrameIds": compactArray(compactString()), "frameType": compactString(), "openedTimestampMillis": compactInteger(), "outcome": compactString(),
 	}, true)
 	result := compactPageResult(frame, "evidence")
 	result.Required = append(result.Required, "projection")

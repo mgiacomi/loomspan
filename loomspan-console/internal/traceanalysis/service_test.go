@@ -3,6 +3,7 @@ package traceanalysis
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -190,17 +191,128 @@ func TestServiceGetSummary(t *testing.T) {
 	if summary.RecordCount != 5 {
 		t.Fatalf("expected 5 records, got %d", summary.RecordCount)
 	}
+	var histogramTotal int64
+	for _, count := range summary.RecordCountsByType {
+		histogramTotal += count
+	}
+	if histogramTotal != summary.RecordCount || summary.RecordCountsByType[RecordTraceStarted] != 1 || summary.RecordCountsByType[RecordTraceCompleted] != 1 {
+		t.Fatalf("record histogram=%v recordCount=%d", summary.RecordCountsByType, summary.RecordCount)
+	}
 	if summary.AttemptCount != 1 {
 		t.Fatalf("expected 1 attempt, got %d", summary.AttemptCount)
 	}
-	if summary.RetryCount != 1 {
-		t.Fatalf("expected 1 retry, got %d", summary.RetryCount)
+	if summary.RetryCount != 0 {
+		t.Fatalf("expected 0 retries, got %d", summary.RetryCount)
 	}
 	if !summary.UsageComplete {
 		t.Fatal("expected usage complete")
 	}
 	if summary.AttributedUsage.TotalUnits != 14 {
 		t.Fatalf("expected attributed total 14, got %d", summary.AttributedUsage.TotalUnits)
+	}
+}
+
+func TestManifestRejectsInvalidRecordHistogram(t *testing.T) {
+	valid := manifest{Schema: manifestSchemaV1, TraceID: "t", SessionID: "s", RecordCount: 1, RecordCountsByType: map[TraceRecordType]int64{RecordTraceStarted: 1}}
+	for name, mutate := range map[string]func(*manifest){
+		"unknown key": func(m *manifest) { m.RecordCountsByType = map[TraceRecordType]int64{"UNKNOWN": 1} },
+		"zero value":  func(m *manifest) { m.RecordCountsByType = map[TraceRecordType]int64{RecordTraceStarted: 0} },
+		"negative":    func(m *manifest) { m.RecordCountsByType = map[TraceRecordType]int64{RecordTraceStarted: -1} },
+		"wrong sum":   func(m *manifest) { m.RecordCount = 2 },
+		"overflow": func(m *manifest) {
+			m.RecordCount = int64(^uint64(0) >> 1)
+			m.RecordCountsByType = map[TraceRecordType]int64{RecordTraceStarted: int64(^uint64(0) >> 1), RecordTraceCompleted: 1}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if err := validateManifest(candidate); err == nil {
+				t.Fatal("expected invalid histogram")
+			}
+		})
+	}
+}
+
+func TestFrameDirectRetryCountUsesAttributedLaterAttempts(t *testing.T) {
+	withFrame := func(record, frameID string) string {
+		return strings.Replace(record, `"frameId":null`, `"frameId":"`+frameID+`"`, 1)
+	}
+	raw := strings.Join([]string{
+		startedRecord(1),
+		frameRecord(2, "initial-frame", "", false, "MODEL_CALL", true),
+		withFrame(requestRecord(3, "retry-1", "attempt-1", 1, false), "initial-frame"),
+		responseRecord(4, "initial-frame", "retry-1", "attempt-1", 1, 0, 0, 0, "EXACT"),
+		frameRecord(5, "initial-frame", "", false, "MODEL_CALL", false),
+		frameRecord(6, "retry-frame", "", false, "MODEL_CALL", true),
+		withFrame(requestRecord(7, "retry-1", "attempt-2", 2, false), "retry-frame"),
+		responseRecord(8, "retry-frame", "retry-1", "attempt-2", 2, 0, 0, 0, "EXACT"),
+		frameRecord(9, "retry-frame", "", false, "MODEL_CALL", false),
+		completionRecord(10, "SUCCEEDED", 0, 0, 0, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10})
+	if domain != nil || len(page.Items) != 2 {
+		t.Fatalf("page=%+v domain=%v", page, domain)
+	}
+	if page.Items[0].DirectRetryCount != 0 || page.Items[1].DirectRetryCount != 1 {
+		t.Fatalf("cross-frame retry counts=%d/%d", page.Items[0].DirectRetryCount, page.Items[1].DirectRetryCount)
+	}
+}
+
+func TestFrameDirectRetryCountCountsLaterAttemptsInSameFrame(t *testing.T) {
+	withFrame := func(record string) string {
+		return strings.Replace(record, `"frameId":null`, `"frameId":"frame"`, 1)
+	}
+	raw := strings.Join([]string{
+		startedRecord(1),
+		frameRecord(2, "frame", "", false, "MODEL_CALL", true),
+		withFrame(requestRecord(3, "retry-1", "attempt-1", 1, false)),
+		responseRecord(4, "frame", "retry-1", "attempt-1", 1, 0, 0, 0, "EXACT"),
+		withFrame(requestRecord(5, "retry-1", "attempt-2", 2, false)),
+		responseRecord(6, "frame", "retry-1", "attempt-2", 2, 0, 0, 0, "EXACT"),
+		frameRecord(7, "frame", "", false, "MODEL_CALL", false),
+		completionRecord(8, "SUCCEEDED", 0, 0, 0, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10})
+	if domain != nil || len(page.Items) != 1 || page.Items[0].DirectAttemptCount != 2 || page.Items[0].DirectRetryCount != 1 {
+		t.Fatalf("same-frame retries page=%+v domain=%v", page, domain)
+	}
+}
+
+func TestFrameOutcomeIsOptionalScalarAndFiltersSingularly(t *testing.T) {
+	closeWithStatus := func(sequence int, status string) string {
+		close := frameRecord(sequence, "frame", "", false, "MODEL_CALL", false)
+		return strings.Replace(close, `"metadata":{}`, `"metadata":{"status":"`+status+`"}`, 1)
+	}
+	failed := "failed"
+	for _, test := range []struct {
+		name       string
+		frameLines []string
+		want       *string
+	}{
+		{name: "open", frameLines: []string{frameRecord(2, "frame", "", false, "MODEL_CALL", true)}},
+		{name: "blank close", frameLines: []string{frameRecord(2, "frame", "", false, "MODEL_CALL", true), closeWithStatus(3, "")}},
+		{name: "failed close", frameLines: []string{frameRecord(2, "frame", "", false, "MODEL_CALL", true), closeWithStatus(3, "failed")}, want: &failed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lines := append([]string{startedRecord(1)}, test.frameLines...)
+			lines = append(lines, completionRecord(len(lines)+1, "SUCCEEDED", 0, 0, 0, ""))
+			h := newServiceTestHarness(t, "t", strings.Join(lines, "\n")+"\n")
+			page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10})
+			if domain != nil || len(page.Items) != 1 || !reflect.DeepEqual(page.Items[0].Outcome, test.want) {
+				t.Fatalf("page=%+v domain=%v want=%v", page, domain, test.want)
+			}
+			filtered, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, Filter: FrameFilter{Outcome: "failed"}, PageSize: 10})
+			wantMatches := 0
+			if test.want != nil {
+				wantMatches = 1
+			}
+			if domain != nil || len(filtered.Items) != wantMatches {
+				t.Fatalf("filtered=%+v domain=%v wantMatches=%d", filtered, domain, wantMatches)
+			}
+		})
 	}
 }
 
@@ -375,6 +487,44 @@ func TestInlineContentPerValueAndAggregateBoundaries(t *testing.T) {
 	}
 }
 
+func TestByteShortenedRecordPagesRecomputeInlineAggregateForAcceptedPage(t *testing.T) {
+	content, err := json.Marshal(strings.Repeat("x", 8000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{startedRecord(1)}
+	for sequence := 2; sequence <= 6; sequence++ {
+		lines = append(lines, fmt.Sprintf(`{"traceId":"t","sessionId":"s","sequence":%d,"timestamp":%s,"recordType":"PLAN_QUALITY_WARNING","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{},"data":%s}`, sequence, timestampForSeq(sequence), content))
+	}
+	lines = append(lines, completionRecord(7, "SUCCEEDED", 0, 0, 0, ""))
+	h := newServiceTestHarness(t, "t", strings.Join(lines, "\n")+"\n")
+	continuation := ""
+	seenWarnings := 0
+	for {
+		admitted := 0
+		page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationLogical, InlineContent: true, PageSize: 64, Cursor: continuation, Admit: func(RecordSummary) bool { admitted++; return admitted <= 2 }})
+		if domain != nil {
+			t.Fatal(domain)
+		}
+		for _, record := range page.Items {
+			if record.Type != string(RecordPlanQualityWarning) {
+				continue
+			}
+			seenWarnings++
+			if record.Content == nil || len(record.Content.InlineContent) == 0 || record.Content.InlineOmission != "" {
+				t.Fatalf("warning content was not reconsidered for its accepted page: %+v", record.Content)
+			}
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.NextCursor
+	}
+	if seenWarnings != 5 {
+		t.Fatalf("seen warnings=%d, want 5", seenWarnings)
+	}
+}
+
 func TestFrameContinuationCannotCrossProjection(t *testing.T) {
 	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
 	first, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionCompact, PageSize: 1})
@@ -446,7 +596,7 @@ func TestFrameQueriesExposeUsageCompletenessAndRecordedCrossReferences(t *testin
 		t.Fatalf("unavailable direct usage reported complete: %+v", child)
 	}
 	if !reflect.DeepEqual(child.SkillNames, []string{"skill.alpha"}) ||
-		!reflect.DeepEqual(child.Outcomes, []string{"completed"}) ||
+		child.Outcome == nil || *child.Outcome != "completed" ||
 		!reflect.DeepEqual(child.AttemptIDs, []string{"attempt-1"}) ||
 		!reflect.DeepEqual(child.RetrySequenceIDs, []string{"retry-1"}) ||
 		!reflect.DeepEqual(child.ValidationStatuses, []string{"passed"}) ||

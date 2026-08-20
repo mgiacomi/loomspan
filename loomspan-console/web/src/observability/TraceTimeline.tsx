@@ -16,7 +16,7 @@ function formatDuration(durationMillis: number) {
 type TimelineBarState = "normal" | "warning" | "error";
 
 function timelineBarState(frame: TraceFrame): TimelineBarState {
-  if (frame.failureIds.length > 0 || frame.outcomes.some((outcome) => outcome === "FAILED" || outcome === "ABORTED")) return "error";
+  if (frame.failureIds.length > 0 || frame.outcome === "failed" || frame.outcome === "aborted") return "error";
   const hasRetry = frame.frameType === "RETRY" || frame.attemptIds.length > frame.retrySequenceIds.length;
   const hasValidationWarning = frame.validationStatuses.some((status) => !["PASSED", "SUCCEEDED", "VALID"].includes(status.toUpperCase()));
   return hasRetry || hasValidationWarning ? "warning" : "normal";

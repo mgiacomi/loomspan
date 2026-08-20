@@ -22,28 +22,28 @@ func addTraceTools(server *mcp.Server, options ServerOptions) {
 	add := func(tool *mcp.Tool) { tool.Annotations = readOnlyAnnotations }
 	listSchema := traceInputSchema[listTracesInput]()
 	prepareListTracesSchema(listSchema)
-	list := &mcp.Tool{Name: ListTracesToolName, Description: "List finalized traces. Complete is independent of pagination; limitations constrain negative or uniqueness claims.", InputSchema: listSchema}
+	list := &mcp.Tool{Name: ListTracesToolName, Description: "List finalized traces. finalizedAt is the execution terminal-fact time; acquiredAt is when Console installed target evidence and may be later; importedAt is when imported evidence entered Console. FINALIZED_DESC, ACQUIRED_DESC, and IMPORTED_DESC answer those separate lifecycle questions. Complete is independent of pagination; limitations constrain negative or uniqueness claims.", InputSchema: listSchema}
 	add(list)
 	addValidatedTool(server, list, traceListOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input listTracesInput) (*mcp.CallToolResult, toolEnvelope[listTracesResult], error) {
 		return handleListTraces(ctx, options, input)
 	})
 	getSchema := traceInputSchema[getTraceInput]()
 	nonblankBoundedString(getSchema, "traceId", maxTraceTokenLength)
-	get := &mcp.Tool{Name: GetTraceToolName, Description: "Resolve one unique available trace by traceId and return its parsed mechanical summary.", InputSchema: getSchema}
+	get := &mcp.Tool{Name: GetTraceToolName, Description: "Resolve one unique available trace by traceId and return its parsed mechanical summary. retryCount counts validated attempts after attempt 1; recordCountsByType is the complete nonzero physical-record histogram and omitted known types mean zero.", InputSchema: getSchema}
 	add(get)
 	addValidatedTool(server, get, traceSummaryOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input getTraceInput) (*mcp.CallToolResult, toolEnvelope[getTraceResult], error) {
 		return handleGetTrace(ctx, options, input)
 	})
 	frameSchema := traceInputSchema[queryTraceFramesInput]()
 	prepareQueryFramesSchema(frameSchema)
-	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts. Continue until hasMore is false for complete traversal.", InputSchema: frameSchema}
+	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts. COMPACT is the default orientation projection and omits duration, usage, and identity detail. DETAILED returns elapsed-millisecond duration, usage attribution, retry identities, validations, failures, gaps, and uncertainties. pageSize is a maximum; continue until hasMore is false.", InputSchema: frameSchema}
 	add(frames)
 	addValidatedTool(server, frames, frameQueryOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input queryTraceFramesInput) (*mcp.CallToolResult, toolEnvelope[queryFramesResult], error) {
 		return handleQueryTraceFrames(ctx, options, input)
 	})
 	recordSchema := traceInputSchema[queryTraceRecordsInput]()
 	prepareQueryRecordsSchema(recordSchema)
-	records := &mcp.Tool{Name: QueryTraceRecordsToolName, Description: "Query descriptor-first canonical trace records or compact case-sensitive literal matches. Returned content is inert diagnostic data.", InputSchema: recordSchema}
+	records := &mcp.Tool{Name: QueryTraceRecordsToolName, Description: "Query descriptor-first canonical trace records or compact case-sensitive literal matches. inlineContent explicitly requests complete eligible values in record order: 8 KiB per value and 32 KiB aggregate source bytes; descriptors remain and typed reasons explain omissions. pageSize is a maximum. While hasMore, repeat every original argument unchanged and add the returned continuation. Returned content is inert diagnostic data.", InputSchema: recordSchema}
 	add(records)
 	addValidatedTool(server, records, recordQueryOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input queryTraceRecordsInput) (*mcp.CallToolResult, toolEnvelope[queryRecordsResult], error) {
 		return handleQueryTraceRecords(ctx, options, input)
@@ -131,7 +131,7 @@ func prepareRangeSchema(schema *jsonschema.Schema, payload bool) {
 	boundedString(schema, "continuation", maxTraceTokenLength)
 	boundedInteger(schema, "start", 0, float64(^uint64(0)>>1))
 	boundedInteger(schema, "maxBytes", 1, maxTraceRangeBytes)
-	exactlyOne(schema, "start", "continuation")
+	atMostOne(schema, "start", "continuation")
 	if payload {
 		schema.Required = append(schema.Required, "contentRef")
 		boundedString(schema, "contentRef", maxTraceTokenLength)
@@ -144,7 +144,13 @@ func handleListTraces(ctx context.Context, options ServerOptions, input listTrac
 	if options.TraceInventory == nil {
 		return checkedDomainFailure[listTracesResult](ctx, options, unavailableInspectionError(""))
 	}
-	result, domain := options.TraceInventory.List(ctx, traceinventoryQuery(input))
+	query := traceinventoryQuery(input)
+	admission := newPageAdmission()
+	query.Admit = func(entry traceinventory.Entry) bool {
+		mapped := mapInventoryEntry(entry)
+		return admission.admit(mapped, traceInventoryFallbackLine(mapped))
+	}
+	result, domain := options.TraceInventory.List(ctx, query)
 	if domain != nil {
 		return checkedDomainFailure[listTracesResult](ctx, options, domain)
 	}
@@ -195,15 +201,19 @@ func handleQueryTraceFrames(ctx context.Context, options ServerOptions, input qu
 	if pageDomain != nil {
 		return checkedDomainFailure[queryFramesResult](ctx, options, pageDomain)
 	}
-	page, domain := options.TraceAnalysis.QueryFrames(ctx, resolved.Reference, traceanalysis.FrameQuery{Handle: resolved.Handle, Filter: input.Filter, Order: input.Order, Projection: input.Projection, PageSize: pageSize, Cursor: input.Continuation})
-	if domain != nil {
-		return checkedDomainFailure[queryFramesResult](ctx, options, mapTraceAnalysisError(domain, input.TraceID, input.Continuation != "", false))
-	}
-	items := make([]frameDTO, 0, len(page.Items))
 	projection := input.Projection
 	if projection == "" {
 		projection = traceanalysis.FrameProjectionCompact
 	}
+	admission := newPageAdmission()
+	page, domain := options.TraceAnalysis.QueryFrames(ctx, resolved.Reference, traceanalysis.FrameQuery{Handle: resolved.Handle, Filter: input.Filter, Order: input.Order, Projection: input.Projection, PageSize: pageSize, Cursor: input.Continuation, Admit: func(summary traceanalysis.FrameSummary) bool {
+		mapped := mapFrame(summary, projection)
+		return admission.admit(mapped, frameFallbackLine(mapped, projection))
+	}})
+	if domain != nil {
+		return checkedDomainFailure[queryFramesResult](ctx, options, mapTraceAnalysisError(domain, input.TraceID, input.Continuation != "", false))
+	}
+	items := make([]frameDTO, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, mapFrame(item, projection))
 	}
@@ -238,7 +248,36 @@ func handleQueryTraceRecords(ctx context.Context, options ServerOptions, input q
 		if !ok {
 			return checkedDomainFailure[queryRecordsResult](ctx, options, unavailableInspectionError(""))
 		}
-		page, searchDomain := searcher.Search(ctx, resolved.Reference, traceanalysis.SearchQuery{Handle: resolved.Handle, Text: input.Filter.LiteralText, Filter: input.Filter, PageSize: pageSize, Cursor: input.Continuation})
+		admission := newPageAdmission()
+		searchContentIDs := map[string]string{}
+		nextSearchContentID := 1
+		page, searchDomain := searcher.Search(ctx, resolved.Reference, traceanalysis.SearchQuery{Handle: resolved.Handle, Text: input.Filter.LiteralText, Filter: input.Filter, PageSize: pageSize, Cursor: input.Continuation, Admit: func(match traceanalysis.SearchResult, contentRef string) bool {
+			contentID := ""
+			newDescriptor := false
+			if contentRef != "" {
+				contentID = searchContentIDs[contentRef]
+				if contentID == "" {
+					contentID = fmt.Sprintf("c%d", nextSearchContentID)
+					newDescriptor = true
+				}
+			}
+			mapped := searchMatchDTO{match.Sequence, match.RecordType, match.FrameID, match.MatchOffset, match.MatchLength, match.SearchedField, contentID}
+			candidate := struct {
+				Match      searchMatchDTO              `json:"match"`
+				Descriptor *searchContentDescriptorDTO `json:"descriptor,omitempty"`
+			}{Match: mapped}
+			if newDescriptor {
+				candidate.Descriptor = &searchContentDescriptorDTO{ContentID: contentID, ContentRef: contentRef}
+			}
+			if !admission.admit(candidate, searchMatchFallbackLine(mapped)) {
+				return false
+			}
+			if newDescriptor {
+				searchContentIDs[contentRef] = contentID
+				nextSearchContentID++
+			}
+			return true
+		}})
 		if searchDomain != nil {
 			return checkedDomainFailure[queryRecordsResult](ctx, options, mapTraceAnalysisError(searchDomain, input.TraceID, input.Continuation != "", false))
 		}
@@ -257,7 +296,14 @@ func handleQueryTraceRecords(ctx context.Context, options ServerOptions, input q
 		result := queryRecordsResult{Evidence: mapEvidence(page.Context, options), Matches: matches, ContentDescriptors: &descriptors, Search: &searchCoverageDTO{Query: input.Filter.LiteralText, CaseSensitive: true, Representation: "LOGICAL", SearchedFields: []string{"metadata", "content"}, SemanticContentCoverage: "AVAILABLE_COMPLETE_TEXT", WorkComplete: !page.HasMore, Limitations: limitations}, HasMore: page.HasMore, Continuation: page.NextCursor}
 		return successResult(result, traceRecordsText(result))
 	}
-	page, domain := options.TraceAnalysis.QueryRecords(ctx, resolved.Reference, traceanalysis.RecordQuery{Handle: resolved.Handle, Filter: input.Filter, Representation: input.Representation, InlineContent: input.InlineContent, PageSize: pageSize, Cursor: input.Continuation})
+	admission := newPageAdmission()
+	if input.InlineContent {
+		admission = newInlineRecordPageAdmission(input.TraceID)
+	}
+	page, domain := options.TraceAnalysis.QueryRecords(ctx, resolved.Reference, traceanalysis.RecordQuery{Handle: resolved.Handle, Filter: input.Filter, Representation: input.Representation, InlineContent: input.InlineContent, PageSize: pageSize, Cursor: input.Continuation, Admit: func(summary traceanalysis.RecordSummary) bool {
+		mapped := mapRecord(summary)
+		return admission.admit(mapped, recordFallbackLine(mapped))
+	}})
 	if domain != nil {
 		return checkedDomainFailure[queryRecordsResult](ctx, options, mapTraceAnalysisError(domain, input.TraceID, input.Continuation != "", false))
 	}
@@ -287,9 +333,6 @@ func handleTraceRange(ctx context.Context, options ServerOptions, input traceRan
 	}
 	if input.Start != nil && input.Continuation != "" {
 		return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("Supply start or continuation, not both."))
-	}
-	if input.Start == nil && input.Continuation == "" {
-		return checkedDomainFailure[rangeResult](ctx, options, invalidTraceArgument("Supply start or continuation."))
 	}
 	start := int64(0)
 	if input.Start != nil {
@@ -373,18 +416,25 @@ func mapInventory(value traceinventory.Result) listTracesResult {
 		out.Limitations = append(out.Limitations, traceLimitationDTO{Code: string(limitation.Code), Message: limitation.Message})
 	}
 	for _, x := range value.Items {
-		out.Items = append(out.Items, traceInventoryItemDTO{TraceID: x.TraceID, EvidenceSources: x.EvidenceSources, SessionID: x.SessionID, EntrySkill: x.EntrySkill, Outcome: x.Outcome, FinalizedAt: x.FinalizedAt, AcquiredAt: x.AcquiredAt, ImportedAt: x.ImportedAt, Ambiguous: x.Ambiguous})
+		out.Items = append(out.Items, mapInventoryEntry(x))
 	}
 	return out
+}
+func mapInventoryEntry(x traceinventory.Entry) traceInventoryItemDTO {
+	return traceInventoryItemDTO{TraceID: x.TraceID, EvidenceSources: x.EvidenceSources, SessionID: x.SessionID, EntrySkill: x.EntrySkill, Outcome: x.Outcome, FinalizedAt: x.FinalizedAt, AcquiredAt: x.AcquiredAt, ImportedAt: x.ImportedAt, Ambiguous: x.Ambiguous}
 }
 func mapEvidence(value traceanalysis.TraceContext, options ServerOptions) evidenceDTO {
 	return evidenceDTO{TraceID: value.TraceID, SessionID: value.SessionID, ObservedAt: options.Now().UTC()}
 }
 func mapSummary(x traceanalysis.TraceSummary) traceSummaryDTO {
-	return traceSummaryDTO{Outcome: x.Outcome, TerminalFailureID: x.TerminalFailureID, ConfiguredLimits: x.ConfiguredLimits, RecordCount: x.RecordCount, FrameCount: x.FrameCount, AttemptCount: x.AttemptCount, RetryCount: x.RetryCount, ValidationCount: x.ValidationCount, FailureCount: x.FailureCount, PayloadCount: x.PayloadCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, RootFrameIDs: nonNil(x.RootFrameIDs), AttributedUsage: usageValue(x.AttributedUsage), TerminalUsage: usageValue(x.TerminalUsage), UnattributedUsage: usageValue(x.UnattributedUsage), UnframedAttributedUsage: usageValue(x.UnframedAttributed), UsageComplete: x.UsageComplete}
+	recordCounts := make(map[string]int64, len(x.RecordCountsByType))
+	for recordType, count := range x.RecordCountsByType {
+		recordCounts[string(recordType)] = count
+	}
+	return traceSummaryDTO{Outcome: x.Outcome, TerminalFailureID: x.TerminalFailureID, ConfiguredLimits: x.ConfiguredLimits, RecordCount: x.RecordCount, RecordCountsByType: recordCounts, FrameCount: x.FrameCount, AttemptCount: x.AttemptCount, RetryCount: x.RetryCount, ValidationCount: x.ValidationCount, FailureCount: x.FailureCount, PayloadCount: x.PayloadCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, RootFrameIDs: nonNil(x.RootFrameIDs), AttributedUsage: usageValue(x.AttributedUsage), TerminalUsage: usageValue(x.TerminalUsage), UnattributedUsage: usageValue(x.UnattributedUsage), UnframedAttributedUsage: usageValue(x.UnframedAttributed), UsageComplete: x.UsageComplete}
 }
 func mapFrame(x traceanalysis.FrameSummary, projection traceanalysis.FrameProjection) frameDTO {
-	out := frameDTO{FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, ChildFrameIDs: nonNil(x.ChildFrameIDs), FrameType: x.FrameType, Route: x.Route, OpenedTimestampMillis: x.OpenedTimestampMillis, ClosedTimestampMillis: x.ClosedTimestampMillis, InclusiveDurationMillis: x.InclusiveDurationMillis, SelfDurationMillis: x.SelfDurationMillis, DirectUsageComplete: x.DirectUsageComplete, DescendantUsageComplete: x.DescendantUsageComplete, InclusiveUsageComplete: x.InclusiveUsageComplete, Outcomes: nonNil(x.Outcomes), DirectAttemptCount: x.DirectAttemptCount, DirectRetryCount: x.DirectRetryCount, DirectValidationCount: x.DirectValidationCount, DirectFailureCount: x.DirectFailureCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, detailed: projection == traceanalysis.FrameProjectionDetailed}
+	out := frameDTO{FrameID: x.FrameID, ParentFrameID: x.ParentFrameID, ChildFrameIDs: nonNil(x.ChildFrameIDs), FrameType: x.FrameType, Route: x.Route, OpenedTimestampMillis: x.OpenedTimestampMillis, ClosedTimestampMillis: x.ClosedTimestampMillis, InclusiveDurationMillis: x.InclusiveDurationMillis, SelfDurationMillis: x.SelfDurationMillis, DirectUsageComplete: x.DirectUsageComplete, DescendantUsageComplete: x.DescendantUsageComplete, InclusiveUsageComplete: x.InclusiveUsageComplete, Outcome: x.Outcome, DirectAttemptCount: x.DirectAttemptCount, DirectRetryCount: x.DirectRetryCount, DirectValidationCount: x.DirectValidationCount, DirectFailureCount: x.DirectFailureCount, GapCount: x.GapCount, UncertaintyCount: x.UncertaintyCount, detailed: projection == traceanalysis.FrameProjectionDetailed}
 	if projection == traceanalysis.FrameProjectionDetailed {
 		out.SkillNames, out.AttemptIDs, out.RetrySequenceIDs = nonNil(x.SkillNames), nonNil(x.AttemptIDs), nonNil(x.RetrySequenceIDs)
 		out.ValidationStatuses, out.FailureIDs = nonNil(x.ValidationStatuses), nonNil(x.FailureIDs)
@@ -476,21 +526,41 @@ func traceListText(value listTracesResult) string {
 		fmt.Fprintf(&b, "limitation code=%q message=%q\n", limitation.Code, fallbackField(limitation.Message))
 	}
 	for _, x := range value.Items {
-		fmt.Fprintf(&b, "traceId=%q sources=%v outcome=%q finalizedAt=%q acquiredAt=%q importedAt=%q ambiguous=%t\n", fallbackField(x.TraceID), x.EvidenceSources, optionalValue(x.Outcome, fallbackField), optionalValue(x.FinalizedAt, formatFallbackTime), optionalValue(x.AcquiredAt, formatFallbackTime), optionalValue(x.ImportedAt, formatFallbackTime), x.Ambiguous)
+		b.WriteString(traceInventoryFallbackLine(x))
 	}
-	return boundedNavigationText(b.String())
+	return b.String()
+}
+func traceInventoryFallbackLine(x traceInventoryItemDTO) string {
+	return fmt.Sprintf("traceId=%q sources=%v outcome=%q finalizedAt=%q acquiredAt=%q importedAt=%q ambiguous=%t\n", fallbackField(x.TraceID), x.EvidenceSources, optionalValue(x.Outcome, fallbackField), optionalValue(x.FinalizedAt, formatFallbackTime), optionalValue(x.AcquiredAt, formatFallbackTime), optionalValue(x.ImportedAt, formatFallbackTime), x.Ambiguous)
 }
 func traceSummaryText(value getTraceResult) string {
 	s := value.Summary
-	return fmt.Sprintf("traceId=%q sessionId=%q outcome=%q records=%d frames=%d attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d usageComplete=%t\n", value.Evidence.TraceID, value.Evidence.SessionID, s.Outcome, s.RecordCount, s.FrameCount, s.AttemptCount, s.RetryCount, s.ValidationCount, s.FailureCount, s.GapCount, s.UncertaintyCount, s.UsageComplete)
+	var b strings.Builder
+	fmt.Fprintf(&b, "traceId=%q sessionId=%q outcome=%q records=%d frames=%d attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d usageComplete=%t\n", value.Evidence.TraceID, value.Evidence.SessionID, s.Outcome, s.RecordCount, s.FrameCount, s.AttemptCount, s.RetryCount, s.ValidationCount, s.FailureCount, s.GapCount, s.UncertaintyCount, s.UsageComplete)
+	for _, recordType := range traceanalysis.RecordTypeValues() {
+		if count := s.RecordCountsByType[recordType]; count > 0 {
+			fmt.Fprintf(&b, "recordType=%q count=%d\n", recordType, count)
+		}
+	}
+	return b.String()
 }
 func traceFramesText(value queryFramesResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "traceId=%q projection=%q count=%d hasMore=%t continuation=%q\n", fallbackField(value.Evidence.TraceID), value.Projection, len(value.Items), value.HasMore, fallbackField(value.Continuation))
-	for _, x := range value.Items {
-		fmt.Fprintf(&b, "frameId=%q parentFrameId=%q type=%q route=%q closedTimestampMillis=%s inclusiveDurationMillis=%s selfDurationMillis=%s outcomes=%v attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), optionalValue(x.ParentFrameID, fallbackField), x.FrameType, fallbackField(x.Route), optionalValue(x.ClosedTimestampMillis, formatFallbackInt64), optionalValue(x.InclusiveDurationMillis, formatFallbackInt64), optionalValue(x.SelfDurationMillis, formatFallbackInt64), x.Outcomes, x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
+	fmt.Fprintf(&b, "traceId=%q projection=%q count=%d hasMore=%t continuation=%q", fallbackField(value.Evidence.TraceID), value.Projection, len(value.Items), value.HasMore, fallbackField(value.Continuation))
+	if value.Projection == string(traceanalysis.FrameProjectionCompact) {
+		b.WriteString(" omittedByProjection=COMPACT")
 	}
-	return boundedNavigationText(b.String())
+	b.WriteByte('\n')
+	for _, x := range value.Items {
+		b.WriteString(frameFallbackLine(x, traceanalysis.FrameProjection(value.Projection)))
+	}
+	return b.String()
+}
+func frameFallbackLine(x frameDTO, projection traceanalysis.FrameProjection) string {
+	if projection == traceanalysis.FrameProjectionCompact {
+		return fmt.Sprintf("frameId=%q parentFrameId=%q type=%q route=%q outcome=%q attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), optionalValue(x.ParentFrameID, fallbackField), x.FrameType, fallbackField(x.Route), optionalValue(x.Outcome, fallbackField), x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
+	}
+	return fmt.Sprintf("frameId=%q parentFrameId=%q type=%q route=%q closedTimestampMillis=%s inclusiveDurationMillis=%s selfDurationMillis=%s outcome=%q attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), optionalValue(x.ParentFrameID, fallbackField), x.FrameType, fallbackField(x.Route), optionalValue(x.ClosedTimestampMillis, formatFallbackInt64), optionalValue(x.InclusiveDurationMillis, formatFallbackInt64), optionalValue(x.SelfDurationMillis, formatFallbackInt64), optionalValue(x.Outcome, fallbackField), x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
 }
 func traceRecordsText(value queryRecordsResult) string {
 	var b strings.Builder
@@ -502,18 +572,39 @@ func traceRecordsText(value queryRecordsResult) string {
 		}
 	}
 	for _, x := range value.Items {
-		ref := ""
-		bytes := int64(0)
-		if x.Content != nil {
-			ref = x.Content.ContentRef
-			bytes = x.Content.RetainedBytes
-		}
-		fmt.Fprintf(&b, "sequence=%d type=%q frameId=%q representation=%q contentRef=%q retainedBytes=%d\n", x.Sequence, x.Type, fallbackField(x.FrameID), x.Representation, fallbackField(ref), bytes)
+		b.WriteString(recordFallbackLine(x))
 	}
 	for _, m := range value.Matches {
-		fmt.Fprintf(&b, "sequence=%d type=%q frameId=%q field=%q offset=%d length=%d\n", m.Sequence, m.RecordType, m.FrameID, m.SearchedField, m.MatchOffset, m.MatchLength)
+		b.WriteString(searchMatchFallbackLine(m))
 	}
-	return boundedNavigationText(b.String())
+	return b.String()
+}
+
+func recordFallbackLine(x recordDTO) string {
+	ref := ""
+	bytes := int64(0)
+	inlineEligibility := false
+	inlineOmission := ""
+	inlineContent := ""
+	if x.Content != nil {
+		ref = x.Content.ContentRef
+		bytes = x.Content.RetainedBytes
+		inlineEligibility = x.Content.InlineEligibility
+		inlineOmission = x.Content.InlineOmission
+		inlineContent = x.Content.InlineContent
+	}
+	line := fmt.Sprintf("sequence=%d type=%q frameId=%q representation=%q contentRef=%q retainedBytes=%d", x.Sequence, x.Type, fallbackField(x.FrameID), x.Representation, fallbackField(ref), bytes)
+	if inlineContent != "" {
+		line += fmt.Sprintf(" inlineEligibility=%t inlineContent=%q", inlineEligibility, inlineContent)
+	}
+	if inlineOmission != "" {
+		line += fmt.Sprintf(" inlineEligibility=%t inlineOmission=%q", inlineEligibility, inlineOmission)
+	}
+	return line + "\n"
+}
+
+func searchMatchFallbackLine(m searchMatchDTO) string {
+	return fmt.Sprintf("sequence=%d type=%q frameId=%q field=%q offset=%d length=%d\n", m.Sequence, m.RecordType, m.FrameID, m.SearchedField, m.MatchOffset, m.MatchLength)
 }
 
 func fallbackField(value string) string {
@@ -541,13 +632,4 @@ func formatFallbackTime(value time.Time) string {
 
 func formatFallbackInt64(value int64) string {
 	return strconv.FormatInt(value, 10)
-}
-
-func boundedNavigationText(value string) string {
-	maximum := traceanalysis.MaxCompactResponseBytes
-	if len(value) <= maximum {
-		return value
-	}
-	suffix := "\n… additional structured items omitted from text fallback\n"
-	return value[:maximum-len(suffix)] + suffix
 }

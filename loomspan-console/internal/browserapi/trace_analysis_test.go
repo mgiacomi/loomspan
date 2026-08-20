@@ -14,6 +14,8 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 )
 
+func stringPointer(value string) *string { return &value }
+
 type fakeTraceAnalysisService struct {
 	summary           traceanalysis.TraceSummary
 	summaryErr        *consolecore.Error
@@ -183,7 +185,7 @@ func TestTraceAnalysisFramesPreserveTimingUsageAndUnknownValues(t *testing.T) {
 		ClosedTimestampMillis: &closed, InclusiveDurationMillis: &duration, SelfDurationMillis: nil,
 		DirectUsage: traceanalysis.Usage{PromptUnits: 3, CompletionUnits: 2, TotalUnits: 5}, DirectUsageComplete: false,
 		InclusiveUsage: traceanalysis.Usage{PromptUnits: 3, CompletionUnits: 2, TotalUnits: 5}, InclusiveUsageComplete: false,
-		SkillNames: []string{"registered.skill"}, Outcomes: []string{"FAILED"}, AttemptIDs: []string{"attempt-1"},
+		SkillNames: []string{"registered.skill"}, Outcome: stringPointer("failed"), AttemptIDs: []string{"attempt-1"},
 		RetrySequenceIDs: []string{"retry-1"}, ValidationStatuses: []string{"exhausted"}, FailureIDs: []string{"failure-1"},
 	}}}
 	w := traceAnalysisRequest(router, "/api/console/v1/traces/analysis/frames", `{"source":"TARGET","traceId":"trace-1","pageSize":10,"projection":"DETAILED"}`, cookie)

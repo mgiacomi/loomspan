@@ -122,6 +122,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	failures := newFailureGraph()
 	usage := newUsageCalculator()
 	writer := newIndexWriter(req.Sink, ctx, scopeID)
+	recordCountsByType := make(map[TraceRecordType]int64, len(RecordTypeValues()))
 	if d := writer.startRecordIndex(); d != nil {
 		assembler.cleanup()
 		_ = payloadStoreWriter.Close()
@@ -177,6 +178,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 		}); d != nil {
 			return d
 		}
+		recordCountsByType[rec.Type]++
 
 		// Chunked payload assembly.
 		if rec.IsEnvelope {
@@ -345,6 +347,7 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 	if !ok {
 		return artifact.ProcessResult{}, invalidityError(CategoryContradictoryUsage, scopeID)
 	}
+	populateDirectRetryCounts(frameResults, attemptResults)
 	validationLinks := attempts.validationLinks
 	for _, attemptID := range attempts.order {
 		if !attempts.attempts[attemptID].hasResponse && !attempts.attempts[attemptID].hasFailure {
@@ -423,24 +426,25 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 		}
 	}
 	m := manifest{
-		Schema:            manifestSchemaV1,
-		TraceID:           validator.traceID,
-		SessionID:         validator.sessionID,
-		Outcome:           string(outcome),
-		TerminalFailureID: terminalFailurePtr,
-		ConfiguredLimits:  configuredLimits,
-		RecordCount:       writer.recordCount,
-		FrameCount:        len(frameResults),
-		AttemptCount:      len(attemptResults),
-		RetryCount:        len(retryResults),
-		ValidationCount:   len(validationLinks),
-		FailureCount:      len(failures.order),
-		PayloadCount:      len(assembler.descriptors),
-		GapCount:          len(gaps),
-		UncertaintyCount:  len(uncertainties),
-		RootFrameIDs:      rootFrameIDs,
-		UsageComplete:     usageComplete,
-		ComponentSizes:    componentSizesMap(writer.components),
+		Schema:             manifestSchemaV1,
+		TraceID:            validator.traceID,
+		SessionID:          validator.sessionID,
+		Outcome:            string(outcome),
+		TerminalFailureID:  terminalFailurePtr,
+		ConfiguredLimits:   configuredLimits,
+		RecordCount:        writer.recordCount,
+		FrameCount:         len(frameResults),
+		AttemptCount:       len(attemptResults),
+		RetryCount:         countRetryAttempts(attemptResults),
+		RecordCountsByType: recordCountsByType,
+		ValidationCount:    len(validationLinks),
+		FailureCount:       len(failures.order),
+		PayloadCount:       len(assembler.descriptors),
+		GapCount:           len(gaps),
+		UncertaintyCount:   len(uncertainties),
+		RootFrameIDs:       rootFrameIDs,
+		UsageComplete:      usageComplete,
+		ComponentSizes:     componentSizesMap(writer.components),
 	}
 	sizes, d := writeManifest(ctx, req.Sink, scopeID, m)
 	if d != nil {
@@ -456,6 +460,32 @@ func (processor *Processor) Process(req artifact.ProcessRequest) (result artifac
 			PersistencePolicy: completionRec.metadataStringOrEmpty("persistencePolicy"),
 		},
 	}, nil
+}
+
+func countRetryAttempts(attempts []attemptResult) int {
+	count := 0
+	for _, attempt := range attempts {
+		if attempt.AttemptNumber > 1 {
+			count++
+		}
+	}
+	return count
+}
+
+func populateDirectRetryCounts(frames []frameResult, attempts []attemptResult) {
+	retryAttemptIDs := make(map[string]struct{}, len(attempts))
+	for _, attempt := range attempts {
+		if attempt.AttemptNumber > 1 {
+			retryAttemptIDs[attempt.AttemptID] = struct{}{}
+		}
+	}
+	for i := range frames {
+		for _, attemptID := range frames[i].AttemptIDs {
+			if _, retry := retryAttemptIDs[attemptID]; retry {
+				frames[i].DirectRetryCount++
+			}
+		}
+	}
 }
 
 func extractEntrySkill(rec *Record) (string, bool) {

@@ -15,7 +15,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const maxMCPPageSize = 64
+const (
+	maxMCPPageSize         = 64
+	defaultMCPListPageSize = 16
+)
 
 type toolEnvelope[T any] struct {
 	Result *T              `json:"result,omitempty"`

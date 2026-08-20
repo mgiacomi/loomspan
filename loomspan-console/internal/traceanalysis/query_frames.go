@@ -55,6 +55,9 @@ type FrameQuery struct {
 	Projection FrameProjection `json:"projection"`
 	PageSize   int             `json:"pageSize"`
 	Cursor     string          `json:"cursor,omitempty"`
+	// Admit is an internal server-owned complete-item admission policy. It is
+	// deliberately excluded from continuation fingerprints.
+	Admit func(FrameSummary) bool `json:"-"`
 }
 
 // frameQueryCanonical is the canonical projection of a FrameQuery used for
@@ -162,6 +165,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 		idSet[id] = true
 	}
 	var nextPosition int64
+	currentPosition := int64(startPosition)
 	hasMore := false
 	var canceled *consolecore.Error
 	err = scanFactRowsContext[persistedFrameResult](ctx, lease, componentName, int64(startPosition), func(frame persistedFrameResult, next int64) bool {
@@ -170,6 +174,7 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 			return true
 		}
 		if !frameMatchesFilter(frame.frameResult, query.Filter, idSet) {
+			currentPosition = next
 			return false
 		}
 		if len(items) == pageSize {
@@ -183,8 +188,18 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 		if query.Projection == FrameProjectionCompact {
 			compactFrameSummary(&summary)
 		}
+		if query.Admit != nil && !query.Admit(summary) {
+			if len(items) == 0 {
+				canceled = consolecore.NewError(consolecore.CodeLimitExceeded, "One frame exceeds the safe response budget. Use COMPACT or narrow the filters.", scopeID.ID(), consolecore.Details{}, nil)
+				return true
+			}
+			hasMore = true
+			nextPosition = currentPosition
+			return true
+		}
 		items = append(items, summary)
 		nextPosition = next
+		currentPosition = next
 		return false
 	})
 	if canceled != nil {
@@ -211,7 +226,6 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 
 func populateFrameCounts(summary *FrameSummary) {
 	summary.DirectAttemptCount = len(summary.AttemptIDs)
-	summary.DirectRetryCount = len(summary.RetrySequenceIDs)
 	summary.DirectValidationCount = len(summary.ValidationStatuses)
 	summary.DirectFailureCount = len(summary.FailureIDs)
 	summary.GapCount = len(summary.GapKinds)
@@ -253,7 +267,7 @@ func frameMatchesFilter(fr frameResult, f FrameFilter, idSet map[string]bool) bo
 		return false
 	}
 	if !containsString(fr.SkillNames, f.SkillName) ||
-		!containsString(fr.Outcomes, f.Outcome) ||
+		!matchesOptionalString(fr.Outcome, f.Outcome) ||
 		!containsString(fr.AttemptIDs, f.AttemptID) ||
 		!containsString(fr.RetrySequenceIDs, f.RetrySequenceID) ||
 		!containsString(fr.ValidationStatuses, f.ValidationStatus) ||
@@ -261,6 +275,10 @@ func frameMatchesFilter(fr frameResult, f FrameFilter, idSet map[string]bool) bo
 		return false
 	}
 	return true
+}
+
+func matchesOptionalString(value *string, wanted string) bool {
+	return wanted == "" || value != nil && *value == wanted
 }
 
 func containsString(values []string, wanted string) bool {
@@ -308,11 +326,12 @@ func frameResultToSummary(f frameResult, ctx TraceContext) FrameSummary {
 		InclusiveUsage:          f.InclusiveUsage,
 		InclusiveUsageComplete:  f.InclusiveUsageComplete,
 		SkillNames:              append([]string(nil), f.SkillNames...),
-		Outcomes:                append([]string(nil), f.Outcomes...),
+		Outcome:                 copyStringPointer(f.Outcome),
 		AttemptIDs:              append([]string(nil), f.AttemptIDs...),
 		RetrySequenceIDs:        append([]string(nil), f.RetrySequenceIDs...),
 		ValidationStatuses:      append([]string(nil), f.ValidationStatuses...),
 		FailureIDs:              append([]string(nil), f.FailureIDs...),
+		DirectRetryCount:        f.DirectRetryCount,
 		GapKinds:                []string{},
 		UncertaintyKinds:        []string{},
 	}

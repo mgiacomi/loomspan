@@ -36,6 +36,7 @@ func queryFingerprint(query Query, pageSize int, scopeID string) string {
 	copy := query
 	copy.PageSize = pageSize
 	copy.Continuation = ""
+	copy.Admit = nil
 	body, _ := json.Marshal(struct {
 		Query Query  `json:"query"`
 		Scope string `json:"scope"`

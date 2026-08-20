@@ -648,7 +648,63 @@ func TestAttemptsUseOnlyExplicitAttemptAndRetryIdentity(t *testing.T) {
 		t.Fatalf("expected 2 attempts, got %d", m.AttemptCount)
 	}
 	if m.RetryCount != 1 {
-		t.Fatalf("expected 1 retry sequence, got %d", m.RetryCount)
+		t.Fatalf("expected 1 retry, got %d", m.RetryCount)
+	}
+}
+
+func TestRetryCountCountsAttemptsAfterInitialNotRetrySequences(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		attempts  []int
+		wantTotal int
+		wantRetry int
+	}{
+		{"one initial", []int{1}, 1, 0},
+		{"one retry", []int{2}, 2, 1},
+		{"two retries", []int{3}, 3, 2},
+		{"ten independent initials", []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 10, 0},
+		{"mixed sequences", []int{1, 3}, 4, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lines := []string{startedRecord(1)}
+			sequence := 2
+			for retryIndex, attemptCount := range test.attempts {
+				for attemptNumber := 1; attemptNumber <= attemptCount; attemptNumber++ {
+					retryID := "retry-" + itoa(retryIndex+1)
+					attemptID := retryID + "-attempt-" + itoa(attemptNumber)
+					lines = append(lines,
+						requestRecord(sequence, retryID, attemptID, attemptNumber, false),
+						responseRecord(sequence+1, "", retryID, attemptID, attemptNumber, 0, 0, 0, "EXACT"),
+					)
+					sequence += 2
+				}
+			}
+			lines = append(lines, completionRecord(sequence, "SUCCEEDED", 0, 0, 0, ""))
+			m, category, ok := processTrace(t, strings.Join(lines, "\n")+"\n")
+			if !ok {
+				t.Fatalf("expected valid trace, got category %s", category)
+			}
+			if m.AttemptCount != test.wantTotal || m.RetryCount != test.wantRetry {
+				t.Fatalf("attemptCount=%d retryCount=%d want %d/%d", m.AttemptCount, m.RetryCount, test.wantTotal, test.wantRetry)
+			}
+		})
+	}
+}
+
+func TestPlanRetryRequestedDoesNotCountAsModelRetry(t *testing.T) {
+	raw := startedRecord(1) + "\n" +
+		`{"traceId":"t","sessionId":"s","sequence":2,"timestamp":` + timestampForSeq(2) +
+		`,"recordType":"PLAN_RETRY_REQUESTED","frameId":null,"parentFrameId":null,"frameType":null,"route":null,"threadName":"th","metadata":{},"data":null}` + "\n" +
+		completionRecord(3, "SUCCEEDED", 0, 0, 0, "") + "\n"
+	m, category, ok := processTrace(t, raw)
+	if !ok {
+		t.Fatalf("expected valid trace, got category %s", category)
+	}
+	if m.AttemptCount != 0 || m.RetryCount != 0 {
+		t.Fatalf("attemptCount=%d retryCount=%d, want 0/0", m.AttemptCount, m.RetryCount)
+	}
+	if m.RecordCountsByType[RecordPlanRetryRequested] != 1 {
+		t.Fatalf("PLAN_RETRY_REQUESTED histogram=%d, want 1", m.RecordCountsByType[RecordPlanRetryRequested])
 	}
 }
 

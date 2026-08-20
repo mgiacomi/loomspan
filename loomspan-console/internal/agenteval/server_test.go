@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/consolecore"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/evidence"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/live"
+	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 )
 
 func TestEvaluationServerRunsProductionMCPAdapterAndProtectsConnection(t *testing.T) {
@@ -45,6 +47,71 @@ func TestEvaluationServerRunsProductionMCPAdapterAndProtectsConnection(t *testin
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated production MCP status = %d, want 401", response.StatusCode)
+	}
+}
+
+func TestPR31EvaluationFixtureExercisesRetryHistogramAndPaginationFacts(t *testing.T) {
+	cases, err := LoadCases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolsOnly := cases["pr31-tools-only-trace-usability"]
+	skillAssisted := cases["pr31-skill-assisted-trace-usability"]
+	if len(toolsOnly.FixtureSources) != 1 || len(skillAssisted.FixtureSources) != 1 ||
+		toolsOnly.FixtureSources[0] != skillAssisted.FixtureSources[0] {
+		t.Fatal("PR31 evaluations must compare tools-only and skill-assisted behavior over the same trace")
+	}
+	server, err := StartServer(t.TempDir(), toolsOnly, "0.1.0-SNAPSHOT", "0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Close(ctx)
+	}()
+	snapshot, domain := server.artifacts.StorageSnapshot()
+	if domain != nil || len(snapshot.Entries) != 1 {
+		t.Fatalf("PR31 fixture inventory=%+v domain=%v", snapshot, domain)
+	}
+	entry := snapshot.Entries[0]
+	lookup, domain := server.artifacts.Lookup(evidence.ForImported(), entry.TraceID)
+	if domain != nil || !lookup.LocalAvailable {
+		t.Fatalf("PR31 fixture lookup=%+v domain=%v", lookup, domain)
+	}
+	analysis := traceanalysis.NewService(server.artifacts)
+	summary, domain := analysis.GetSummary(context.Background(), evidence.ForImported(), traceanalysis.SummaryRequest{Handle: lookup.Handle})
+	if domain != nil || summary.AttemptCount != 10 || summary.RetryCount != 0 ||
+		summary.RecordCountsByType[traceanalysis.RecordPlanQualityWarning] != 1 {
+		t.Fatalf("PR31 summary=%+v domain=%v", summary, domain)
+	}
+	page, domain := analysis.QueryRecords(context.Background(), evidence.ForImported(), traceanalysis.RecordQuery{
+		Handle: lookup.Handle, Representation: traceanalysis.RecordRepresentationPhysical, PageSize: 64,
+	})
+	if domain != nil || len(page.Items) != 64 || !page.HasMore || page.NextCursor == "" {
+		t.Fatalf("PR31 first record page=%+v domain=%v", page, domain)
+	}
+	logical, domain := analysis.QueryRecords(context.Background(), evidence.ForImported(), traceanalysis.RecordQuery{
+		Handle: lookup.Handle, Representation: traceanalysis.RecordRepresentationLogical, PageSize: 64,
+	})
+	if domain != nil {
+		t.Fatal(domain)
+	}
+	var contentRef string
+	for _, record := range logical.Items {
+		if record.Content != nil && record.Content.Available && record.Content.RetainedBytes > traceanalysis.DefaultRangeBytes {
+			contentRef = record.Content.ContentRef
+			break
+		}
+	}
+	if contentRef == "" {
+		t.Fatal("PR31 fixture has no semantic content larger than the default exact-read range")
+	}
+	rangePage, domain := analysis.ReadContentRange(context.Background(), evidence.ForImported(), traceanalysis.RangeRequest{
+		Handle: lookup.Handle, Source: traceanalysis.RangeSourceContent, ContentRef: contentRef,
+	})
+	if domain != nil || !rangePage.HasMore || rangePage.NextCursor == "" || rangePage.ActualEnd-rangePage.ActualStart != traceanalysis.DefaultRangeBytes {
+		t.Fatalf("PR31 default content range=%+v domain=%v", rangePage, domain)
 	}
 }
 
@@ -145,7 +212,7 @@ func TestCompositeAdversarialCaseServesUntrustedRuntimeContentThroughMCP(t *test
 	if !ok || item["traceId"] != "trace-composite-adversarial" {
 		t.Fatalf("adversarial trace item = %#v", items[0])
 	}
-	raw := post(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"LOOMSPAN_read_trace_artifact","arguments":{"traceId":"trace-composite-adversarial","start":0}}}`)
+	raw := post(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"LOOMSPAN_read_trace_artifact","arguments":{"traceId":"trace-composite-adversarial","start":0,"maxBytes":65536}}}`)
 	rawResult, ok := raw["result"].(map[string]any)
 	if !ok || rawResult["isError"] == true {
 		t.Fatalf("read adversarial trace = %#v", raw)

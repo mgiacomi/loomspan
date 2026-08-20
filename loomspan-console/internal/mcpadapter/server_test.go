@@ -31,7 +31,7 @@ type authTransport struct {
 func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testing.T) {
 	const (
 		prePR28ToolsListResponseBytes  = 34371
-		expectedToolsListResponseBytes = 20304
+		expectedToolsListResponseBytes = 22972
 	)
 	credentials := fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 4}, key: "secret"}
 	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
@@ -227,7 +227,7 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 	if !invalid.IsError {
 		t.Fatalf("runtime accepted unknown input: %+v", invalid)
 	}
-	skills, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ListSkillsToolName, Arguments: map[string]any{"pageSize": 1}})
+	skills, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ListSkillsToolName, Arguments: map[string]any{}})
 	if err != nil || skills.IsError || skills.StructuredContent == nil || len(skills.Content) != 1 {
 		t.Fatalf("skills=%#v err=%v", skills, err)
 	}
@@ -246,7 +246,7 @@ func TestStatelessStreamableHTTPInitializesListsAndCallsRuntime(t *testing.T) {
 	if text := missing.Content[0].(*mcp.TextContent).Text; text != "NOT_FOUND: The requested observability resource was not found." {
 		t.Fatalf("missing skill text = %q", text)
 	}
-	for _, arguments := range []map[string]any{{}, {"pageSize": 0}, {"pageSize": 65}, {"pageSize": 1, "extra": true}} {
+	for _, arguments := range []map[string]any{{"pageSize": 0}, {"pageSize": 65}, {"pageSize": 1, "extra": true}} {
 		invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: ListSkillsToolName, Arguments: arguments})
 		if err != nil || !invalid.IsError || invalid.StructuredContent != nil {
 			t.Fatalf("invalid arguments %#v result=%#v err=%v", arguments, invalid, err)

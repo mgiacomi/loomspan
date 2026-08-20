@@ -3,6 +3,7 @@ package traceanalysis
 import (
 	"context"
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -564,6 +565,60 @@ func TestPayloadRangeAppliesDefaultExactMaximumAndOneOverLimit(t *testing.T) {
 	}
 }
 
+func TestDefaultSemanticAndRawRangeContinuationsReconstructExactBytes(t *testing.T) {
+	total := DefaultRangeBytes*3 + 17
+	ndjson := chunkedPayloadTrace(total, 1)
+	h := newServiceTestHarness(t, "t", ndjson)
+	decode := func(page ByteRangeResult) []byte {
+		t.Helper()
+		if page.Encoding == RangeEncodingText {
+			return append([]byte(nil), page.Content...)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(string(page.Content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return decoded
+	}
+	traverse := func(name string, read func(RangeRequest) (ByteRangeResult, *consolecore.Error), want []byte) {
+		t.Helper()
+		request := RangeRequest{Handle: h.handle}
+		var got []byte
+		pages := 0
+		for {
+			page, domain := read(request)
+			if domain != nil {
+				t.Fatalf("%s domain=%v", name, domain)
+			}
+			if page.ActualStart != int64(len(got)) || page.ActualEnd-page.ActualStart != int64(len(decode(page))) || page.TotalLength != int64(len(want)) {
+				t.Fatalf("%s offsets page=%+v reconstructed=%d want=%d", name, page, len(got), len(want))
+			}
+			got = append(got, decode(page)...)
+			pages++
+			if !page.HasMore {
+				break
+			}
+			if page.NextCursor == "" {
+				t.Fatalf("%s missing continuation", name)
+			}
+			request.Start = 0
+			request.ContinueCursor = page.NextCursor
+		}
+		if pages < 3 || !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s pages=%d reconstructed=%d want=%d", name, pages, len(got), len(want))
+		}
+	}
+	traverse("semantic", func(request RangeRequest) (ByteRangeResult, *consolecore.Error) {
+		request.Source = RangeSourceContent
+		request.ContentRef = mustEnvelopeContentRef(t, h.scopeID, h.handle, "payload-1")
+		return h.service.ReadContentRange(context.Background(), targetEvidence(h.scopeID), request)
+	}, []byte(strings.Repeat("x", total)))
+	traverse("raw", func(request RangeRequest) (ByteRangeResult, *consolecore.Error) {
+		request.Source = RangeSourceRawArtifact
+		return h.service.ReadRawArtifactRange(context.Background(), targetEvidence(h.scopeID), request)
+	}, []byte(ndjson))
+}
+
 // TestPayloadRawRecordAndRawArtifactReferencesCannotBeInterchanged proves that
 // range cursors bound to one source cannot be reused for a different source.
 func TestPayloadRawRecordAndRawArtifactReferencesCannotBeInterchanged(t *testing.T) {
@@ -799,5 +854,180 @@ func TestRecordQuerySequenceRangeUsesBinarySearchFastPath(t *testing.T) {
 	}
 	if !seqs[2] || !seqs[3] || !seqs[4] {
 		t.Fatalf("expected sequences 2, 3, 4; got %v", seqs)
+	}
+}
+
+func TestByteBudgetPaginationReconstructsFramesRecordsAndSearch(t *testing.T) {
+	raw := strings.Join([]string{
+		startedRecord(1),
+		frameRecord(2, "one", "", false, "MODEL_CALL", true),
+		frameRecord(3, "one", "", false, "MODEL_CALL", false),
+		frameRecord(4, "two", "", false, "MODEL_CALL", true),
+		frameRecord(5, "two", "", false, "MODEL_CALL", false),
+		frameRecord(6, "three", "", false, "MODEL_CALL", true),
+		frameRecord(7, "three", "", false, "MODEL_CALL", false),
+		frameRecord(8, "four", "", false, "MODEL_CALL", true),
+		frameRecord(9, "four", "", false, "MODEL_CALL", false),
+		requestRecord(10, "retry-1", "attempt-1", 1, false),
+		responseRecord(11, "", "retry-1", "attempt-1", 1, 0, 0, 0, "EXACT"),
+		completionRecord(12, "SUCCEEDED", 0, 0, 0, ""),
+	}, "\n") + "\n"
+	h := newServiceTestHarness(t, "t", raw)
+
+	var frameIDs []string
+	continuation := ""
+	for {
+		admitted := 0
+		page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 64, Cursor: continuation, Admit: func(FrameSummary) bool {
+			admitted++
+			return admitted <= 1
+		}})
+		if domain != nil {
+			t.Fatalf("frames domain=%v", domain)
+		}
+		for _, frame := range page.Items {
+			frameIDs = append(frameIDs, frame.FrameID)
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.NextCursor
+	}
+	if !reflect.DeepEqual(frameIDs, []string{"one", "two", "three", "four"}) {
+		t.Fatalf("frame traversal=%v", frameIDs)
+	}
+	for _, order := range []FrameOrder{FrameOrderCanonical, FrameOrderDurationDesc, FrameOrderUsageDesc} {
+		baseline, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, Order: order, PageSize: 64})
+		if domain != nil || baseline.HasMore {
+			t.Fatalf("baseline order=%s page=%+v domain=%v", order, baseline, domain)
+		}
+		want := make([]string, 0, len(baseline.Items))
+		for _, frame := range baseline.Items {
+			want = append(want, frame.FrameID)
+		}
+		var got []string
+		cursor := ""
+		for {
+			admitted := 0
+			page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, Order: order, PageSize: 64, Cursor: cursor, Admit: func(FrameSummary) bool { admitted++; return admitted <= 1 }})
+			if domain != nil {
+				t.Fatalf("order=%s domain=%v", order, domain)
+			}
+			for _, frame := range page.Items {
+				got = append(got, frame.FrameID)
+			}
+			if !page.HasMore {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("order=%s traversal=%v want=%v", order, got, want)
+		}
+	}
+
+	var sequences []int64
+	continuation = ""
+	for {
+		admitted := 0
+		page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationPhysical, PageSize: 64, Cursor: continuation, Admit: func(RecordSummary) bool {
+			admitted++
+			return admitted <= 1
+		}})
+		if domain != nil {
+			t.Fatalf("records domain=%v", domain)
+		}
+		for _, record := range page.Items {
+			sequences = append(sequences, record.Sequence)
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.NextCursor
+	}
+	if len(sequences) != 12 {
+		t.Fatalf("record traversal=%v", sequences)
+	}
+	for index, sequence := range sequences {
+		if sequence != int64(index+1) {
+			t.Fatalf("record traversal=%v", sequences)
+		}
+	}
+	for _, representation := range []RecordRepresentation{RecordRepresentationLogical, RecordRepresentationPhysical} {
+		baseline, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: representation, PageSize: 64})
+		if domain != nil || baseline.HasMore {
+			t.Fatalf("baseline representation=%s page=%+v domain=%v", representation, baseline, domain)
+		}
+		want := make([]int64, 0, len(baseline.Items))
+		for _, record := range baseline.Items {
+			want = append(want, record.Sequence)
+		}
+		var got []int64
+		cursor := ""
+		for {
+			admitted := 0
+			page, domain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: representation, PageSize: 64, Cursor: cursor, Admit: func(RecordSummary) bool { admitted++; return admitted <= 1 }})
+			if domain != nil {
+				t.Fatalf("representation=%s domain=%v", representation, domain)
+			}
+			for _, record := range page.Items {
+				got = append(got, record.Sequence)
+			}
+			if !page.HasMore {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("representation=%s traversal=%v want=%v", representation, got, want)
+		}
+	}
+
+	var matchOffsets []int64
+	continuation = ""
+	for {
+		admitted := 0
+		page, domain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "retry-1", PageSize: 64, Cursor: continuation, Admit: func(SearchResult, string) bool {
+			admitted++
+			return admitted <= 1
+		}})
+		if domain != nil {
+			t.Fatalf("search domain=%v", domain)
+		}
+		for _, match := range page.Items {
+			matchOffsets = append(matchOffsets, match.MatchOffset)
+		}
+		if !page.HasMore {
+			break
+		}
+		continuation = page.NextCursor
+	}
+	if len(matchOffsets) < 2 {
+		t.Fatalf("search traversal=%v", matchOffsets)
+	}
+
+	_, frameDomain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 64, Admit: func(FrameSummary) bool { return false }})
+	if frameDomain == nil || frameDomain.Code != consolecore.CodeLimitExceeded || !strings.Contains(frameDomain.Message, "Use COMPACT or narrow the filters") {
+		t.Fatalf("oversized frame domain=%v", frameDomain)
+	}
+	_, recordDomain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationPhysical, PageSize: 64, Admit: func(RecordSummary) bool { return false }})
+	if recordDomain == nil || recordDomain.Code != consolecore.CodeLimitExceeded || !strings.Contains(recordDomain.Message, "descriptor") {
+		t.Fatalf("oversized record domain=%v", recordDomain)
+	}
+	_, searchDomain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "retry-1", PageSize: 64, Admit: func(SearchResult, string) bool { return false }})
+	if searchDomain == nil || searchDomain.Code != consolecore.CodeLimitExceeded || !strings.Contains(searchDomain.Message, "Narrow the filters") {
+		t.Fatalf("oversized search domain=%v", searchDomain)
+	}
+	compact, compactDomain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionCompact, PageSize: 64})
+	if compactDomain != nil || len(compact.Items) == 0 || compact.Items[0].FrameID != "one" {
+		t.Fatalf("frame retry after oversized item=%+v domain=%v", compact, compactDomain)
+	}
+	records, retryRecordDomain := h.service.QueryRecords(context.Background(), targetEvidence(h.scopeID), RecordQuery{Handle: h.handle, Representation: RecordRepresentationPhysical, PageSize: 64})
+	if retryRecordDomain != nil || len(records.Items) == 0 || records.Items[0].Sequence != 1 {
+		t.Fatalf("record retry after oversized item=%+v domain=%v", records, retryRecordDomain)
+	}
+	search, retrySearchDomain := h.service.Search(context.Background(), targetEvidence(h.scopeID), SearchQuery{Handle: h.handle, Text: "retry-1", PageSize: 64})
+	if retrySearchDomain != nil || len(search.Items) == 0 || search.Items[0].MatchOffset != matchOffsets[0] {
+		t.Fatalf("search retry after oversized item=%+v domain=%v", search, retrySearchDomain)
 	}
 }

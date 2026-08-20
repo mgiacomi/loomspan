@@ -21,6 +21,9 @@ type SearchQuery struct {
 	Filter   RecordFilter
 	PageSize int
 	Cursor   string
+	// Admit is an internal server-owned complete-match admission policy. The
+	// content reference is supplied because it contributes to the returned page.
+	Admit func(SearchResult, string) bool
 }
 
 type searchQueryCanonical struct {
@@ -174,11 +177,20 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 					limit = state.ByteOffset + remaining
 				}
 				for state.ByteOffset < limit {
+					previousOffset, previousPartial := state.ByteOffset, state.KMPPartial
 					state.KMPPartial = advanceKMP(field.data[state.ByteOffset], needle, failure, state.KMPPartial)
 					state.ByteOffset++
 					workBytes++
 					if state.KMPPartial == len(needle) {
-						items = append(items, SearchResult{Context: traceCtx, Sequence: row.Sequence, RecordType: string(record.Type), FrameID: record.FrameID, MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: field.name, contentRef: field.ref})
+						candidate := SearchResult{Context: traceCtx, Sequence: row.Sequence, RecordType: string(record.Type), FrameID: record.FrameID, MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: field.name, contentRef: field.ref}
+						if query.Admit != nil && !query.Admit(candidate, field.ref) {
+							if len(items) == 0 {
+								return SearchPage{}, consolecore.NewError(consolecore.CodeLimitExceeded, "One search match exceeds the safe response budget. Narrow the filters.", scopeID.ID(), consolecore.Details{}, nil)
+							}
+							state.ByteOffset, state.KMPPartial = previousOffset, previousPartial
+							return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
+						}
+						items = append(items, candidate)
 						state.KMPPartial = failure[state.KMPPartial-1]
 						if len(items) == pageSize {
 							return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
@@ -335,6 +347,7 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 					return SearchPage{}, storageError(scopeID.ID(), err)
 				}
 				for _, b := range buffer[:n] {
+					previousOffset, previousPartial := state.ByteOffset, state.KMPPartial
 					state.KMPPartial = advanceKMP(b, needle, failure, state.KMPPartial)
 					state.ByteOffset++
 					workBytes++
@@ -343,8 +356,16 @@ func (service *Service) Search(ctx context.Context, scopeID evidence.Reference, 
 						if encodeErr != nil {
 							return SearchPage{}, storageError(scopeID.ID(), encodeErr)
 						}
-						items = append(items, SearchResult{Context: traceCtx, Sequence: payload.Sequence,
-							MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: "content", contentRef: contentRef})
+						candidate := SearchResult{Context: traceCtx, Sequence: payload.Sequence,
+							MatchOffset: state.ByteOffset - int64(len(needle)), MatchLength: len(needle), SearchedField: "content", contentRef: contentRef}
+						if query.Admit != nil && !query.Admit(candidate, contentRef) {
+							if len(items) == 0 {
+								return SearchPage{}, consolecore.NewError(consolecore.CodeLimitExceeded, "One search match exceeds the safe response budget. Narrow the filters.", scopeID.ID(), consolecore.Details{}, nil)
+							}
+							state.ByteOffset, state.KMPPartial = previousOffset, previousPartial
+							return service.finishSearchPage(scopeID, ownerCursorKey(lease.Owner()), query.Handle, fingerprint, traceCtx, state, items, true, &success)
+						}
+						items = append(items, candidate)
 						state.KMPPartial = failure[state.KMPPartial-1]
 						if len(items) == pageSize {
 							more := state.ByteOffset < payload.StoreLength || position+1 < int64(m.PayloadCount)

@@ -272,7 +272,7 @@ export type TraceFrame = {
   directUsageComplete: boolean; descendantUsage: TraceUsageValue;
   descendantUsageComplete: boolean; inclusiveUsage: TraceUsageValue;
   inclusiveUsageComplete: boolean;
-  skillNames: string[]; outcomes: string[]; attemptIds: string[];
+  skillNames: string[]; outcome: string | null; attemptIds: string[];
   retrySequenceIds: string[]; validationStatuses: string[]; failureIds: string[];
 };
 export type TraceRecord = {

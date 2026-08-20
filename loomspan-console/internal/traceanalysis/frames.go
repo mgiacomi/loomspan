@@ -21,7 +21,7 @@ type frameBuild struct {
 	directUsage         Usage
 	directUsageComplete bool
 	skillNames          map[string]struct{}
-	outcomes            map[string]struct{}
+	outcome             *string
 	attemptIDs          map[string]struct{}
 	retrySequenceIDs    map[string]struct{}
 	validationStatuses  map[string]struct{}
@@ -68,7 +68,6 @@ func (g *frameGraph) onFrameOpened(rec *Record) *consolecore.Error {
 		opened:              true,
 		directUsageComplete: true,
 		skillNames:          map[string]struct{}{},
-		outcomes:            map[string]struct{}{},
 		attemptIDs:          map[string]struct{}{},
 		retrySequenceIDs:    map[string]struct{}{},
 		validationStatuses:  map[string]struct{}{},
@@ -146,7 +145,9 @@ func (g *frameGraph) associateRecord(rec *Record) {
 		addSetValue(f.failureIDs, rec.metadataStringOrEmpty("failureId"))
 	}
 	if rec.Type == RecordFrameClosed {
-		addSetValue(f.outcomes, rec.metadataStringOrEmpty("status"))
+		if status := rec.metadataStringOrEmpty("status"); status != "" {
+			f.outcome = &status
+		}
 	}
 }
 
@@ -295,7 +296,7 @@ func (g *frameGraph) results() ([]frameResult, []gapResult, []uncertaintyResult,
 			InclusiveUsage:          inclusive,
 			InclusiveUsageComplete:  f.directUsageComplete && descComplete,
 			SkillNames:              sortedSetValues(f.skillNames),
-			Outcomes:                sortedSetValues(f.outcomes),
+			Outcome:                 copyStringPointer(f.outcome),
 			AttemptIDs:              sortedSetValues(f.attemptIDs),
 			RetrySequenceIDs:        sortedSetValues(f.retrySequenceIDs),
 			ValidationStatuses:      sortedSetValues(f.validationStatuses),
@@ -306,6 +307,14 @@ func (g *frameGraph) results() ([]frameResult, []gapResult, []uncertaintyResult,
 		}
 	}
 	return frames, gaps, uncertainties, true
+}
+
+func copyStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 // computeDescendantUsage computes descendant usage for every frame in a single

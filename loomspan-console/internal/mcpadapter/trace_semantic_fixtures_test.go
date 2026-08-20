@@ -236,6 +236,7 @@ func fixtureTraceParity(t *testing.T) {
 	if browserSummary["configuredLimits"] == nil {
 		delete(browserSummary, "configuredLimits")
 	}
+	delete(mcpSummary, "recordCountsByType")
 	if !reflect.DeepEqual(browserSummary, mcpSummary) {
 		t.Fatalf("browser/MCP summary mismatch\nbrowser=%#v\nmcp=%#v", browserSummary, mcpSummary)
 	}
@@ -318,17 +319,27 @@ func TestPlanAndSearchAdaptersPreserveSameSemantics(t *testing.T) {
 	browserPost := newSemanticBrowserPost(t, h)
 	traceID := h.acquired.Metadata.TraceID
 
-	_, records, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: traceID, Filter: traceanalysis.RecordFilter{Types: []string{string(traceanalysis.RecordPlanCreated), string(traceanalysis.RecordPlanUpdated)}}, PageSize: 64})
+	input := queryTraceRecordsInput{TraceID: traceID, Filter: traceanalysis.RecordFilter{Types: []string{string(traceanalysis.RecordPlanCreated), string(traceanalysis.RecordPlanUpdated)}}, PageSize: 64}
+	_, records, err := handleQueryTraceRecords(context.Background(), options, input)
 	if err != nil || records.Result == nil {
 		t.Fatalf("MCP plans=%#v err=%v", records, err)
 	}
+	allRecords := append([]recordDTO(nil), records.Result.Items...)
+	for records.Result.HasMore {
+		input.Continuation = records.Result.Continuation
+		_, records, err = handleQueryTraceRecords(context.Background(), options, input)
+		if err != nil || records.Result == nil {
+			t.Fatalf("MCP plan continuation=%#v err=%v", records, err)
+		}
+		allRecords = append(allRecords, records.Result.Items...)
+	}
 	browserPlans := browserPost("/api/console/v1/traces/analysis/records", `{"source":"IMPORTED","traceId":"`+traceID+`","pageSize":64,"filter":{"types":["PLAN_CREATED","PLAN_UPDATED"]}}`)["items"].([]any)
-	if len(browserPlans) != len(records.Result.Items) {
-		t.Fatalf("browser plans=%d MCP plans=%d", len(browserPlans), len(records.Result.Items))
+	if len(browserPlans) != len(allRecords) {
+		t.Fatalf("browser plans=%d MCP plans=%d", len(browserPlans), len(allRecords))
 	}
 	for index, item := range browserPlans {
 		browserPlan := item.(map[string]any)["plan"]
-		encoded, marshalErr := json.Marshal(records.Result.Items[index].Facts.Plan)
+		encoded, marshalErr := json.Marshal(allRecords[index].Facts.Plan)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
 		}

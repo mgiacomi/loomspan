@@ -40,6 +40,19 @@ func TestListExecutionsGoldenPreservesBoundedActiveSummaries(t *testing.T) {
 	}
 }
 
+func TestListExecutionsOmittedPageSizeUsesMCPDefault(t *testing.T) {
+	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {
+		if !strings.Contains(endpoint, "pageSize=16") {
+			return nil, errors.New("unexpected endpoint: " + endpoint)
+		}
+		return []byte(`{"items":[],"hasMore":false,"nextCursor":null,"resumeCursor":null,"observedAt":"2026-08-20T20:00:00Z"}`), nil
+	})
+	result, envelope, err := handleListExecutions(context.Background(), options, listExecutionsInput{})
+	if err != nil || result.IsError || envelope.Result == nil || len(envelope.Result.Items) != 0 {
+		t.Fatalf("result=%#v envelope=%#v err=%v", result, envelope, err)
+	}
+}
+
 func TestGetExecutionGoldenPreservesProvisionalFactsWithoutDiagnosis(t *testing.T) {
 	fixture, err := os.ReadFile(filepath.Join("..", "..", "..", "loomspan-console-fixtures", "application-rest", "active-execution-detail.json"))
 	if err != nil {

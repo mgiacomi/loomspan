@@ -18,7 +18,10 @@ import (
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceanalysis"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceinventory"
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/traceresolution"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func stringPointer(value string) *string { return &value }
 
 func TestTraceRangeTextFallbackPreservesContent(t *testing.T) {
 	content := strings.Repeat("unique-large-content", 4096)
@@ -31,7 +34,29 @@ func TestTraceRangeTextFallbackPreservesContent(t *testing.T) {
 	}
 }
 
-func TestTraceNavigationTextFallbacksStayWithinCompactBudget(t *testing.T) {
+func TestTraceSummaryFallbackListsEveryNonzeroRecordTypeInEnumOrder(t *testing.T) {
+	text := traceSummaryText(getTraceResult{Evidence: evidenceDTO{TraceID: "trace", SessionID: "session"}, Summary: traceSummaryDTO{
+		Outcome: "SUCCEEDED", RecordCount: 4, RecordCountsByType: map[string]int64{
+			string(traceanalysis.RecordTraceCompleted):   1,
+			string(traceanalysis.RecordModelRequestSent): 2,
+			string(traceanalysis.RecordTraceStarted):     1,
+		},
+	}})
+	wants := []string{`recordType="TRACE_STARTED" count=1`, `recordType="MODEL_REQUEST_SENT" count=2`, `recordType="TRACE_COMPLETED" count=1`}
+	position := -1
+	for _, want := range wants {
+		next := strings.Index(text, want)
+		if next <= position {
+			t.Fatalf("histogram fallback order/content=%q", text)
+		}
+		position = next
+	}
+	if strings.Contains(text, "PLAN_RETRY_REQUESTED") {
+		t.Fatalf("zero histogram entry rendered: %q", text)
+	}
+}
+
+func TestTraceNavigationTextFallbacksContainEveryAcceptedItem(t *testing.T) {
 	large := strings.Repeat("x", maxTraceTokenLength)
 	frames := queryFramesResult{Evidence: evidenceDTO{TraceID: large}, Projection: "COMPACT", HasMore: true, Continuation: large}
 	records := queryRecordsResult{Evidence: evidenceDTO{TraceID: large}, HasMore: true, Continuation: large}
@@ -42,10 +67,31 @@ func TestTraceNavigationTextFallbacksStayWithinCompactBudget(t *testing.T) {
 		traceID := large
 		list.Items = append(list.Items, traceInventoryItemDTO{TraceID: large, SessionID: &traceID})
 	}
-	for name, value := range map[string]string{"frames": traceFramesText(frames), "records": traceRecordsText(records), "inventory": traceListText(list)} {
-		if len(value) > traceanalysis.MaxCompactResponseBytes {
-			t.Fatalf("%s fallback=%d bytes", name, len(value))
+	for name, test := range map[string]struct{ value, marker string }{
+		"frames": {traceFramesText(frames), "frameId="}, "records": {traceRecordsText(records), "sequence="}, "inventory": {traceListText(list), "traceId="},
+	} {
+		if strings.Contains(test.value, "additional structured items omitted") || strings.Count(test.value, test.marker) < 64 {
+			t.Fatalf("%s fallback did not contain every accepted item", name)
 		}
+	}
+}
+
+func TestRecordTextFallbackIncludesReturnedInlineContentAndOmission(t *testing.T) {
+	inline := recordFallbackLine(recordDTO{Sequence: 1, Type: "MODEL_RESPONSE_RECEIVED", Content: &contentDescriptorDTO{
+		RetainedBytes: 24, InlineEligibility: true, ContentRef: "opaque", InlineContent: "first\nsecond\"",
+	}})
+	if !strings.Contains(inline, `inlineEligibility=true inlineContent="first\nsecond\""`) {
+		t.Fatalf("inline fallback omitted or unsafely rendered content: %q", inline)
+	}
+	if strings.Count(inline, "\n") != 1 {
+		t.Fatalf("inline fallback is not one escaped record line: %q", inline)
+	}
+
+	omitted := recordFallbackLine(recordDTO{Sequence: 2, Type: "MODEL_RESPONSE_RECEIVED", Content: &contentDescriptorDTO{
+		RetainedBytes: 8193, InlineEligibility: true, ContentRef: "opaque", InlineOmission: "PER_VALUE_LIMIT",
+	}})
+	if !strings.Contains(omitted, `inlineEligibility=true inlineOmission="PER_VALUE_LIMIT"`) || strings.Contains(omitted, "inlineContent=") {
+		t.Fatalf("omission fallback does not match the descriptor: %q", omitted)
 	}
 }
 
@@ -112,7 +158,7 @@ func TestRepresentativeStructuredNavigationResponsesMeetBudgets(t *testing.T) {
 func TestCompactFrameSerializationRetainsHierarchyWithoutEmptyDetailedFields(t *testing.T) {
 	summary := traceanalysis.FrameSummary{
 		FrameID: "root", ChildFrameIDs: []string{"child"}, FrameType: "ROOT_MISSION", Route: "root",
-		Outcomes: []string{"completed"}, DirectAttemptCount: 2, DirectFailureCount: 1,
+		Outcome: stringPointer("completed"), DirectAttemptCount: 2, DirectFailureCount: 1,
 	}
 	compact := mapFrame(summary, traceanalysis.FrameProjectionCompact)
 	body, err := json.Marshal(compact)
@@ -138,6 +184,19 @@ func TestCompactFrameSerializationRetainsHierarchyWithoutEmptyDetailedFields(t *
 		if !strings.Contains(string(detailedBody), want) {
 			t.Fatalf("detailed frame omitted %s: %s", want, detailedBody)
 		}
+	}
+}
+
+func TestFrameFallbackDistinguishesCompactOmissionFromDetailedDuration(t *testing.T) {
+	duration := int64(42)
+	item := frameDTO{FrameID: "frame", ChildFrameIDs: []string{}, FrameType: "MODEL_CALL", InclusiveDurationMillis: &duration, SelfDurationMillis: &duration}
+	compact := traceFramesText(queryFramesResult{Projection: string(traceanalysis.FrameProjectionCompact), Items: []frameDTO{item}})
+	if !strings.Contains(compact, "omittedByProjection=COMPACT") || strings.Contains(compact, "DurationMillis") {
+		t.Fatalf("compact fallback=%q", compact)
+	}
+	detailed := traceFramesText(queryFramesResult{Projection: string(traceanalysis.FrameProjectionDetailed), Items: []frameDTO{item}})
+	if strings.Contains(detailed, "omittedByProjection") || !strings.Contains(detailed, "inclusiveDurationMillis=42") || !strings.Contains(detailed, "selfDurationMillis=42") {
+		t.Fatalf("detailed fallback=%q", detailed)
 	}
 }
 
@@ -196,13 +255,31 @@ type fakeTraceInventory struct {
 func (fake *fakeTraceInventory) List(_ context.Context, query traceinventory.Query) (traceinventory.Result, *consolecore.Error) {
 	fake.calls++
 	fake.query = query
-	return fake.result, nil
+	result := fake.result
+	if query.Admit != nil {
+		accepted := len(result.Items)
+		for index, item := range result.Items {
+			if query.Admit(item) {
+				continue
+			}
+			if index == 0 {
+				return traceinventory.Result{}, consolecore.NewError(consolecore.CodeLimitExceeded, "oversized inventory item", "", consolecore.Details{}, nil)
+			}
+			accepted = index
+			result.HasMore = true
+			result.Continuation = "opaque"
+			break
+		}
+		result.Items = result.Items[:accepted]
+	}
+	return result, nil
 }
 
 type fakeTraceAnalysis struct {
 	summary      traceanalysis.TraceSummary
 	frames       traceanalysis.Page[traceanalysis.FrameSummary]
 	records      traceanalysis.Page[traceanalysis.RecordSummary]
+	search       traceanalysis.SearchPage
 	payload      traceanalysis.ByteRangeResult
 	raw          traceanalysis.ByteRangeResult
 	refs         []evidence.Reference
@@ -231,13 +308,47 @@ func (fake *fakeTraceAnalysis) QueryFrames(_ context.Context, ref evidence.Refer
 	fake.frameCalls++
 	fake.refs = append(fake.refs, ref)
 	fake.frameQuery = query
-	return fake.frames, nil
+	page := fake.frames
+	if query.Admit != nil {
+		accepted := len(page.Items)
+		for index, item := range page.Items {
+			if query.Admit(item) {
+				continue
+			}
+			if index == 0 {
+				return traceanalysis.Page[traceanalysis.FrameSummary]{}, consolecore.NewError(consolecore.CodeLimitExceeded, "oversized frame", "", consolecore.Details{}, nil)
+			}
+			accepted = index
+			page.HasMore = true
+			page.NextCursor = "opaque"
+			break
+		}
+		page.Items = page.Items[:accepted]
+	}
+	return page, nil
 }
 func (fake *fakeTraceAnalysis) QueryRecords(_ context.Context, ref evidence.Reference, query traceanalysis.RecordQuery) (traceanalysis.Page[traceanalysis.RecordSummary], *consolecore.Error) {
 	fake.recordCalls++
 	fake.refs = append(fake.refs, ref)
 	fake.recordQuery = query
-	return fake.records, nil
+	page := fake.records
+	if query.Admit != nil {
+		accepted := len(page.Items)
+		for index, item := range page.Items {
+			if query.Admit(item) {
+				continue
+			}
+			if index == 0 {
+				return traceanalysis.Page[traceanalysis.RecordSummary]{}, consolecore.NewError(consolecore.CodeLimitExceeded, "oversized record", "", consolecore.Details{}, nil)
+			}
+			accepted = index
+			page.HasMore = true
+			page.NextCursor = "opaque"
+			break
+		}
+		page.Items = page.Items[:accepted]
+	}
+	return page, nil
 }
 func (fake *fakeTraceAnalysis) ReadContentRange(_ context.Context, ref evidence.Reference, request traceanalysis.RangeRequest) (traceanalysis.ByteRangeResult, *consolecore.Error) {
 	fake.payloadCalls++
@@ -255,7 +366,48 @@ func (fake *fakeTraceAnalysis) Search(_ context.Context, ref evidence.Reference,
 	fake.searchCalls++
 	fake.refs = append(fake.refs, ref)
 	fake.searchQuery = query
-	return traceanalysis.SearchPage{Context: fake.records.Context, Items: []traceanalysis.SearchResult{}, ContentDescriptors: []traceanalysis.SearchContentDescriptor{}}, nil
+	page := fake.search
+	if page.Context.TraceID == "" {
+		page.Context = fake.records.Context
+	}
+	if page.Items == nil {
+		page.Items = []traceanalysis.SearchResult{}
+	}
+	if query.Admit != nil {
+		accepted := len(page.Items)
+		for index, item := range page.Items {
+			contentRef := ""
+			for _, descriptor := range page.ContentDescriptors {
+				if descriptor.ContentID == item.ContentID {
+					contentRef = descriptor.ContentRef
+					break
+				}
+			}
+			if query.Admit(item, contentRef) {
+				continue
+			}
+			if index == 0 {
+				return traceanalysis.SearchPage{}, consolecore.NewError(consolecore.CodeLimitExceeded, "oversized search match", "", consolecore.Details{}, nil)
+			}
+			accepted = index
+			page.HasMore = true
+			page.NextCursor = "opaque"
+			break
+		}
+		page.Items = page.Items[:accepted]
+		acceptedIDs := map[string]bool{}
+		for _, item := range page.Items {
+			acceptedIDs[item.ContentID] = true
+		}
+		descriptors := page.ContentDescriptors[:0]
+		for _, descriptor := range page.ContentDescriptors {
+			if acceptedIDs[descriptor.ContentID] {
+				descriptors = append(descriptors, descriptor)
+			}
+		}
+		page.ContentDescriptors = descriptors
+	}
+	return page, nil
 }
 
 type fakeTraceArtifacts struct {
@@ -283,6 +435,32 @@ func (fake *fakeTraceArtifacts) Resolve(_ context.Context, _ string) (traceresol
 		scope.ID = ref.TargetScope
 	}
 	return traceresolution.Resolved{Reference: ref, Handle: fake.result.Handle, Scope: scope}, nil
+}
+
+func TestOversizedSemanticItemsProduceOnlyTypedErrorResults(t *testing.T) {
+	handle := artifact.Handle(strings.Repeat("a", 64))
+	traceContext := traceanalysis.TraceContext{Evidence: evidence.ForImported(), Handle: handle, TraceID: "trace-oversized"}
+	analysis := &fakeTraceAnalysis{
+		frames:  traceanalysis.Page[traceanalysis.FrameSummary]{Context: traceContext, Items: []traceanalysis.FrameSummary{{Context: traceContext, FrameID: strings.Repeat("f", defaultTraceResultBudget), FrameType: "MODEL_CALL"}}},
+		records: traceanalysis.Page[traceanalysis.RecordSummary]{Context: traceContext, Items: []traceanalysis.RecordSummary{{Context: traceContext, Sequence: 1, Type: "MODEL_RESPONSE_RECEIVED", FrameID: strings.Repeat("f", defaultTraceResultBudget), Facts: traceanalysis.RecordFacts{}}}},
+	}
+	options := ServerOptions{Credentials: fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled}}, TraceResolver: &fakeTraceArtifacts{result: artifact.AcquiredArtifact{Handle: handle}, ref: evidence.ForImported()}, TraceAnalysis: analysis, Now: time.Now}
+
+	frameCall, frameEnvelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: "trace-oversized", Projection: traceanalysis.FrameProjectionDetailed})
+	if err != nil || frameCall == nil || !frameCall.IsError || frameEnvelope.Result != nil || frameEnvelope.Error == nil || frameEnvelope.Error.Code != consolecore.CodeLimitExceeded {
+		t.Fatalf("oversized frame call=%#v envelope=%#v err=%v", frameCall, frameEnvelope, err)
+	}
+	if text := frameCall.Content[0].(*mcp.TextContent).Text; strings.Contains(text, strings.Repeat("f", 128)) {
+		t.Fatalf("oversized frame leaked a partial item: %q", text)
+	}
+
+	recordCall, recordEnvelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: "trace-oversized"})
+	if err != nil || recordCall == nil || !recordCall.IsError || recordEnvelope.Result != nil || recordEnvelope.Error == nil || recordEnvelope.Error.Code != consolecore.CodeLimitExceeded {
+		t.Fatalf("oversized record call=%#v envelope=%#v err=%v", recordCall, recordEnvelope, err)
+	}
+	if text := recordCall.Content[0].(*mcp.TextContent).Text; strings.Contains(text, strings.Repeat("f", 128)) {
+		t.Fatalf("oversized record leaked a partial item: %q", text)
+	}
 }
 
 func TestTraceHandlersResolveTraceIDAndPreserveQuestionSpecificRequests(t *testing.T) {
@@ -324,7 +502,13 @@ func TestTraceHandlersResolveTraceIDAndPreserveQuestionSpecificRequests(t *testi
 	if result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-i", Start: &start}, true); err != nil || result.IsError {
 		t.Fatalf("raw result=%#v err=%v", result, err)
 	}
-	if resolver.calls.Load() != 6 || analysis.summaryCalls != 1 || analysis.frameCalls != 1 || analysis.recordCalls != 1 || analysis.searchCalls != 1 || analysis.payloadCalls != 1 || analysis.rawCalls != 1 {
+	if result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-i", ContentRef: "opaque"}, false); err != nil || result.IsError || analysis.rangeRequest.Start != 0 {
+		t.Fatalf("omitted payload start result=%#v request=%#v err=%v", result, analysis.rangeRequest, err)
+	}
+	if result, _, err := handleTraceRange(context.Background(), options, traceRangeInput{TraceID: "trace-i"}, true); err != nil || result.IsError || analysis.rangeRequest.Start != 0 {
+		t.Fatalf("omitted raw start result=%#v request=%#v err=%v", result, analysis.rangeRequest, err)
+	}
+	if resolver.calls.Load() != 8 || analysis.summaryCalls != 1 || analysis.frameCalls != 1 || analysis.recordCalls != 1 || analysis.searchCalls != 1 || analysis.payloadCalls != 2 || analysis.rawCalls != 2 {
 		t.Fatalf("resolver=%d summary=%d frames=%d records=%d search=%d payload=%d raw=%d", resolver.calls.Load(), analysis.summaryCalls, analysis.frameCalls, analysis.recordCalls, analysis.searchCalls, analysis.payloadCalls, analysis.rawCalls)
 	}
 }

@@ -30,7 +30,7 @@ func TestTraceToolSchemasAreClosedBoundedAndUseSettledBranches(t *testing.T) {
 	prepareRangeSchema(rangeSchema, true)
 	body, _ = json.Marshal(rangeSchema)
 	text := string(body)
-	for _, want := range []string{`"maximum":16777216`, `"maxLength":8192`, `"oneOf"`, `"contentRef"`} {
+	for _, want := range []string{`"maximum":16777216`, `"maxLength":8192`, `"not":{"required":["start","continuation"]}`, `"contentRef"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("range schema missing %s: %s", want, text)
 		}
@@ -110,6 +110,27 @@ func TestTraceRangeDescriptionsUseSharedContractBounds(t *testing.T) {
 	want := fmt.Sprintf("The default is %d bytes and the maximum is %d source bytes.", defaultTraceRangeBytes, maxTraceRangeBytes)
 	if got := traceRangeDescription("prefix"); !strings.Contains(got, want) {
 		t.Fatalf("description=%q want fragment=%q", got, want)
+	}
+}
+
+func TestTraceRangeSchemaAllowsOmittedInitialControlsAndRejectsBoth(t *testing.T) {
+	schema := traceInputSchema[traceRangeInput]()
+	prepareRangeSchema(schema, true)
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, instance := range map[string]map[string]any{
+		"omitted":       {"traceId": "t", "contentRef": "r"},
+		"explicit zero": {"traceId": "t", "contentRef": "r", "start": float64(0)},
+		"continuation":  {"traceId": "t", "contentRef": "r", "continuation": "c"},
+	} {
+		if err := resolved.Validate(instance); err != nil {
+			t.Fatalf("%s rejected: %v", name, err)
+		}
+	}
+	if err := resolved.Validate(map[string]any{"traceId": "t", "contentRef": "r", "start": float64(0), "continuation": "c"}); err == nil {
+		t.Fatal("both start and continuation were accepted")
 	}
 }
 

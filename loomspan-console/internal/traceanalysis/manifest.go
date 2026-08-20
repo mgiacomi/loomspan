@@ -20,24 +20,25 @@ const manifestSchemaV1 = "loomspan-trace-analysis-manifest-v1"
 // root references, terminal facts, component sizes, and index offsets. It is
 // written after every index is synced so a partial manifest is never published.
 type manifest struct {
-	Schema            string                           `json:"schema"`
-	TraceID           string                           `json:"traceId"`
-	SessionID         string                           `json:"sessionId"`
-	Outcome           string                           `json:"outcome"`
-	TerminalFailureID *string                          `json:"terminalFailureId"`
-	ConfiguredLimits  *ConfiguredLimits                `json:"configuredLimits"`
-	RecordCount       int64                            `json:"recordCount"`
-	FrameCount        int                              `json:"frameCount"`
-	AttemptCount      int                              `json:"attemptCount"`
-	RetryCount        int                              `json:"retryCount"`
-	ValidationCount   int                              `json:"validationCount"`
-	FailureCount      int                              `json:"failureCount"`
-	PayloadCount      int                              `json:"payloadCount"`
-	GapCount          int                              `json:"gapCount"`
-	UncertaintyCount  int                              `json:"uncertaintyCount"`
-	RootFrameIDs      []string                         `json:"rootFrameIds,omitempty"`
-	UsageComplete     bool                             `json:"usageComplete"`
-	ComponentSizes    map[artifact.ComponentName]int64 `json:"componentSizes"`
+	Schema             string                           `json:"schema"`
+	TraceID            string                           `json:"traceId"`
+	SessionID          string                           `json:"sessionId"`
+	Outcome            string                           `json:"outcome"`
+	TerminalFailureID  *string                          `json:"terminalFailureId"`
+	ConfiguredLimits   *ConfiguredLimits                `json:"configuredLimits"`
+	RecordCount        int64                            `json:"recordCount"`
+	RecordCountsByType map[TraceRecordType]int64        `json:"recordCountsByType"`
+	FrameCount         int                              `json:"frameCount"`
+	AttemptCount       int                              `json:"attemptCount"`
+	RetryCount         int                              `json:"retryCount"`
+	ValidationCount    int                              `json:"validationCount"`
+	FailureCount       int                              `json:"failureCount"`
+	PayloadCount       int                              `json:"payloadCount"`
+	GapCount           int                              `json:"gapCount"`
+	UncertaintyCount   int                              `json:"uncertaintyCount"`
+	RootFrameIDs       []string                         `json:"rootFrameIds,omitempty"`
+	UsageComplete      bool                             `json:"usageComplete"`
+	ComponentSizes     map[artifact.ComponentName]int64 `json:"componentSizes"`
 }
 
 // writeManifest writes the manifest component and records its size.

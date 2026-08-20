@@ -12,6 +12,14 @@ orientation. PR-30 cases cover the one-send provider-attempt lifecycle, typed
 read-timeout evidence, failed-step failure joins, and page-local descriptor
 resolution for repeated content. They forbid ordinary raw reads for semantic
 questions and unsafe conclusions from incomplete discovery or search work.
+PR-31 adds paired tools-only and skill-assisted cases for actual-retry
+cardinality, lifecycle times, COMPACT/DETAILED projection, physical record-type
+histogram discovery, semantic content selection, and complete continuation
+traversal. Results are committed only after actual client executions.
+The paired cases use the same sanitized current-checkout trace under
+`fixtures/`; it is replaced when an intentional pre-1.0 format change requires
+it rather than retained as a historical compatibility promise. Synthetic tests
+remain responsible for exact boundary and malformed-trace coverage.
 
 From `loomspan-console/`, start one isolated production-adapter MCP case:
 

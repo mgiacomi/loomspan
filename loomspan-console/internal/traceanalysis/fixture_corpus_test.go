@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -131,12 +132,49 @@ func TestFixtureCorpusMatchesJavaExpectedSemantics(t *testing.T) {
 			if domain != nil {
 				t.Fatalf("expected valid artifact for %s, got error: %v (category=%v)", name, domain, categoryOfSafe(domain))
 			}
+			assertFixtureRecordHistogram(t, sink, traceBytes)
 			// Valid cases: build the full analysisResult from the manifest and
 			// fact indexes, then compare against the committed expected file.
 			// This catches calculation regressions that preserve identity/outcome.
 			result := buildAnalysisResultFromSink(t, sink)
 			compareAnalysisResult(t, name, result, expected)
 		})
+	}
+}
+
+func assertFixtureRecordHistogram(t *testing.T, sink *fakeSink, traceBytes []byte) {
+	t.Helper()
+	var m manifest
+	if err := json.Unmarshal(sink.components[ComponentManifest], &m); err != nil {
+		t.Fatalf("parse manifest histogram: %v", err)
+	}
+	physicalRecords := int64(0)
+	expectedCounts := map[TraceRecordType]int64{}
+	for _, line := range bytes.Split(traceBytes, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) > 0 {
+			physicalRecords++
+			var physical struct {
+				RecordType TraceRecordType `json:"recordType"`
+			}
+			if err := json.Unmarshal(line, &physical); err != nil {
+				t.Fatalf("parse physical record histogram oracle: %v", err)
+			}
+			expectedCounts[physical.RecordType]++
+		}
+	}
+	histogramTotal := int64(0)
+	for recordType, count := range m.RecordCountsByType {
+		_, known := knownRecordType(string(recordType))
+		if !known || count <= 0 {
+			t.Fatalf("invalid histogram entry %q=%d", recordType, count)
+		}
+		histogramTotal += count
+	}
+	if histogramTotal != m.RecordCount || m.RecordCount != physicalRecords {
+		t.Fatalf("histogram=%d manifest=%d physical=%d", histogramTotal, m.RecordCount, physicalRecords)
+	}
+	if !reflect.DeepEqual(m.RecordCountsByType, expectedCounts) {
+		t.Fatalf("histogram=%v physical oracle=%v", m.RecordCountsByType, expectedCounts)
 	}
 }
 

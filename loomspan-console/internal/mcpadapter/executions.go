@@ -14,7 +14,7 @@ const (
 )
 
 type listExecutionsInput struct {
-	PageSize     int    `json:"pageSize" jsonschema:"Number of active executions to return, from 1 through 64"`
+	PageSize     int    `json:"pageSize,omitempty" jsonschema:"Number of active executions to return, from 1 through 64; omitted defaults to 16"`
 	Continuation string `json:"continuation,omitempty" jsonschema:"Opaque Loomspan continuation returned by an earlier execution-list call"`
 }
 
@@ -25,7 +25,7 @@ type getExecutionInput struct {
 func addExecutionTools(server *mcp.Server, options ServerOptions) {
 	addValidatedTool(server, &mcp.Tool{
 		Name:        ListExecutionsToolName,
-		Description: "List bounded active-execution snapshots. Results are provisional diagnostic evidence.",
+		Description: "List bounded active-execution snapshots. Omitted pageSize defaults to 16. Results are provisional diagnostic evidence.",
 		Annotations: readOnlyAnnotations, InputSchema: pageInputSchema[listExecutionsInput](),
 	}, executionListOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input listExecutionsInput) (*mcp.CallToolResult, toolEnvelope[executionListResult], error) {
 		return handleListExecutions(ctx, options, input)
@@ -54,7 +54,11 @@ func handleListExecutions(ctx context.Context, options ServerOptions, input list
 			return checkedDomainFailure[executionListResult](ctx, options, domain)
 		}
 	}
-	page, domain := options.Observability.ListActiveExecutions(ctx, scope, observability.ListRequest{Cursor: cursor, PageSize: input.PageSize})
+	pageSize := input.PageSize
+	if pageSize == 0 {
+		pageSize = defaultMCPListPageSize
+	}
+	page, domain := options.Observability.ListActiveExecutions(ctx, scope, observability.ListRequest{Cursor: cursor, PageSize: pageSize})
 	if domain != nil {
 		return checkedDomainFailure[executionListResult](ctx, options, domain)
 	}

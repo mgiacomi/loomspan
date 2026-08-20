@@ -31,7 +31,10 @@ const (
 	MaxDescriptorResponseBytes     = 128 << 10
 
 	// defaultRangeBytes is the default byte range size for payload/raw ranges.
-	DefaultRangeBytes = 64 << 10 // 64 KiB
+	// DefaultRangeBytes keeps worst-case JSON-escaped TEXT responses, including
+	// structured output and deterministic fallback, within the ordinary 32 KiB
+	// MCP result ceiling. Explicit callers may still request up to MaxRangeBytes.
+	DefaultRangeBytes = 1 << 10 // 1 KiB source bytes
 	defaultRangeBytes = DefaultRangeBytes
 
 	// maxRangeBytes is the maximum accepted byte range size per call.

@@ -124,13 +124,34 @@ func readManifest(lease *artifact.Lease) (manifest, error) {
 	if err := dec.Decode(&trailing); err != io.EOF {
 		return manifest{}, fmt.Errorf("parse manifest trailing content")
 	}
+	if err := validateManifest(m); err != nil {
+		return manifest{}, err
+	}
+	return m, nil
+}
+
+func validateManifest(m manifest) error {
 	if m.Schema != manifestSchemaV1 || m.TraceID == "" || m.SessionID == "" ||
 		m.RecordCount < 0 || m.FrameCount < 0 || m.AttemptCount < 0 || m.RetryCount < 0 ||
 		m.ValidationCount < 0 || m.FailureCount < 0 || m.PayloadCount < 0 ||
 		m.GapCount < 0 || m.UncertaintyCount < 0 {
-		return manifest{}, fmt.Errorf("manifest invariants are invalid")
+		return fmt.Errorf("manifest invariants are invalid")
 	}
-	return m, nil
+	var recordCountSum int64
+	for recordType, count := range m.RecordCountsByType {
+		if _, known := knownRecordType(string(recordType)); !known || count <= 0 {
+			return fmt.Errorf("manifest record histogram is invalid")
+		}
+		var ok bool
+		recordCountSum, ok = addChecked(recordCountSum, count)
+		if !ok {
+			return fmt.Errorf("manifest record histogram overflows")
+		}
+	}
+	if recordCountSum != m.RecordCount {
+		return fmt.Errorf("manifest record histogram does not match record count")
+	}
+	return nil
 }
 
 // scanFactRows streams a fact index in persisted order. start is the byte

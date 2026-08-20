@@ -28,13 +28,24 @@ LOOMSPAN_list_traces -> LOOMSPAN_get_trace -> compact frames -> record descripto
   was checked. Do not make a negative or uniqueness conclusion when
   `complete` is false; preserve its compact limitation.
 - `LOOMSPAN_get_trace` resolves one unique available trace and returns its
-  parsed summary.
+  parsed summary. `retryCount` counts validated attempts after attempt 1, not
+  retry-sequence IDs. `recordCountsByType` is the complete nonzero physical
+  histogram; omitted known keys mean zero and the values sum to `recordCount`.
+  Query selected types for details. Keep the histogram independent from
+  terminal outcome, logical failures, gaps, uncertainties, and usage completeness.
 - `LOOMSPAN_query_trace_frames` defaults to `COMPACT`; request `DETAILED` only
-  for rich usage, duration, retry, validation, failure, gap, or uncertainty
-  evidence.
+  for elapsed-millisecond duration, usage, retry identities, validation,
+  failure, gap, or uncertainty evidence. COMPACT omits those details. A
+  frame's authoritative close `outcome` is optional and scalar.
 - `LOOMSPAN_query_trace_records` returns content descriptors by default.
-  `inlineContent` is bounded per value and across the page, so omission is not
-  absence. With `filter.literalText` it returns compact case-sensitive matches
+  Explicit `inlineContent` selects complete values in record order, up to
+  8 KiB each and 32 KiB of source bytes per returned page; typed omission is
+  not absence. Use inline content only after narrowing by record type, frame,
+  failure, attempt, sequence range, or a deliberately small page. For broad or
+  multi-type exploration, keep the descriptor default and read only selected
+  `contentRef` values. A client may externalize an otherwise valid bounded
+  response when its presentation threshold is lower than Console's response
+  budget. With `filter.literalText` it returns compact case-sensitive matches
   plus page-local `contentId` values, one `contentDescriptors` join map, fields,
   representation, coverage, work-completion, and limitations. Resolve a match
   through that same page's descriptor and pass its opaque `contentRef` to the
@@ -49,19 +60,30 @@ LOOMSPAN_list_traces -> LOOMSPAN_get_trace -> compact frames -> record descripto
   classification, category, retry decision, and delay before opening diagnostic
   content. A wrapped provider read deadline is `TIMEOUT`; caller cancellation is
   not.
+- Treat an attempt as a retry only when its validated `attemptNumber > 1`.
+  Sum later attempts across sequences; ten independent initial attempts are
+  ten attempts and zero retries. `PLAN_RETRY_REQUESTED` does not change this
+  model/provider count. A frame counts a retry only when that later attempt is
+  explicitly attributed to the frame.
 - Treat `STEP_COMPLETED` as success only. `STEP_FAILED` is the failed terminal
   and carries the `failureId` used to join its separate `ERROR_RECORDED`
   diagnostic evidence. Caller-owned aborts have neither step terminal.
 - `LOOMSPAN_read_trace_content` reads an exact bounded selected semantic value
-  using its returned opaque `contentRef`.
+  using its returned opaque `contentRef`. Omit both `start` and `continuation`
+  for the initial offset-zero read; otherwise supply at most one. The default
+  is 1 KiB of source bytes; an explicit legal request remains exact through
+  16 MiB.
 - `LOOMSPAN_read_trace_artifact` optionally reads exact bounded raw source bytes
   for storage/parser forensics.
 
 Every trace inspection tool requires `traceId` plus only question-specific
 filters, pagination, projection, representation, content-reference, or range controls.
-Page sizes and ranges are bounded. A continuation is opaque and belongs only
-to its query. Continue while `hasMore` is true; never infer authority or
-identity from an opaque token. Tools are the complete MCP investigation path;
+Page size is a maximum: the 32 KiB encoded-result budget may stop a trace page
+before 64 complete items. Exact default ranges use a separate 48 KiB result
+budget. A continuation is opaque and belongs only
+to its query. Continue while `hasMore` is true by repeating every original
+argument unchanged and adding the returned continuation; never infer authority
+or identity from an opaque token. Tools are the complete MCP investigation path;
 no custom Loomspan resources are advertised.
 
 Preserve exact domain errors and recovery:
@@ -77,8 +99,10 @@ Preserve exact domain errors and recovery:
 
 A zero-match literal page proves absence only when search work is complete and
 coverage limitations do not exclude relevant content. Imported evidence is not
-authenticated provenance. `acquiredAt`, `importedAt`, and `finalizedAt` are
-independent facts and must not substitute for one another.
+authenticated provenance. `finalizedAt` is the execution terminal-fact time;
+`acquiredAt` is when Console installed target evidence and can be later;
+`importedAt` is when imported evidence entered Console. They are independent
+and must not substitute for one another.
 
 Protocol negotiation or HTTP authentication is not a Loomspan domain error.
 Missing capability is not `INCOMPATIBLE_TARGET`. Target authentication is not

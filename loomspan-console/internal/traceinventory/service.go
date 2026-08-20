@@ -169,10 +169,12 @@ func (s *Service) List(ctx context.Context, q Query) (Result, *consolecore.Error
 		return Result{}, invalidCursor(fmt.Errorf("installed position changed"))
 	}
 	if !hasTarget {
-		end := min(len(installed), offset+pageSize)
-		result.Items = append(result.Items, installed[offset:end]...)
+		end, admissionDomain := appendInstalledPage(&result, installed, offset, pageSize, q.Admit)
+		if admissionDomain != nil {
+			return Result{}, admissionDomain
+		}
 		if end < len(installed) {
-			result.Complete, result.HasMore = false, true
+			result.HasMore = true
 			result.Continuation, _ = encodeCursor(inventoryCursor{Schema: cursorSchemaV1, Operation: cursorOperation, Fingerprint: fingerprint, Segment: segmentInstalled, InstalledOffset: end, InstalledFingerprint: setFingerprint})
 		}
 		return result, nil
@@ -185,8 +187,14 @@ func (s *Service) List(ctx context.Context, q Query) (Result, *consolecore.Error
 	page, pd := s.catalog.ListTraces(ctx, scope, observability.ListRequest{Cursor: appCursor, PageSize: maxPageSize})
 	if pd != nil {
 		markIncomplete(&result)
-		end := min(len(installed), offset+pageSize)
-		result.Items = append(result.Items, installed[offset:end]...)
+		end, admissionDomain := appendInstalledPage(&result, installed, offset, pageSize, q.Admit)
+		if admissionDomain != nil {
+			return Result{}, admissionDomain
+		}
+		if end < len(installed) {
+			result.HasMore = true
+			result.Continuation, _ = encodeCursor(inventoryCursor{Schema: cursorSchemaV1, Operation: cursorOperation, Fingerprint: fingerprint, Segment: segmentInstalled, InstalledOffset: end, InstalledFingerprint: setFingerprint})
+		}
 		return s.finish(scope, true, result)
 	}
 	result.ObservedAt = page.ObservedAt.UTC()
@@ -231,6 +239,12 @@ func (s *Service) List(ctx context.Context, q Query) (Result, *consolecore.Error
 		if len(result.Items) == pageSize {
 			break
 		}
+		if q.Admit != nil && !q.Admit(value.entry) {
+			if len(result.Items) == 0 {
+				return Result{}, consolecore.NewError(consolecore.CodeLimitExceeded, "One trace inventory item exceeds the safe response budget. Narrow the filters.", "", consolecore.Details{}, nil)
+			}
+			break
+		}
 		result.Items = append(result.Items, value.entry)
 		if value.installed {
 			consumedInstalled++
@@ -252,10 +266,25 @@ func (s *Service) List(ctx context.Context, q Query) (Result, *consolecore.Error
 		moreCatalog = false
 	}
 	if offset < len(installed) || applicationRemaining || moreCatalog {
-		result.Complete, result.HasMore = false, true
+		result.HasMore = true
 		result.Continuation, _ = encodeCursor(inventoryCursor{Schema: cursorSchemaV1, Operation: cursorOperation, Fingerprint: fingerprint, Segment: segmentApplication, InstalledOffset: offset, InstalledFingerprint: setFingerprint, ApplicationCursor: appCursor, ApplicationOffset: appOffset})
 	}
 	return s.finish(scope, true, result)
+}
+
+func appendInstalledPage(result *Result, installed []Entry, offset, pageSize int, admit func(Entry) bool) (int, *consolecore.Error) {
+	end := offset
+	for end < len(installed) && len(result.Items) < pageSize {
+		if admit != nil && !admit(installed[end]) {
+			if len(result.Items) == 0 {
+				return end, consolecore.NewError(consolecore.CodeLimitExceeded, "One trace inventory item exceeds the safe response budget. Narrow the filters.", "", consolecore.Details{}, nil)
+			}
+			break
+		}
+		result.Items = append(result.Items, installed[end])
+		end++
+	}
+	return end, nil
 }
 
 func installedSafeBeforeCatalogRemainder(key entrySortKey, order Order, boundary time.Time) bool {

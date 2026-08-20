@@ -48,6 +48,9 @@ type RecordQuery struct {
 	InlineContent  bool                 `json:"inlineContent"`
 	PageSize       int                  `json:"pageSize"`
 	Cursor         string               `json:"cursor,omitempty"`
+	// Admit is an internal server-owned complete-item admission policy. It is
+	// deliberately excluded from continuation fingerprints.
+	Admit func(RecordSummary) bool `json:"-"`
 }
 
 // recordQueryCanonical is the canonical projection for fingerprinting.
@@ -236,6 +239,22 @@ func (service *Service) QueryRecords(ctx context.Context, scopeID evidence.Refer
 				inlineOrdinaryDescriptor(items[index].Content, rec.Data, &aggregateInlineBytes)
 			}
 		}
+	}
+	if query.Admit != nil {
+		accepted := len(items)
+		for index, item := range items {
+			if query.Admit(item) {
+				continue
+			}
+			if index == 0 {
+				return Page[RecordSummary]{}, consolecore.NewError(consolecore.CodeLimitExceeded, "One record exceeds the safe response budget. Narrow the filters or retrieve content through its descriptor.", scopeID.ID(), consolecore.Details{}, nil)
+			}
+			accepted = index
+			hasMore = true
+			nextPosition = pagePositions[index]
+			break
+		}
+		items = items[:accepted]
 	}
 
 	var nextCursor string
