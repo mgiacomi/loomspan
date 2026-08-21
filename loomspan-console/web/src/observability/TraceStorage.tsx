@@ -11,18 +11,28 @@ import {
 import type { StorageSnapshot } from "../api/contracts";
 import { useBrowserSession } from "../security/BrowserSessionProvider";
 
+type ImportResult = {
+	name: string;
+	status: "waiting" | "importing" | "imported" | "failed";
+	traceId?: string;
+	error?: BrowserAPIError;
+};
+
 export function TraceStorage() {
   const session = useBrowserSession();
 	const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<StorageSnapshot | null>(null);
   const [error, setError] = useState<BrowserAPIError | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionError, setActionError] = useState<BrowserAPIError | null>(null);
+	const [actionError, setActionError] = useState<BrowserAPIError | null>(null);
 	const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-	const [selectedFile, setSelectedFile] = useState<File | null>(null);
 	const [importing, setImporting] = useState(false);
+	const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
+	const [importResults, setImportResults] = useState<ImportResult[]>([]);
+	const [dragActive, setDragActive] = useState(false);
   const [confirmClear, setConfirmClear] = useState<"expired" | "all-unused" | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+	const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     heading.current?.focus();
@@ -90,20 +100,40 @@ export function TraceStorage() {
     }
   }, [session, loadSnapshot]);
 
-	const handleImport = useCallback(async () => {
+	const handleImport = useCallback(async (files: File[]) => {
 		const security = session.getSecurity();
-		if (!security || !selectedFile) return;
+		if (!security || files.length === 0 || importing) return;
 		setImporting(true);
 		setActionError(null);
+		setImportResults(files.map((file) => ({ name: file.name, status: "waiting" })));
+		const completed: ImportResult[] = [];
 		try {
-			const result = await importTraceFile(selectedFile, security);
-			navigate(`/traces/imported/${encodeURIComponent(result.traceId)}`);
-		} catch (err) {
-			setActionError(err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "The trace file could not be opened.", 500));
+			for (let index = 0; index < files.length; index += 1) {
+				const file = files[index];
+				setImportProgress({ current: index + 1, total: files.length });
+				setImportResults((current) => current.map((result, resultIndex) => resultIndex === index ? { ...result, status: "importing" } : result));
+				try {
+					const imported = await importTraceFile(file, security);
+					const result: ImportResult = { name: file.name, status: "imported", traceId: imported.traceId };
+					completed.push(result);
+					setImportResults((current) => current.map((value, resultIndex) => resultIndex === index ? result : value));
+				} catch (err) {
+					const error = err instanceof BrowserAPIError ? err : new BrowserAPIError("CONSOLE_ERROR", "The trace file could not be imported.", 500);
+					const result: ImportResult = { name: file.name, status: "failed", error };
+					completed.push(result);
+					setImportResults((current) => current.map((value, resultIndex) => resultIndex === index ? result : value));
+				}
+			}
+			if (files.length === 1 && completed[0]?.status === "imported" && completed[0].traceId) {
+				navigate(`/traces/imported/${encodeURIComponent(completed[0].traceId)}`);
+			} else {
+				await loadSnapshot();
+			}
 		} finally {
 			setImporting(false);
+			setImportProgress(null);
 		}
-	}, [navigate, selectedFile, session]);
+	}, [importing, loadSnapshot, navigate, session]);
 
   return (
     <section aria-labelledby="trace-storage-title" className="overview-card">
@@ -112,9 +142,44 @@ export function TraceStorage() {
 
 	  <div className="trace-import">
 		<p>Trace files may contain sensitive diagnostics and application paths. Only complete files from this exact Loomspan version can be opened.</p>
-		<label htmlFor="trace-file">Trace file</label>
-		<input id="trace-file" type="file" accept="application/x-ndjson,.ndjson" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
-		<button type="button" disabled={!selectedFile || importing} onClick={() => void handleImport()}>{importing ? "Opening trace file…" : "Open trace file"}</button>
+		<div
+			className={`trace-import-drop-zone${dragActive ? " trace-import-drop-zone-active" : ""}`}
+			role="group"
+			aria-label="Trace file import"
+			onDragEnter={(event) => { event.preventDefault(); if (!importing) setDragActive(true); }}
+			onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
+			onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false); }}
+			onDrop={(event) => {
+				event.preventDefault();
+				setDragActive(false);
+				if (!importing) void handleImport(Array.from(event.dataTransfer.files));
+			}}
+		>
+			<p>Drag and drop one or more <code>.ndjson</code> trace files here, or</p>
+			<button type="button" disabled={importing} onClick={() => fileInput.current?.click()}>{importing ? "Importing Trace File…" : "Import Trace File"}</button>
+			<input
+				ref={fileInput}
+				id="trace-file"
+				type="file"
+				accept="application/x-ndjson,.ndjson"
+				multiple
+				hidden
+				aria-label="Trace files"
+				onChange={(event) => {
+					const input = event.currentTarget;
+					const files = Array.from(input.files ?? []);
+					if (files.length > 0) void handleImport(files).finally(() => { input.value = ""; });
+				}}
+			/>
+		</div>
+		{importProgress && <p role="status">Importing {importProgress.current} of {importProgress.total}…</p>}
+		{importResults.length > 0 && <section aria-label="Trace import results" aria-live="polite">
+			<h3>Import results</h3>
+			<ul>{importResults.map((result, index) => <li key={`${result.name}-${index}`} role={result.status === "failed" ? "alert" : undefined}>
+				<strong>{result.name}</strong>: {result.status === "waiting" ? "Waiting" : result.status === "importing" ? "Importing…" : result.status === "imported" ? `Imported as ${result.traceId}` : result.error?.message}
+				{result.error?.details?.expectedCompatibilityVersion && result.error.details?.observedCompatibilityVersion && <span> Expected {result.error.details.expectedCompatibilityVersion}; observed {result.error.details.observedCompatibilityVersion}.</span>}
+			</li>)}</ul>
+		</section>}
 	  </div>
 
       <p>

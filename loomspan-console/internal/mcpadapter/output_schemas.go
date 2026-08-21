@@ -206,7 +206,7 @@ func traceSummaryOutputSchema() *jsonschema.Schema {
 }
 func frameQueryOutputSchema() *jsonschema.Schema {
 	frame := compactObject([]string{"frameId", "childFrameIds", "frameType", "openedTimestampMillis"}, map[string]*jsonschema.Schema{
-		"frameId": compactString(), "childFrameIds": compactArray(compactString()), "frameType": compactString(), "openedTimestampMillis": compactInteger(), "outcome": compactString(),
+		"frameId": compactString(), "childFrameIds": compactArray(compactString()), "frameType": compactString(), "openedTimestampMillis": compactInteger(), "inclusiveDurationMillis": compactInteger(), "outcome": compactString(),
 	}, true)
 	result := compactPageResult(frame, "evidence")
 	result.Required = append(result.Required, "projection")

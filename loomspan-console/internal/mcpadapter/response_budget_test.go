@@ -154,7 +154,7 @@ func TestFullSerializedDefaultTraceResultsMeetCommittedBudgets(t *testing.T) {
 	want := map[string]int{
 		"inventory":           21091,
 		"detailed frames":     27035,
-		"compact frames":      26860,
+		"compact frames":      26886,
 		"record descriptors":  25440,
 		"inline records":      17337,
 		"semantic text range": 45527,
@@ -279,7 +279,7 @@ func TestFullHTTPDefaultTraceResponsesMeetCommittedBudgetsAndFallbacksMatch(t *t
 	}
 	want := map[string]int{
 		"inventory":           12012,
-		"compact frames":      21241,
+		"compact frames":      20872,
 		"detailed frames":     20751,
 		"record descriptors":  20077,
 		"inline records":      18023,

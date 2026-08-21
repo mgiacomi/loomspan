@@ -87,7 +87,7 @@ func completeRecord(caseValue Case) EvaluationRecord {
 	return EvaluationRecord{
 		SchemaVersion: RecordSchemaVersion, RunID: "run-1", ConversationID: "conversation-1", CaseID: caseValue.ID,
 		WorkflowIDs: caseValue.WorkflowIDs, RecordedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), OS: "windows/amd64",
-		ClientProduct: "Codex CLI", ClientBuild: "example-build", Model: "example-model", SkillVersion: "1.0.0",
+		ClientProduct: "Codex CLI", ClientBuild: "example-build", Model: "example-model", SkillVersion: "1.0.1",
 		ConsoleVersion: "0.1.0-SNAPSHOT", ConsoleCommit: "0123456789abcdef", RunOrdinal: 1, MCPProtocol: "2026-07-28",
 		Capabilities: caseValue.Capabilities, Operations: operations, Identifiers: identifiers, FinalAnswer: "fixture-grounded answer",
 		SupportedFacts: caseValue.ExpectedFacts, Limitations: caseValue.LimitationFacts,

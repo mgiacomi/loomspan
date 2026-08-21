@@ -17,7 +17,7 @@ import (
 
 const (
 	RuntimeDebuggingSkillName    = "loomspan"
-	RuntimeDebuggingSkillVersion = "1.0.0"
+	RuntimeDebuggingSkillVersion = "1.0.1"
 	maxDescriptionBytes          = 1024
 	maxInstructionBytes          = 80 * 1024
 	maxReferenceBytes            = 80 * 1024

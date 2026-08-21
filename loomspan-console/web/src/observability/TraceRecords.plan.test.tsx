@@ -1,13 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { getContentRange, getRawRecordRange, getTraceRecords } from "../api/client";
+import { getContentRange, getRawRecordRange, getTraceAttempts, getTraceRecords } from "../api/client";
 import type { TraceRecord, TraceRange } from "../api/contracts";
 import { TraceRecords } from "./TraceRecords";
 
-vi.mock("../api/client", () => ({ getContentRange: vi.fn(), getRawRecordRange: vi.fn(), getTraceRecords: vi.fn() }));
+vi.mock("../api/client", () => ({ getContentRange: vi.fn(), getRawRecordRange: vi.fn(), getTraceAttempts: vi.fn(), getTraceRecords: vi.fn() }));
 
 const getRawRecordRangeMock = vi.mocked(getRawRecordRange);
 const getTraceRecordsMock = vi.mocked(getTraceRecords);
+const getTraceAttemptsMock = vi.mocked(getTraceAttempts);
 const getContentRangeMock = vi.mocked(getContentRange);
 const record: TraceRecord = {
   sequence: 7,
@@ -48,25 +49,63 @@ function renderPlanRecord(value = record) {
 beforeEach(() => {
   getRawRecordRangeMock.mockReset();
   getTraceRecordsMock.mockReset();
+  getTraceAttemptsMock.mockReset();
   getContentRangeMock.mockReset();
 });
 
 test.each([
   ["primary", "trace-root", "trace-root", "planning-primary"],
   ["nested", "trace-root", "nested-mission", "planning-nested"],
-])("presents %s plan landmarks and navigates by their recorded frame IDs", (_kind, traceRootFrameId, missionFrameId, planningFrameId) => {
-  const onRelatedFrame = vi.fn();
-  const plan = { planId: `plan-${_kind}`, sequence: 7, traceRootFrameId, missionFrameId, planningFrameId, attemptId: "attempt-1", retrySequenceId: "retry-1" };
-  render(<TraceRecords traceId="trace-1" records={[{ ...record, plan }]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onRelatedFrame={onRelatedFrame} onContent={vi.fn()} />);
+])("presents actionable %s plan landmarks without trace or plan IDs", (_kind, traceRootFrameId, missionFrameId, planningFrameId) => {
+  const onFrameRecord = vi.fn();
+  const plan = { planId: `plan-${_kind}`, sequence: 7, traceRootFrameId, missionFrameId, planningFrameId };
+  render(<TraceRecords traceId="trace-1" records={[{ ...record, plan }]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onFrameRecord={onFrameRecord} onContent={vi.fn()} />);
 
   fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
-  const landmarks = screen.getByRole("group", { name: `Plan plan-${_kind} landmarks` });
-  expect(landmarks).toHaveTextContent(traceRootFrameId);
+  const landmarks = screen.getByLabelText("Plan details for record 7");
   expect(landmarks).toHaveTextContent(missionFrameId);
   expect(landmarks).toHaveTextContent(planningFrameId);
-  expect(landmarks).toHaveTextContent("attempt-1");
+  expect(landmarks).not.toHaveTextContent(`plan-${_kind}`);
+  if (traceRootFrameId !== missionFrameId) expect(landmarks).not.toHaveTextContent(traceRootFrameId);
   fireEvent.click(screen.getByRole("button", { name: planningFrameId }));
-  expect(onRelatedFrame).toHaveBeenCalledWith({ frameIds: [planningFrameId] });
+  expect(onFrameRecord).toHaveBeenCalledWith(planningFrameId);
+});
+
+test("omits the planning frame when the plan record already belongs to it", () => {
+  const plan = { planId: "plan-1", sequence: 7, traceRootFrameId: "root", missionFrameId: "mission", planningFrameId: "planning" };
+  render(<TraceRecords traceId="trace-1" records={[{ ...record, frameId: "planning", plan }]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
+  expect(screen.getByLabelText("Plan details for record 7")).not.toHaveTextContent("Planning frame");
+});
+
+test("summarizes the accepted attempt and links every version in plan history", async () => {
+  const onSelectRecord = vi.fn();
+  const plan = { planId: "plan-1", sequence: 7, traceRootFrameId: "root", missionFrameId: "mission", planningFrameId: "planning", attemptId: "accepted", retrySequenceId: "retry-1" };
+  const content = { role: "DATA" as const, contentType: "application/json", encoding: "UTF8" as const, retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify({ planId: "plan-1", tasks: [] }) };
+  const created = { ...record, frameId: "planning", plan, content };
+  const updated = { ...record, sequence: 19, type: "PLAN_UPDATED", frameId: "step", plan: { ...plan, sequence: 19 }, content };
+  const response = { ...record, sequence: 6, type: "MODEL_RESPONSE_RECEIVED", frameId: "planning" };
+  getTraceRecordsMock
+    .mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [updated, created], hasMore: false, nextCursor: null })
+    .mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [response], hasMore: false, nextCursor: null });
+  getTraceAttemptsMock.mockResolvedValue({
+    source: "TARGET", targetScopeId: "scope-1", hasMore: false, nextCursor: null,
+    items: [
+      { retrySequenceId: "retry-1", attemptId: "first", attemptNumber: 1 },
+      { retrySequenceId: "retry-1", attemptId: "accepted", attemptNumber: 2 },
+      { retrySequenceId: "retry-1", attemptId: "third", attemptNumber: 3 },
+    ],
+  } as Awaited<ReturnType<typeof getTraceAttempts>>);
+  render(<TraceRecords traceId="trace-1" records={[created]} failures={[]} onSelectRecord={onSelectRecord} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Attempt 2 of 3" }));
+  expect(onSelectRecord).toHaveBeenCalledWith(response);
+  const history = await screen.findByRole("region", { name: "Plan history" });
+  expect(history).toHaveTextContent("Plan History: 7 Created / 19 Updated");
+  fireEvent.click(screen.getByRole("button", { name: "19 Updated" }));
+  expect(onSelectRecord).toHaveBeenCalledWith(updated);
+  expect(history).not.toHaveTextContent("plan-1");
 });
 
 test("loads every content range and pretty prints only the plan data", async () => {

@@ -459,7 +459,7 @@ func (value frameDTO) MarshalJSON() ([]byte, error) {
 	if err := json.Unmarshal(body, &fields); err != nil {
 		return nil, err
 	}
-	for _, name := range []string{"inclusiveDurationMillis", "selfDurationMillis", "directUsage", "directUsageComplete", "descendantUsage", "descendantUsageComplete", "inclusiveUsage", "inclusiveUsageComplete", "skillNames", "attemptIds", "retrySequenceIds", "validationStatuses", "failureIds", "gapKinds", "uncertaintyKinds"} {
+	for _, name := range []string{"selfDurationMillis", "directUsage", "directUsageComplete", "descendantUsage", "descendantUsageComplete", "inclusiveUsage", "inclusiveUsageComplete", "skillNames", "attemptIds", "retrySequenceIds", "validationStatuses", "failureIds", "gapKinds", "uncertaintyKinds"} {
 		delete(fields, name)
 	}
 	return json.Marshal(fields)

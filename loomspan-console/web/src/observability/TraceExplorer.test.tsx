@@ -38,18 +38,48 @@ test("loads hierarchy and deliberately reads inert evidence", async () => {
   await screen.findByText(/FAILED/);
   expect(api.getContentRange).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
-  await screen.findByText("1: PAYLOAD");
+  const recordRow = await screen.findByRole("row", { name: "Record 1, PAYLOAD" });
   fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   await screen.findByText("<a>x</a>");
+  const contentRegion = screen.getByRole("region", { name: "Content for record 1" });
+  expect(contentRegion).toHaveFocus();
+  expect(contentRegion.closest("tr")?.previousElementSibling).toBe(recordRow);
+  expect(screen.getByRole("button", { name: "Hide content" })).toHaveAttribute("aria-expanded", "true");
   expect(screen.queryByRole("link", { name: "x" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
   await screen.findByLabelText("Usage facts");
 });
 
+test("uses compact frame duration in hierarchy and records", async () => {
+  api.getTraceFrames.mockResolvedValueOnce({ source: "TARGET", targetScopeId: "scope-1", items: [{ frameId: "f-1", parentFrameId: null, childFrameIds: [], frameType: "SKILL", route: "hello", inclusiveDurationMillis: 75_432, selfDurationMillis: null }], hasMore: false, nextCursor: null });
+  render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
+
+  expect((await screen.findByRole("button", { name: /SKILL: hello/ })).closest("li")).toHaveTextContent("75432 ms");
+  fireEvent.click(screen.getByRole("tab", { name: "Records" }));
+  expect(await screen.findByRole("row", { name: "Record 1, PAYLOAD" })).toHaveTextContent("01:15.432");
+});
+
+test("plan frame links select, highlight, and focus the frame opening record", async () => {
+  const page = (items: unknown[]) => ({ source: "TARGET", targetScopeId: "scope-1", items, hasMore: false, nextCursor: null });
+  const plan = { planId: "plan-1", sequence: 7, traceRootFrameId: "mission-frame", missionFrameId: "mission-frame", planningFrameId: "planning-frame" };
+  const planRecord = { sequence: 7, type: "PLAN_CREATED", frameId: "planning-frame", parentFrameId: "mission-frame", frameType: "PLANNING", route: "plan", threadName: "worker", timestampMillis: 7, representation: "LOGICAL", isChunk: false, isEnvelope: true, plan, content: { role: "DATA", contentType: "application/json", encoding: "UTF8", retainedBytes: 1, available: true, complete: true, inlineEligibility: true, inlineContent: JSON.stringify({ planId: "plan-1", tasks: [] }) } };
+  const missionOpened = { sequence: 2, type: "FRAME_OPENED", frameId: "mission-frame", parentFrameId: "", frameType: "ROOT_MISSION", route: "mission", threadName: "worker", timestampMillis: 2, representation: "LOGICAL", isChunk: false, isEnvelope: true };
+  api.getTraceRecords.mockResolvedValueOnce(page([planRecord])).mockResolvedValueOnce(page([planRecord])).mockResolvedValueOnce(page([missionOpened]));
+  render(<MemoryRouter initialEntries={["/?view=records"]}><TraceExplorer traceId="trace-1" /><LocationProbe /></MemoryRouter>);
+
+  await screen.findByRole("row", { name: "Record 7, PLAN_CREATED" });
+  fireEvent.click(screen.getByRole("button", { name: "Show Plan" }));
+  fireEvent.click(screen.getByRole("button", { name: "mission-frame" }));
+  const target = await screen.findByRole("row", { name: "Record 2, FRAME_OPENED" });
+  await vi.waitFor(() => expect(target).toHaveFocus());
+  expect(target).toHaveAttribute("aria-current", "true");
+  expect(api.getTraceRecords).toHaveBeenCalledWith("trace-1", undefined, { types: ["FRAME_OPENED"], frameId: "mission-frame" }, "TARGET");
+});
+
 test("uses compact frames for hierarchy and detailed frames for rich views", async () => {
 	render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
 	await screen.findByText(/FAILED/);
-	expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET");
+	expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "COMPACT", 1000);
 	fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
 	await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "DETAILED"));
 	fireEvent.click(screen.getByRole("tab", { name: "Hierarchy" }));
@@ -73,7 +103,7 @@ test("usage operations deep-link to and focus their exact model response record"
   await vi.waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("view=records"));
   expect(screen.getByLabelText("location")).toHaveTextContent("frameId=model-frame");
   expect(screen.getByLabelText("location")).toHaveTextContent("recordSequence=23");
-  const selectedResponse = await screen.findByRole("button", { name: "23: MODEL_RESPONSE_RECEIVED" });
+  const selectedResponse = await screen.findByRole("row", { name: "Record 23, MODEL_RESPONSE_RECEIVED" });
   await vi.waitFor(() => expect(selectedResponse).toHaveFocus());
   expect(api.getTraceRecords).toHaveBeenCalledWith("trace-1", undefined, { types: ["MODEL_RESPONSE_RECEIVED"] }, "TARGET");
   expect(api.getTraceRecords).toHaveBeenCalledWith("trace-1", "responses-next", { types: ["MODEL_RESPONSE_RECEIVED"] }, "TARGET");
@@ -84,7 +114,7 @@ test("continues a finite payload range using the returned opaque cursor", async 
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
-  await screen.findByText("1: PAYLOAD");
+  await screen.findByRole("row", { name: "Record 1, PAYLOAD" });
   fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   await screen.findByText("one");
   fireEvent.click(screen.getByRole("button", { name: "Read next range" }));
@@ -97,7 +127,7 @@ test("artifact expiration during a range clears stale content and reports the pr
   render(<MemoryRouter><TraceExplorer traceId="trace-1" /></MemoryRouter>);
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
-  await screen.findByText("1: PAYLOAD");
+  await screen.findByRole("row", { name: "Record 1, PAYLOAD" });
   fireEvent.click(screen.getByRole("button", { name: "Read content" }));
   await screen.findByText("one");
   fireEvent.click(screen.getByRole("button", { name: "Read next range" }));
@@ -153,11 +183,11 @@ test("continues hierarchy, record, and literal-search pages with their returned 
   await screen.findByText(/FAILED/);
   fireEvent.click(screen.getByRole("button", { name: "Load more frames" }));
   await screen.findByRole("button", { name: "TOOL: next" });
-  expect(api.getTraceFrames).toHaveBeenLastCalledWith("trace-1", "frames-next", {}, "CANONICAL", "TARGET");
+  expect(api.getTraceFrames).toHaveBeenLastCalledWith("trace-1", "frames-next", {}, "CANONICAL", "TARGET", "COMPACT", 1000);
   fireEvent.click(screen.getByRole("tab", { name: "Records" }));
   await screen.findByRole("button", { name: "Load more records" });
   fireEvent.click(screen.getByRole("button", { name: "Load more records" }));
-  await screen.findByRole("button", { name: "2: EVENT" });
+  await screen.findByRole("row", { name: "Record 2, EVENT" });
   expect(api.getTraceRecords).toHaveBeenLastCalledWith("trace-1", "records-next", {}, "TARGET");
   fireEvent.change(screen.getByLabelText("Literal search"), { target: { value: "needle" } });
   fireEvent.click(screen.getByRole("button", { name: "Search" }));

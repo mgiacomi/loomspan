@@ -9,6 +9,7 @@ import {
   getActiveExecutionDetail,
   getSkillDetail,
   getTraceDetail,
+  getTraceRecords,
   heartbeatTab,
   listActiveExecutions,
   listSkills,
@@ -213,6 +214,19 @@ test("list skills sends cursor and pageSize in body", async () => {
   await listSkills("cursor-1", 50);
   const body = JSON.parse((fetch.mock.calls[0]?.[1] as RequestInit).body as string);
   expect(body).toMatchObject({ cursor: "cursor-1", pageSize: 50 });
+});
+
+test("trace records request the maximum 1,000-record page", async () => {
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ source: "TARGET", targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  await getTraceRecords("trace-1", "cursor-1", {}, "TARGET");
+  const body = JSON.parse((fetch.mock.calls[0]?.[1] as RequestInit).body as string);
+  expect(body).toMatchObject({ traceId: "trace-1", cursor: "cursor-1", pageSize: 1000, representation: "LOGICAL" });
 });
 
 test("get skill detail sends registeredName in body", async () => {

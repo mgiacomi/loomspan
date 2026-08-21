@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { expect, test, vi } from "vitest";
 import { TraceHierarchy } from "./TraceHierarchy";
@@ -152,6 +152,7 @@ test("usage preserves returned values and record-row evidence actions remain del
         }}
       />
       <TraceRecords
+        frames={[{ ...frame, inclusiveDurationMillis: 75_432 }]}
         records={[
           {
             sequence: 1,
@@ -196,8 +197,17 @@ test("usage preserves returned values and record-row evidence actions remain del
   expect(screen.getByRole("status")).toHaveTextContent(
     "Trace context unavailable",
   );
-  expect(payload).toHaveBeenCalledWith("payload-1");
-  fireEvent.click(screen.getByRole("button", { name: "1: PAYLOAD" }));
+  expect(payload).toHaveBeenCalledWith("payload-1", 1);
+  expect(selectRecord).not.toHaveBeenCalled();
+  const recordRow = screen.getByRole("row", { name: "Record 1, PAYLOAD" });
+  const cells = within(recordRow).getAllByRole("cell");
+  expect(cells[0]).toHaveTextContent(/^1$/);
+  expect(cells[1]).toHaveTextContent(/^PAYLOAD$/);
+  expect(cells[2]).toHaveTextContent(/^frame-1$/);
+  expect(recordRow).toHaveTextContent("01:15.432");
+  expect(recordRow).toHaveTextContent("frame-1");
+  expect(within(recordRow).getAllByRole("button").map((button) => button.textContent)).toEqual(["Hide raw record", "Read content"]);
+  fireEvent.click(recordRow);
   expect(selectRecord).toHaveBeenCalled();
   expect(selectFailure).not.toHaveBeenCalled();
   expect(screen.queryByText("payload-2")).toBeNull();

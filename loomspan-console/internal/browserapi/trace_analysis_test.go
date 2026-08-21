@@ -211,12 +211,12 @@ func TestTraceAnalysisCompactFramesRetainHierarchyAndCountsOnly(t *testing.T) {
 	if w.Code != http.StatusOK || fake.frameQuery.Projection != "" {
 		t.Fatalf("status=%d query=%+v body=%s", w.Code, fake.frameQuery, w.Body.String())
 	}
-	for _, want := range []string{`"childFrameIds":["child"]`, `"directAttemptCount":1`, `"directFailureCount":1`} {
+	for _, want := range []string{`"childFrameIds":["child"]`, `"inclusiveDurationMillis":12`, `"directAttemptCount":1`, `"directFailureCount":1`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Fatalf("compact frame missing %s: %s", want, w.Body.String())
 		}
 	}
-	for _, forbidden := range []string{`"inclusiveDurationMillis"`, `"directUsage"`, `"skillNames"`, `"attemptIds"`, `"failureIds"`} {
+	for _, forbidden := range []string{`"selfDurationMillis"`, `"directUsage"`, `"skillNames"`, `"attemptIds"`, `"failureIds"`} {
 		if strings.Contains(w.Body.String(), forbidden) {
 			t.Fatalf("compact frame retained %s: %s", forbidden, w.Body.String())
 		}

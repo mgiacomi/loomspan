@@ -624,8 +624,11 @@ func TestCompactFrameProjectionRetainsHierarchyAndOmitsDetailedEvidence(t *testi
 	if !reflect.DeepEqual(root.ChildFrameIDs, []string{"skill"}) {
 		t.Fatalf("compact hierarchy lost children: %+v", root.ChildFrameIDs)
 	}
+	if root.InclusiveDurationMillis == nil {
+		t.Fatalf("compact hierarchy lost inclusive duration: %+v", root)
+	}
 	for _, frame := range page.Items {
-		if frame.InclusiveDurationMillis != nil || frame.SelfDurationMillis != nil || frame.DirectUsage != (Usage{}) || frame.DescendantUsage != (Usage{}) || frame.InclusiveUsage != (Usage{}) || len(frame.SkillNames) != 0 || len(frame.AttemptIDs) != 0 || len(frame.RetrySequenceIDs) != 0 || len(frame.ValidationStatuses) != 0 || len(frame.FailureIDs) != 0 || len(frame.GapKinds) != 0 || len(frame.UncertaintyKinds) != 0 {
+		if frame.SelfDurationMillis != nil || frame.DirectUsage != (Usage{}) || frame.DescendantUsage != (Usage{}) || frame.InclusiveUsage != (Usage{}) || len(frame.SkillNames) != 0 || len(frame.AttemptIDs) != 0 || len(frame.RetrySequenceIDs) != 0 || len(frame.ValidationStatuses) != 0 || len(frame.FailureIDs) != 0 || len(frame.GapKinds) != 0 || len(frame.UncertaintyKinds) != 0 {
 			t.Fatalf("compact frame retained detailed evidence: %+v", frame)
 		}
 	}

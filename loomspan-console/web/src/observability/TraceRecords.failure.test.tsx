@@ -16,10 +16,11 @@ const failure: TraceFailure = {
   validationStatus: "",
 };
 
-function record(sequence: number, type: string): TraceRecord {
+function record(sequence: number, type: string, failureId?: string): TraceRecord {
   return {
     sequence,
     type,
+    failureId,
     frameId: "frame-1",
     parentFrameId: "",
     frameType: "MODEL_CALL",
@@ -41,6 +42,8 @@ test("distinguishes recoverable warnings from failure records and removes detach
         record(14, "MODEL_ATTEMPT_FAILED"),
         record(15, "ERROR_RECORDED"),
         record(16, "PLAN_VALIDATION_FAILED"),
+        record(17, "STEP_FAILED", "failure-15"),
+        record(18, "FRAME_CLOSED", "failure-15"),
       ]}
       failures={[failure]}
       selectedFailureId="failure-15"
@@ -50,25 +53,25 @@ test("distinguishes recoverable warnings from failure records and removes detach
     />,
   );
 
-  const errorRow = screen
-    .getByRole("button", { name: "15: ERROR_RECORDED" })
-    .closest("tr");
-  const attemptRow = screen
-    .getByRole("button", { name: "14: MODEL_ATTEMPT_FAILED" })
-    .closest("tr");
-  const badPlanRow = screen
-    .getByRole("button", { name: "16: PLAN_VALIDATION_FAILED" })
-    .closest("tr");
+  const errorRow = screen.getByRole("row", { name: "Failure: record 15, ERROR_RECORDED" });
+  const attemptRow = screen.getByRole("row", { name: "Retry or warning: record 14, MODEL_ATTEMPT_FAILED" });
+  const badPlanRow = screen.getByRole("row", { name: "Retry or warning: record 16, PLAN_VALIDATION_FAILED" });
+  const relatedFailureRow = screen.getByRole("row", { name: "Failure: record 17, STEP_FAILED" });
+  const relatedClosedFrameRow = screen.getByRole("row", { name: "Failure: record 18, FRAME_CLOSED" });
   expect(errorRow).toHaveClass("trace-record-error");
   expect(errorRow).toHaveAccessibleName("Failure: record 15, ERROR_RECORDED");
   expect(attemptRow).toHaveClass("trace-record-warning");
   expect(badPlanRow).toHaveClass("trace-record-warning");
+  expect(relatedFailureRow).toHaveClass("trace-record-error");
+  expect(relatedClosedFrameRow).toHaveClass("trace-record-error");
   expect(attemptRow).toHaveAccessibleName("Retry or warning: record 14, MODEL_ATTEMPT_FAILED");
+  expect(errorRow.querySelectorAll("td")[3]).toBeEmptyDOMElement();
   expect(screen.queryByRole("heading", { name: "Attempts, retries, and validation" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Failures and uncertainty" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Payloads" })).toBeNull();
 
   const action = screen.getByRole("button", { name: "View error" });
+  expect(screen.getAllByRole("button", { name: "View error" })).toHaveLength(1);
   expect(action).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(action);
   expect(selectFailure).toHaveBeenCalledWith("failure-15");

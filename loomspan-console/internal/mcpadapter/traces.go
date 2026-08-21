@@ -36,7 +36,7 @@ func addTraceTools(server *mcp.Server, options ServerOptions) {
 	})
 	frameSchema := traceInputSchema[queryTraceFramesInput]()
 	prepareQueryFramesSchema(frameSchema)
-	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts. filter.minDirectRetries uses later attempts explicitly attributed to the exact frame; it is not a root-cause or anomaly determination. COMPACT is the default orientation projection and omits duration, usage, and identity detail. DETAILED returns elapsed-millisecond duration, usage attribution, retry identities, validations, failures, gaps, and uncertainties. pageSize is a maximum; continue until hasMore is false.", InputSchema: frameSchema}
+	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts. filter.minDirectRetries uses later attempts explicitly attributed to the exact frame; it is not a root-cause or anomaly determination. COMPACT is the default orientation projection and includes inclusive elapsed-millisecond duration while omitting self-duration, usage, and identity detail. DETAILED additionally returns self-duration, usage attribution, retry identities, validations, failures, gaps, and uncertainties. pageSize is a maximum; continue until hasMore is false.", InputSchema: frameSchema}
 	add(frames)
 	addValidatedTool(server, frames, frameQueryOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input queryTraceFramesInput) (*mcp.CallToolResult, toolEnvelope[queryFramesResult], error) {
 		return handleQueryTraceFrames(ctx, options, input)
@@ -571,7 +571,7 @@ func traceFramesText(value queryFramesResult) string {
 }
 func frameFallbackLine(x frameDTO, projection traceanalysis.FrameProjection) string {
 	if projection == traceanalysis.FrameProjectionCompact {
-		return fmt.Sprintf("frameId=%q parentFrameId=%q type=%q route=%q outcome=%q attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), optionalValue(x.ParentFrameID, fallbackField), x.FrameType, fallbackField(x.Route), optionalValue(x.Outcome, fallbackField), x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
+		return fmt.Sprintf("frameId=%q parentFrameId=%q type=%q route=%q inclusiveDurationMillis=%s outcome=%q attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), optionalValue(x.ParentFrameID, fallbackField), x.FrameType, fallbackField(x.Route), optionalValue(x.InclusiveDurationMillis, formatFallbackInt64), optionalValue(x.Outcome, fallbackField), x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
 	}
 	return fmt.Sprintf("frameId=%q parentFrameId=%q type=%q route=%q closedTimestampMillis=%s inclusiveDurationMillis=%s selfDurationMillis=%s outcome=%q attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d\n", fallbackField(x.FrameID), optionalValue(x.ParentFrameID, fallbackField), x.FrameType, fallbackField(x.Route), optionalValue(x.ClosedTimestampMillis, formatFallbackInt64), optionalValue(x.InclusiveDurationMillis, formatFallbackInt64), optionalValue(x.SelfDurationMillis, formatFallbackInt64), optionalValue(x.Outcome, fallbackField), x.DirectAttemptCount, x.DirectRetryCount, x.DirectValidationCount, x.DirectFailureCount, x.GapCount, x.UncertaintyCount)
 }

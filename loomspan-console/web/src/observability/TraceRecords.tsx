@@ -1,13 +1,21 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { getContentRange, getRawRecordRange, getTraceRecords } from "../api/client";
+import { getContentRange, getRawRecordRange, getTraceAttempts, getTraceRecords } from "../api/client";
 import type { TraceRange, TraceSource } from "../api/contracts";
-import type { TraceFailure, TracePlanLandmark, TraceRecord } from "../api/contracts";
+import type { TraceAttempt, TraceFailure, TraceFrame, TracePlanLandmark, TraceRecord } from "../api/contracts";
 import type { TraceFrameFilter } from "../api/client";
 import { comparePlans, toPlanSnapshot } from "./planComparison";
 import type { PlanComparison, PlanSnapshot } from "./planComparison";
+import { TraceEvidenceDetail } from "./TraceEvidenceDetail";
 
-type Props = { traceId?: string; source?: TraceSource; records: TraceRecord[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onContent: (contentRef: string) => void };
+type Props = { traceId?: string; source?: TraceSource; records: TraceRecord[]; frames?: TraceFrame[]; failures: TraceFailure[]; selectedRecordSequence?: number; selectedFailureId?: string; activeContentRecordSequence?: number; contentRange?: TraceRange; contentPending?: boolean; contentError?: string; onSelectRecord: (record: TraceRecord) => void; onSelectFailure: (failureId: string) => void; onRelatedFrame?: (filter: TraceFrameFilter) => void; onFrameRecord?: (frameId: string) => void; onContent: (contentRef: string, recordSequence: number) => void; onNextContent?: () => void; onClearContent?: () => void };
+
+function formatFrameDuration(durationMillis: number) {
+  const minutes = Math.floor(durationMillis / 60_000);
+  const seconds = Math.floor((durationMillis % 60_000) / 1000);
+  const millis = durationMillis % 1000;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+}
 
 type PlanCacheEntry = {
   loading: boolean;
@@ -19,6 +27,12 @@ type PlanCacheEntry = {
   comparisonReady?: boolean;
   comparison?: PlanComparison;
   previousSequence?: number;
+  historyLoading?: boolean;
+  historyError?: string;
+  history?: TraceRecord[];
+  acceptedAttemptLoading?: boolean;
+  acceptedAttemptError?: string;
+  acceptedAttempt?: { label: string; responseRecord?: TraceRecord };
 };
 
 type ModelDetail =
@@ -419,6 +433,41 @@ async function findPreviousPlan(traceId: string, sequence: number, planId: strin
     if (snapshot.planId === planId) return { sequence: candidate.sequence, snapshot };
   }
   return undefined;
+}
+
+async function loadPlanHistory(traceId: string, current: TraceRecord, planId: string, source: TraceSource): Promise<TraceRecord[]> {
+  const versions: TraceRecord[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await getTraceRecords(traceId, cursor, { types: ["PLAN_CREATED", "PLAN_UPDATED"] }, source);
+    versions.push(...page.items.filter((candidate) => candidate.plan?.planId === planId));
+    if (!page.hasMore) break;
+    if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Plan history continuation was invalid.");
+    cursor = page.nextCursor;
+  } while (true);
+  if (!versions.some((candidate) => candidate.sequence === current.sequence)) versions.push(current);
+  return versions.sort((left, right) => left.sequence - right.sequence);
+}
+
+async function loadAcceptedPlanAttempt(traceId: string, plan: TracePlanLandmark, source: TraceSource): Promise<{ label: string; responseRecord?: TraceRecord } | undefined> {
+  if (!plan.attemptId) return undefined;
+  const attempts: TraceAttempt[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await getTraceAttempts(traceId, cursor, source);
+    attempts.push(...page.items);
+    if (!page.hasMore) break;
+    if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Attempt continuation was invalid.");
+    cursor = page.nextCursor;
+  } while (true);
+  const accepted = attempts.find((attempt) => attempt.attemptId === plan.attemptId);
+  if (!accepted) throw new Error("The accepted attempt is not available in this trace.");
+  const retrySequenceId = plan.retrySequenceId || accepted.retrySequenceId;
+  const sequenceAttempts = attempts.filter((attempt) => attempt.retrySequenceId === retrySequenceId);
+  const totalAttempts = sequenceAttempts.length || 1;
+  const responses = await getTraceRecords(traceId, undefined, { types: ["MODEL_RESPONSE_RECEIVED"], attemptId: accepted.attemptId }, source);
+  const responseRecord = responses.items.sort((left, right) => right.sequence - left.sequence)[0];
+  return { label: `Attempt ${accepted.attemptNumber} of ${totalAttempts}`, responseRecord };
 }
 
 async function findProposedAction(traceId: string, record: TraceRecord, source: TraceSource): Promise<{ sequence: number; detail: StepActionDetail } | undefined> {
@@ -933,15 +982,30 @@ function RecordDetailView({ detail, onOpenRelated, onSelectFailure }: { detail: 
   </>;
 }
 
-function PlanLandmarks({ plan, onFrame }: { plan: TracePlanLandmark; onFrame: (frameId: string) => void }) {
-  return <dl className="trace-step-facts" role="group" aria-label={`Plan ${plan.planId} landmarks`}>
-    <div><dt>Plan ID</dt><dd>{plan.planId}</dd></div>
-    <div><dt>Trace root frame</dt><dd><button type="button" onClick={() => onFrame(plan.traceRootFrameId)}>{plan.traceRootFrameId}</button></dd></div>
-    <div><dt>Owning mission frame</dt><dd><button type="button" onClick={() => onFrame(plan.missionFrameId)}>{plan.missionFrameId}</button></dd></div>
-    <div><dt>Planning frame</dt><dd><button type="button" onClick={() => onFrame(plan.planningFrameId)}>{plan.planningFrameId}</button></dd></div>
-    {plan.attemptId && <div><dt>Accepted attempt</dt><dd>{plan.attemptId}</dd></div>}
-    {plan.retrySequenceId && <div><dt>Retry sequence</dt><dd>{plan.retrySequenceId}</dd></div>}
-  </dl>;
+function PlanLandmarks({ record, entry, onFrame, onRecord }: { record: TraceRecord; entry?: PlanCacheEntry; onFrame: (frameId: string) => void; onRecord: (record: TraceRecord) => void }) {
+  const plan = record.plan!;
+  return <section aria-label={`Plan details for record ${record.sequence}`}>
+    <dl className="trace-step-facts">
+      <div><dt>Owning mission frame</dt><dd><button type="button" onClick={() => onFrame(plan.missionFrameId)}>{plan.missionFrameId}</button></dd></div>
+      {plan.planningFrameId !== record.frameId && <div><dt>Planning frame</dt><dd><button type="button" onClick={() => onFrame(plan.planningFrameId)}>{plan.planningFrameId}</button></dd></div>}
+      {plan.attemptId && <div><dt>Plan accepted</dt><dd>
+        {entry?.acceptedAttemptLoading && <span role="status">Loading attempt summary&hellip;</span>}
+        {entry?.acceptedAttemptError && <span>{entry.acceptedAttemptError}</span>}
+        {entry?.acceptedAttempt && (entry.acceptedAttempt.responseRecord
+          ? <button type="button" onClick={() => onRecord(entry.acceptedAttempt!.responseRecord!)}>{entry.acceptedAttempt.label}</button>
+          : entry.acceptedAttempt.label)}
+      </dd></div>}
+    </dl>
+    {entry?.historyLoading && <p role="status">Loading plan history&hellip;</p>}
+    {entry?.historyError && <p className="target-error" role="alert">{entry.historyError}</p>}
+    {(entry?.history?.length ?? 0) > 1 && <section aria-label="Plan history">
+      <strong>Plan History:</strong>{" "}
+      {entry!.history!.map((version, index) => <Fragment key={version.sequence}>
+        {index > 0 && " / "}
+        <button type="button" onClick={() => onRecord(version)}>{version.sequence} {version.type === "PLAN_CREATED" ? "Created" : "Updated"}</button>
+      </Fragment>)}
+    </section>}
+  </section>;
 }
 
 function PlanChanges({ comparison, previousSequence }: { comparison: PlanComparison; previousSequence: number }) {
@@ -962,8 +1026,9 @@ function PlanChanges({ comparison, previousSequence }: { comparison: PlanCompari
   </section>;
 }
 
-export function TraceRecords({ traceId, source = "TARGET", records, failures, selectedRecordSequence, selectedFailureId, onSelectRecord, onSelectFailure, onRelatedFrame, onContent }: Props) {
+export function TraceRecords({ traceId, source = "TARGET", records, frames = [], failures, selectedRecordSequence, selectedFailureId, activeContentRecordSequence, contentRange, contentPending = false, contentError, onSelectRecord, onSelectFailure, onRelatedFrame, onFrameRecord, onContent, onNextContent = () => {}, onClearContent = () => {} }: Props) {
   const related = onRelatedFrame ?? (() => undefined);
+  const framesById = useMemo(() => new Map(frames.map((frame) => [frame.frameId, frame])), [frames]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cache, setCache] = useState<Record<string, PlanCacheEntry>>({});
   const [modelCache, setModelCache] = useState<Record<string, ModelCacheEntry>>({});
@@ -992,11 +1057,27 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
     if (!traceId) return;
     const existing = cache[key];
     if (existing?.json || existing?.loading) return;
-    setCache((prev) => ({ ...prev, [key]: { loading: true } }));
+    setCache((prev) => ({ ...prev, [key]: { loading: true, historyLoading: Boolean(record.plan?.planId), acceptedAttemptLoading: Boolean(record.plan?.attemptId) } }));
+    if (record.plan?.planId) {
+      void loadPlanHistory(traceId, record, record.plan.planId, source)
+        .then((history) => setCache((prev) => ({ ...prev, [key]: { ...prev[key], historyLoading: false, history } })))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Plan history could not be loaded.";
+          setCache((prev) => ({ ...prev, [key]: { ...prev[key], historyLoading: false, historyError: message } }));
+        });
+    }
+    if (record.plan?.attemptId) {
+      void loadAcceptedPlanAttempt(traceId, record.plan, source)
+        .then((acceptedAttempt) => setCache((prev) => ({ ...prev, [key]: { ...prev[key], acceptedAttemptLoading: false, acceptedAttempt } })))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Accepted attempt details could not be loaded.";
+          setCache((prev) => ({ ...prev, [key]: { ...prev[key], acceptedAttemptLoading: false, acceptedAttemptError: message } }));
+        });
+    }
     void readPlanSnapshot(traceId, record, source)
       .then(async (snapshot) => {
         const json = JSON.stringify(snapshot.value, null, 2);
-        setCache((prev) => ({ ...prev, [key]: { loading: false, json, snapshot, comparisonLoading: isUpdate } }));
+        setCache((prev) => ({ ...prev, [key]: { ...prev[key], loading: false, json, snapshot, comparisonLoading: isUpdate } }));
         if (!isUpdate) return;
         if (!snapshot.planId) {
           setCache((prev) => ({ ...prev, [key]: { ...prev[key], comparisonLoading: false, comparisonError: "The plan update did not contain a plan ID." } }));
@@ -1013,7 +1094,7 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? `Plan could not be displayed: ${err.message}` : "Plan could not be displayed.";
-        setCache((prev) => ({ ...prev, [key]: { loading: false, error: message } }));
+        setCache((prev) => ({ ...prev, [key]: { ...prev[key], loading: false, error: message } }));
       });
   };
 
@@ -1156,7 +1237,7 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
   };
 
   return <div aria-label="Trace records">
-    <h4>Records</h4><div className="trace-table-region" role="region" aria-label="Record list" tabIndex={0}><table><thead><tr><th>Sequence</th><th>Type</th><th>Frame</th><th>Timestamp</th><th>Actions</th></tr></thead><tbody>{records.map((record) => {
+    <h4>Records</h4><div className="trace-table-region" role="region" aria-label="Record list" tabIndex={0}><table><thead><tr><th>Sequence</th><th>Type</th><th>Frame</th><th>Frame duration</th><th>Actions</th></tr></thead><tbody>{records.map((record) => {
       const isPlanCreated = record.type === "PLAN_CREATED";
       const isPlanUpdated = record.type === "PLAN_UPDATED";
       const isPlanRecord = isPlanCreated || isPlanUpdated;
@@ -1182,6 +1263,8 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
       const isPlanExpanded = expanded === `${key}:plan`;
       const isModelExpanded = expanded === `${key}:model`;
       const isRawExpanded = expanded === `${key}:raw`;
+      const contentRef = record.content?.contentRef;
+      const isContentExpanded = activeContentRecordSequence === record.sequence;
       const isStepExpanded = expanded === `${key}:step`;
       const isStepActionExpanded = expanded === `${key}:step-action`;
       const isRecordDetailExpanded = expanded === `${key}:record-detail`;
@@ -1196,17 +1279,18 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
         : failures.find((failure) => failure.sequence === record.sequence);
       const severity = recordSeverity(record, linkedFailure);
       const severityLabel = severity === "error" ? "Failure" : severity === "warning" ? "Retry or warning" : undefined;
+      const frameDuration = framesById.get(record.frameId)?.inclusiveDurationMillis;
       return (
         <Fragment key={record.sequence}>
-          <tr className={severity === "normal" ? undefined : `trace-record-${severity}`} aria-label={severityLabel ? `${severityLabel}: record ${record.sequence}, ${record.type}` : undefined} aria-current={selectedRecordSequence === record.sequence ? "true" : undefined}>
-            <td><button id={`trace-record-${record.sequence}`} type="button" onClick={() => onSelectRecord(record)}>{record.sequence}: {record.type}</button></td>
+          <tr id={`trace-record-${record.sequence}`} className={`trace-record-row${severity === "normal" ? "" : ` trace-record-${severity}`}`} aria-label={severityLabel ? `${severityLabel}: record ${record.sequence}, ${record.type}` : `Record ${record.sequence}, ${record.type}`} aria-current={selectedRecordSequence === record.sequence ? "true" : undefined} tabIndex={0} onClick={(event) => { if (!(event.target as Element).closest("button")) onSelectRecord(record); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelectRecord(record); } }}>
+            <td className="trace-record-identifier">{record.sequence}</td>
             <td>{record.type}</td>
-            <td>{record.frameId && <button type="button" onClick={() => related({ frameIds: [record.frameId] })}>{record.frameId}</button>}</td>
-            <td>{record.timestampMillis}</td>
+            <td className="trace-record-identifier">{record.frameId}</td>
+            <td>{frameDuration == null ? null : <span title={`${frameDuration} ms`}>{formatFrameDuration(frameDuration)}</span>}</td>
             <td>
               <button type="button" aria-expanded={isRawExpanded} aria-controls={`raw-detail-${record.sequence}`} onClick={() => handleToggleRaw(record)}>{isRawExpanded ? "Hide raw record" : "Read raw record"}</button>
-              {record.content?.contentRef && !isModelRecord && <button type="button" onClick={() => onContent(record.content!.contentRef!)}>Read content</button>}
-              {linkedFailure && <button className="trace-error-action" type="button" aria-pressed={selectedFailureId === linkedFailure.failureId} onClick={() => onSelectFailure(linkedFailure.failureId)}>View error</button>}
+              {contentRef && !isModelRecord && <button type="button" aria-expanded={isContentExpanded} aria-controls={`content-detail-${record.sequence}`} onClick={() => isContentExpanded ? onClearContent() : onContent(contentRef, record.sequence)}>{isContentExpanded ? "Hide content" : "Read content"}</button>}
+              {record.type === "ERROR_RECORDED" && linkedFailure && <button className="trace-error-action" type="button" aria-pressed={selectedFailureId === linkedFailure.failureId} onClick={() => onSelectFailure(linkedFailure.failureId)}>View error</button>}
               {isPlanRecord && traceId && (
                 <button type="button" aria-expanded={isPlanExpanded} aria-controls={`plan-detail-${record.sequence}`} onClick={() => handleTogglePlan(record)}>
                   {isPlanExpanded ? (isPlanUpdated ? "Hide changes" : "Hide Plan") : (isPlanUpdated ? "View changes" : "Show Plan")}
@@ -1246,11 +1330,20 @@ export function TraceRecords({ traceId, source = "TARGET", records, failures, se
               </td>
             </tr>
           )}
+          {isContentExpanded && (
+            <tr key={`${record.sequence}-content`}>
+              <td colSpan={5}>
+                <div id={`content-detail-${record.sequence}`} className="trace-raw-expanded">
+                  <TraceEvidenceDetail range={contentRange} pending={contentPending} error={contentError} label={`Content for record ${record.sequence}`} onNext={onNextContent} onClear={onClearContent} />
+                </div>
+              </td>
+            </tr>
+          )}
           {isPlanRecord && isPlanExpanded && (
             <tr key={`${record.sequence}-plan`}>
               <td colSpan={5}>
                 <div id={`plan-detail-${record.sequence}`} className="trace-plan-expanded" role="region" aria-label={`${isPlanUpdated ? "Plan update" : "Plan"} for record ${record.sequence}`}>
-                  {record.plan && <PlanLandmarks plan={record.plan} onFrame={(frameId) => related({ frameIds: [frameId] })} />}
+                  {record.plan && <PlanLandmarks record={record} entry={entry} onFrame={(frameId) => onFrameRecord ? onFrameRecord(frameId) : related({ frameIds: [frameId] })} onRecord={onSelectRecord} />}
                   {!traceId && <p role="status">Trace context unavailable.</p>}
                   {traceId && entry?.loading && <p role="status">Loading plan&hellip;</p>}
                   {entry?.error && <p role="alert">{entry.error}</p>}

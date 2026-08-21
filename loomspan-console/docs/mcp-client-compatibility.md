@@ -41,7 +41,7 @@ The release also carries the byte-identical, client-neutral
 `skills/loomspan/` package. Installation is a user-selected
 copy or filesystem link into a local client's user/global skill location; it
 does not auto-install or contain an endpoint or key. Skill package version
-1.0.0 is independent of the Console version. Live use requires the existing
+1.0.1 is independent of the Console version. Live use requires the existing
 protected MCP configuration. Five named capabilities are required and raw
 artifact inspection is optional. Skill-only, MCP-only, missing-required, and
 missing-optional behavior is evaluated separately so protocol, capability,

@@ -7,6 +7,9 @@ const route = vi.hoisted(() => ({
   scope: "scope-1",
   navigate: vi.fn(),
 }));
+const browserSession = vi.hoisted(() => ({
+  getSecurity: () => ({ tabId: "test-tab", csrfToken: "test-token" }),
+}));
 
 vi.mock("../api/client", () => ({
   getStorageSnapshot: vi.fn(),
@@ -42,9 +45,7 @@ vi.mock("../target/TargetProvider", () => ({
 }));
 
 vi.mock("../security/BrowserSessionProvider", () => ({
-  useBrowserSession: () => ({
-    getSecurity: () => ({ tabId: "test-tab", csrfToken: "test-token" }),
-  }),
+  useBrowserSession: () => browserSession,
 }));
 
 import {
@@ -98,15 +99,44 @@ beforeEach(() => {
   route.navigate.mockReset();
 });
 
-test("opens a selected trace file and navigates to imported evidence", async () => {
+test("opens the file picker and imports a selected trace immediately", async () => {
   vi.mocked(getStorageSnapshot).mockResolvedValue(makeSnapshot());
   vi.mocked(importTraceFile).mockResolvedValue({ source: "IMPORTED", artifactHandle: "h", traceId: "trace-import", sessionId: "session-import", outcome: "SUCCEEDED", finalizedAt: "2026-08-12T00:00:00Z", localBytes: 12, acquiredAt: "2026-08-12T00:00:01Z", lastUsedAt: "2026-08-12T00:00:01Z", expiresAt: "2026-08-12T01:00:01Z", hasIdleExpiry: true });
   render(<TraceStorage />);
+  const input = screen.getByLabelText("Trace files");
+  const picker = vi.spyOn(input, "click");
+  fireEvent.click(screen.getByRole("button", { name: "Import Trace File" }));
+  expect(picker).toHaveBeenCalled();
+
   const file = new File(["{}\n"], "trace.ndjson", { type: "application/x-ndjson" });
-  fireEvent.change(screen.getByLabelText("Trace file"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "Open trace file" }));
+  fireEvent.change(input, { target: { files: [file] } });
   await vi.waitFor(() => expect(importTraceFile).toHaveBeenCalledWith(file, { tabId: "test-tab", csrfToken: "test-token" }));
   expect(route.navigate).toHaveBeenCalledWith("/traces/imported/trace-import");
+});
+
+test("imports dropped files sequentially and reports batch results without navigating", async () => {
+  const { BrowserAPIError } = await import("../api/client");
+  vi.mocked(getStorageSnapshot).mockResolvedValue(makeSnapshot());
+  let finishFirst: ((value: Awaited<ReturnType<typeof importTraceFile>>) => void) | undefined;
+  vi.mocked(importTraceFile)
+    .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+    .mockRejectedValueOnce(new BrowserAPIError("INVALID_ARTIFACT", "Invalid trace file", 400));
+  render(<TraceStorage />);
+  const first = new File(["{}\n"], "first.ndjson", { type: "application/x-ndjson" });
+  const second = new File(["bad\n"], "second.ndjson", { type: "application/x-ndjson" });
+
+  fireEvent.drop(screen.getByRole("group", { name: "Trace file import" }), { dataTransfer: { files: [first, second] } });
+  await vi.waitFor(() => expect(importTraceFile).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("status")).toHaveTextContent("Importing 1 of 2");
+
+  finishFirst?.({ source: "IMPORTED", artifactHandle: "h", traceId: "trace-first", sessionId: "session-import", outcome: "SUCCEEDED", finalizedAt: "2026-08-12T00:00:00Z", localBytes: 12, acquiredAt: "2026-08-12T00:00:01Z", lastUsedAt: "2026-08-12T00:00:01Z", expiresAt: "2026-08-12T01:00:01Z", hasIdleExpiry: true });
+  await vi.waitFor(() => expect(importTraceFile).toHaveBeenCalledTimes(2));
+  expect(importTraceFile).toHaveBeenNthCalledWith(2, second, { tabId: "test-tab", csrfToken: "test-token" });
+  const results = await screen.findByRole("region", { name: "Trace import results" });
+  await vi.waitFor(() => expect(results).toHaveTextContent("first.ndjson: Imported as trace-first"));
+  expect(results).toHaveTextContent("second.ndjson: Invalid trace file");
+  expect(route.navigate).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(getStorageSnapshot).toHaveBeenCalledTimes(2));
 });
 
 test("trace storage renders loading state", () => {

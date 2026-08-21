@@ -239,7 +239,6 @@ func populateFrameCounts(summary *FrameSummary) {
 }
 
 func compactFrameSummary(summary *FrameSummary) {
-	summary.InclusiveDurationMillis = nil
 	summary.SelfDurationMillis = nil
 	summary.DirectUsage = Usage{}
 	summary.DirectUsageComplete = false

@@ -54,7 +54,7 @@ The release names are
 `loomspan-console-VERSION-macos-arm64.tar.gz`. Each has one top-level directory
 containing the executable, `LICENSE`, the runtime `README.md`, and the exact
 six-file portable Agent Skill at `skills/loomspan/`
-(`SKILL.md` plus five files in `references/`). The skill's `1.0.0` metadata is
+(`SKILL.md` plus five files in `references/`). The skill's `1.0.1` metadata is
 versioned independently from Console and is not target negotiation.
 Check `SHA256SUMS` with `sha256sum -c SHA256SUMS` on POSIX systems; in
 PowerShell compare `(Get-FileHash -Algorithm SHA256 .\\ARCHIVE).Hash` with the
@@ -325,10 +325,11 @@ Use selected keys with the paginated record query; do not infer logical
 failures, gaps, uncertainties, usage completeness, or terminal outcome from
 the physical histogram.
 
-Frame queries default to `COMPACT`, which retains orientation/count facts but
-omits duration, usage, and identity detail. `DETAILED` supplies elapsed-
-millisecond duration and rich usage/retry/validation/failure/gap/uncertainty
-facts. A frame has an optional scalar close `outcome`; no close status means it
+Frame queries default to `COMPACT`, which retains orientation/count facts and
+optional inclusive elapsed-millisecond duration while omitting self-duration,
+usage, and identity detail. `DETAILED` adds self-duration and rich
+usage/retry/validation/failure/gap/uncertainty facts. A frame has an optional
+scalar close `outcome`; no close status means it
 is absent. Frame filters compose with AND semantics, including
 `minDirectRetries` against the existing exact-frame count. Record timestamps
 are epoch milliseconds; frame durations are elapsed milliseconds.

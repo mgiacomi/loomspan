@@ -36,10 +36,11 @@ LOOMSPAN_list_traces -> LOOMSPAN_get_trace -> compact frames -> record descripto
   and sequence. Query selected types for other details. Keep the histogram
   independent from terminal outcome, logical failures, gaps, uncertainties,
   and usage completeness.
-- `LOOMSPAN_query_trace_frames` defaults to `COMPACT`; request `DETAILED` only
-  for elapsed-millisecond duration, usage, retry identities, validation,
-  failure, gap, or uncertainty evidence. COMPACT omits those details. A
-  frame's authoritative close `outcome` is optional and scalar. Use
+- `LOOMSPAN_query_trace_frames` defaults to `COMPACT`, which includes optional
+  inclusive elapsed-millisecond duration with orientation and count facts.
+  Request `DETAILED` only for self-duration, usage, retry identities,
+  validation, failure, gap, or uncertainty evidence. A frame's authoritative
+  close `outcome` is optional and scalar. Use
   `filter.minDirectRetries` to select frames with at least that many later
   attempts explicitly attributed to the exact frame; it is a count filter,
   not a cause or anomaly determination.

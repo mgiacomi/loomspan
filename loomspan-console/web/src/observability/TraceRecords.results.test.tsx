@@ -46,13 +46,16 @@ beforeEach(() => {
   getTraceRecordsMock.mockReset();
 });
 
-test("links a failed step to its diagnostic failure by failure ID", () => {
+test("shows the diagnostic action once on the canonical error when a failed step shares its failure ID", () => {
   const onSelectFailure = vi.fn();
   const failed = { ...record(12, "STEP_FAILED", "handleBilling#step-1"), failureId: "failure-step" };
+  const error = { ...record(11, "ERROR_RECORDED", "handleBilling#step-1"), failureId: "failure-step" };
   const failure: TraceFailure = { failureId: "failure-step", terminal: false, sequence: 11, timestampMillis: 11, recordType: "ERROR_RECORDED", frameId: "frame", route: "handleBilling#step-1", attemptId: "", retrySequenceId: "", validationStatus: "" };
-  renderRecord(failed, vi.fn(), onSelectFailure, [failure]);
+  render(<TraceRecords traceId="trace-1" records={[error, failed]} failures={[failure]} onSelectRecord={vi.fn()} onSelectFailure={onSelectFailure} onContent={vi.fn()} />);
 
-  fireEvent.click(screen.getByRole("button", { name: "View error" }));
+  const actions = screen.getAllByRole("button", { name: "View error" });
+  expect(actions).toHaveLength(1);
+  fireEvent.click(actions[0]);
   expect(onSelectFailure).toHaveBeenCalledWith("failure-step");
 });
 

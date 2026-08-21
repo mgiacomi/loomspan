@@ -14,8 +14,9 @@ test("opens a same-version trace file without a configured target", async ({ pag
   await page.goto(`${consoleProcess.origin}/trace-storage`);
   await expect(page.getByRole("heading", { name: "Trace Storage" })).toBeVisible();
 
-  await page.getByLabel("Trace file").setInputFiles(portableTrace);
-  await page.getByRole("button", { name: "Open trace file" }).click();
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import Trace File" }).click();
+  await (await fileChooserPromise).setFiles(portableTrace);
 
   await expect(page).toHaveURL(/\/traces\/imported\/trace-single-attempt-success$/);
   await expect(page.getByRole("heading", { name: "Imported trace" })).toBeVisible();
@@ -30,15 +31,14 @@ test("rejects a different-version trace without installing it", async ({ page, c
   await page.goto(consoleProcess.pairingUrl);
   await page.goto(`${consoleProcess.origin}/trace-storage`);
 
-  await page.getByLabel("Trace file").setInputFiles({
+  await page.getByLabel("Trace files").setInputFiles({
     name: "mismatched.ndjson",
     mimeType: "application/x-ndjson",
     buffer: Buffer.from(mismatched),
   });
-  await page.getByRole("button", { name: "Open trace file" }).click();
-
-  await expect(page.getByRole("alert")).toContainText("incompatible Loomspan version");
-  await expect(page.getByRole("alert")).toContainText("0.1.0-SNAPSHOT");
-  await expect(page.getByRole("alert")).toContainText("9.9.9");
+  const results = page.getByRole("region", { name: "Trace import results" });
+  await expect(results).toContainText("incompatible Loomspan version");
+  await expect(results).toContainText("0.1.0-SNAPSHOT");
+  await expect(results).toContainText("9.9.9");
   await expect(page.getByText("No artifacts are currently stored.")).toBeVisible();
 });

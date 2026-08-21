@@ -22,6 +22,7 @@ import (
 )
 
 func stringPointer(value string) *string { return &value }
+func int64Pointer(value int64) *int64    { return &value }
 
 func TestTraceRangeTextFallbackPreservesContent(t *testing.T) {
 	content := strings.Repeat("unique-large-content", 4096)
@@ -216,7 +217,7 @@ func TestRepresentativeStructuredNavigationResponsesMeetBudgets(t *testing.T) {
 func TestCompactFrameSerializationRetainsHierarchyWithoutEmptyDetailedFields(t *testing.T) {
 	summary := traceanalysis.FrameSummary{
 		FrameID: "root", ChildFrameIDs: []string{"child"}, FrameType: "ROOT_MISSION", Route: "root",
-		Outcome: stringPointer("completed"), DirectAttemptCount: 2, DirectFailureCount: 1,
+		Outcome: stringPointer("completed"), InclusiveDurationMillis: int64Pointer(42), DirectAttemptCount: 2, DirectFailureCount: 1,
 	}
 	compact := mapFrame(summary, traceanalysis.FrameProjectionCompact)
 	body, err := json.Marshal(compact)
@@ -224,12 +225,12 @@ func TestCompactFrameSerializationRetainsHierarchyWithoutEmptyDetailedFields(t *
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, want := range []string{`"childFrameIds":["child"]`, `"directAttemptCount":2`, `"directFailureCount":1`} {
+	for _, want := range []string{`"childFrameIds":["child"]`, `"inclusiveDurationMillis":42`, `"directAttemptCount":2`, `"directFailureCount":1`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("compact frame missing %s: %s", want, text)
 		}
 	}
-	for _, forbidden := range []string{`"skillNames"`, `"attemptIds"`, `"retrySequenceIds"`, `"validationStatuses"`, `"failureIds"`, `"gapKinds"`, `"uncertaintyKinds"`, `"directUsage"`, `"inclusiveDurationMillis"`} {
+	for _, forbidden := range []string{`"skillNames"`, `"attemptIds"`, `"retrySequenceIds"`, `"validationStatuses"`, `"failureIds"`, `"gapKinds"`, `"uncertaintyKinds"`, `"directUsage"`, `"selfDurationMillis"`} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("compact frame retained %s: %s", forbidden, text)
 		}
@@ -249,7 +250,7 @@ func TestFrameFallbackDistinguishesCompactOmissionFromDetailedDuration(t *testin
 	duration := int64(42)
 	item := frameDTO{FrameID: "frame", ChildFrameIDs: []string{}, FrameType: "MODEL_CALL", InclusiveDurationMillis: &duration, SelfDurationMillis: &duration}
 	compact := traceFramesText(queryFramesResult{Projection: string(traceanalysis.FrameProjectionCompact), Items: []frameDTO{item}})
-	if !strings.Contains(compact, "omittedByProjection=COMPACT") || strings.Contains(compact, "DurationMillis") {
+	if !strings.Contains(compact, "omittedByProjection=COMPACT") || !strings.Contains(compact, "inclusiveDurationMillis=42") || strings.Contains(compact, "selfDurationMillis") {
 		t.Fatalf("compact fallback=%q", compact)
 	}
 	detailed := traceFramesText(queryFramesResult{Projection: string(traceanalysis.FrameProjectionDetailed), Items: []frameDTO{item}})

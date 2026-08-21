@@ -124,7 +124,7 @@ func ValidateRecord(record EvaluationRecord, cases map[string]Case) error {
 	if record.RunOrdinal < 1 || strings.TrimSpace(record.FinalAnswer) == "" || len(record.FinalAnswer) > 64*1024 {
 		return fmt.Errorf("run ordinal and final answer are required")
 	}
-	if record.SkillVersion != "1.0.0" && caseValue.SkillAvailable == nil {
+	if record.SkillVersion != "1.0.1" && caseValue.SkillAvailable == nil {
 		return fmt.Errorf("unexpected skill version %q", record.SkillVersion)
 	}
 	if !sameStrings(record.WorkflowIDs, caseValue.WorkflowIDs) {

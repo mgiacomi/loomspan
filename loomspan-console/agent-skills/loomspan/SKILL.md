@@ -4,7 +4,7 @@ description: Investigate Loomspan runtime status, plans, model and tool content,
 license: MPL-2.0
 compatibility: Requires a local client that can use Agent Skills and an already configured Loomspan Console MCP connection for live inspection.
 metadata:
-  lokiscale.loomspan.skill-version: "1.0.0"
+  lokiscale.loomspan.skill-version: "1.0.1"
 ---
 
 # Loomspan runtime debugging
