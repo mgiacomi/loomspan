@@ -19,6 +19,8 @@ public record SkillInputSchemaNode(
         String attachmentMediaType,
         List<String> allowedContentTypes)
 {
+    public static final String ANY_TYPE = "__loomspan_any__";
+
     public SkillInputSchemaNode
     {
         type = requireNonBlank(type, "type");
@@ -59,6 +61,11 @@ public record SkillInputSchemaNode(
     public boolean isObject()
     {
         return "object".equals(type);
+    }
+
+    public boolean isUnconstrained()
+    {
+        return ANY_TYPE.equals(type);
     }
 
     public boolean isArray()

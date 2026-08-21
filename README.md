@@ -230,6 +230,8 @@ YAML manifest `name` is the only public Loomspan skill identity. Use `mapping.ta
 
 Declaring `mapping`, even as `null` or an empty block, selects mapped validation and requires a nonblank target. Mapped input and output behavior is owned by the Java target: Loomspan publishes its reflected input contract, and a different public shape requires a separate Java adapter target. Model/runtime fields such as `model`, `prompt`, schemas, planning, tool allowlists, linting, retries, and evidence annotations are rejected on the mapped child. An LLM parent may still list the child in its own `allowed_skills` and property-level `evidence` expressions.
 
+Reflection preserves Java input meaning: `Object` accepts any JSON-compatible value, `Map<String, Object>` accepts heterogeneous JSON-compatible entry values, typed maps retain their value constraints, and records/DTOs expose named object properties. Prefer a record or DTO when a planner needs stable discoverable fields; generic maps do not infer keys or domain rules. See [reflected Java input contracts](ai/skill-authoring/input-contracts.md) for the complete current-checkout guidance.
+
 The public YAML name may equal the Java method name because public skills and implementation targets use separate namespaces. Multiple mapped YAML skills may also share one Java target. Within a single Spring bean, however, annotated method names must be unique: overloaded `@SkillMethod`s would produce the same `beanName#methodName` target ID and fail startup.
 
 ```yaml

@@ -87,7 +87,8 @@ public class CapabilityExecutionRouter
             }
         }
 
-        return capability.invoker().invoke(refResolver.resolveArguments(normalizedInput, session));
+        return capability.invoker().invoke(
+                refResolver.resolveArguments(normalizedInput, session, capability.inputContract()));
     }
 
     private String objectiveFor(CapabilityMetadata capability, Map<String, Object> arguments)

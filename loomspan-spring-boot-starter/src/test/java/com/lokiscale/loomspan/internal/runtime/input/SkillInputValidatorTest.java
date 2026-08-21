@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SkillInputValidatorTest {
 
@@ -302,5 +303,69 @@ class SkillInputValidatorTest {
             assertThat(result.valid()).as("rejects %s", rejectedValue.getClass().getSimpleName()).isFalse();
             assertThat(result.issues()).extracting(SkillInputValidationIssue::code).containsExactly("type_mismatch");
         }
+    }
+
+    @Test
+    void acceptsAndPreservesJsonKindsForUnconstrainedValues()
+    {
+        LinkedHashMap<String, Object> values = new LinkedHashMap<>();
+        values.put("nothing", null);
+        values.put("text", "alpha");
+        values.put("flag", true);
+        values.put("integer", 7);
+        values.put("decimal", new java.math.BigDecimal("3.25"));
+        values.put("object", new LinkedHashMap<>(Map.of("nested", List.of("one", 2))));
+        values.put("array", new java.util.ArrayList<>(List.of(false, "two")));
+
+        SkillInputValidationResult result = validator.validate(Map.of("value", values), contractWith(anyNode()));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.normalizedInput().get("value")).isEqualTo(values);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> normalized = (Map<String, Object>) result.normalizedInput().get("value");
+        assertThat(normalized.get("integer")).isInstanceOf(Integer.class);
+        assertThat(normalized.get("decimal")).isInstanceOf(java.math.BigDecimal.class);
+        assertThatThrownBy(() -> normalized.put("later", "nope")).isInstanceOf(UnsupportedOperationException.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> nested = (Map<String, Object>) normalized.get("object");
+        assertThatThrownBy(() -> nested.put("later", "nope")).isInstanceOf(UnsupportedOperationException.class);
+        @SuppressWarnings("unchecked")
+        List<Object> array = (List<Object>) normalized.get("array");
+        assertThatThrownBy(() -> array.add("nope")).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void rejectsNonJsonValuesAndUnknownSchemaKindsExplicitly()
+    {
+        SkillInputValidationResult nonJson = validator.validate(
+                Map.of("value", new Object()), contractWith(anyNode()));
+        SkillInputValidationResult unknown = validator.validate(
+                Map.of("value", "text"), contractWith(node("mystery")));
+
+        assertThat(nonJson.valid()).isFalse();
+        assertThat(nonJson.issues()).extracting(SkillInputValidationIssue::path).containsExactly("value");
+        assertThat(nonJson.issues()).extracting(SkillInputValidationIssue::code).containsExactly("non_json_value");
+        assertThat(unknown.valid()).isFalse();
+        assertThat(unknown.issues()).extracting(SkillInputValidationIssue::path).containsExactly("value");
+        assertThat(unknown.issues()).extracting(SkillInputValidationIssue::code)
+                .containsExactly("unsupported_schema_type");
+    }
+
+    private SkillInputContract contractWith(SkillInputSchemaNode child)
+    {
+        return new SkillInputContract(
+                SkillInputContract.SkillInputContractKind.JAVA_REFLECTED,
+                new SkillInputSchemaNode("object", Map.of("value", child), List.of(), Boolean.FALSE,
+                        null, List.of(), null, null, false));
+    }
+
+    private SkillInputSchemaNode anyNode()
+    {
+        return node(SkillInputSchemaNode.ANY_TYPE);
+    }
+
+    private SkillInputSchemaNode node(String type)
+    {
+        return new SkillInputSchemaNode(type, Map.of(), List.of(), null, null, List.of(), null, null, false);
     }
 }

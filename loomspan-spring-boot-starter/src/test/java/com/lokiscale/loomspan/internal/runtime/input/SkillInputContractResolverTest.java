@@ -34,6 +34,64 @@ class SkillInputContractResolverTest
         assertThat(imageNode.path("x-loomspan-allowed-content-types").get(0).asText()).isEqualTo("image/jpeg");
     }
 
+    @Test
+    void preservesUnconstrainedNodesAcrossJsonSchemaRoundTrip() throws Exception
+    {
+        SkillInputSchemaNode schema = resolver.fromJsonSchema("""
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "description": "Any caller-supplied JSON value",
+                      "x-loomspan-runtime-ref-capable": true
+                    },
+                    "values": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {}
+                    }
+                  },
+                  "additionalProperties": false
+                }
+                """);
+
+        SkillInputSchemaNode value = schema.properties().get("value");
+        assertThat(value.isUnconstrained()).isTrue();
+        assertThat(value.description()).isEqualTo("Any caller-supplied JSON value");
+        assertThat(value.runtimeRefCapable()).isTrue();
+        assertThat(schema.properties().get("values").additionalPropertiesSchema().isUnconstrained()).isTrue();
+        assertThat(schema.properties().get("items").items().isUnconstrained()).isTrue();
+
+        String serialized = resolver.toJsonSchema(
+                new SkillInputContract(SkillInputContract.SkillInputContractKind.JAVA_REFLECTED, schema));
+        JsonNode roundTrip = objectMapper.readTree(serialized);
+        assertThat(roundTrip.path("properties").path("value").has("type")).isFalse();
+        assertThat(roundTrip.path("properties").path("value").path("description").asText())
+                .isEqualTo("Any caller-supplied JSON value");
+        assertThat(roundTrip.path("properties").path("values").path("additionalProperties").size()).isZero();
+        assertThat(roundTrip.path("properties").path("items").path("items").size()).isZero();
+        assertThat(resolver.fromJsonSchema(serialized)).isEqualTo(schema);
+    }
+
+    @Test
+    void keepsGenericTopLevelAndStrictEmptyObjectContractsDistinctFromAny()
+    {
+        SkillInputContract generic = resolver.resolveFromToolSchema("{\"type\":\"object\"}");
+        SkillInputContract strict = resolver.resolveFromToolSchema(
+                "{\"type\":\"object\",\"additionalProperties\":false}");
+        SkillInputContract any = resolver.resolveFromToolSchema("{}");
+
+        assertThat(generic.isGeneric()).isTrue();
+        assertThat(strict.isGeneric()).isFalse();
+        assertThat(strict.schema().isObject()).isTrue();
+        assertThat(strict.schema().allowsAdditionalProperties()).isFalse();
+        assertThat(any.isGeneric()).isFalse();
+        assertThat(any.schema().isUnconstrained()).isTrue();
+    }
+
     static YamlSkillManifest.InputSchemaManifest attachmentInputManifest()
     {
         YamlSkillManifest.InputSchemaManifest root = new YamlSkillManifest.InputSchemaManifest();

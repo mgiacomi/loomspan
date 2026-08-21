@@ -21,7 +21,8 @@ public class SkillInputPromptRenderer
 
         if (contract.schema().isObject()
                 && contract.schema().properties().isEmpty()
-                && contract.schema().additionalPropertiesSchema() == null)
+                && contract.schema().additionalPropertiesSchema() == null
+                && !contract.schema().allowsAdditionalProperties())
         {
             return "{}\n(Note: This tool takes no arguments. You must pass an empty object.)";
         }
@@ -87,6 +88,7 @@ public class SkillInputPromptRenderer
         
         return switch (schema.type())
         {
+            case SkillInputSchemaNode.ANY_TYPE -> "<any JSON value>";
             case "string" -> "\"<string>\"";
             case "number", "integer" -> "<number>";
             case "boolean" -> "<boolean>";
@@ -128,30 +130,32 @@ public class SkillInputPromptRenderer
         {
             String mapPath = path == null || path.isBlank() ? "<key>" : path + ".<key>";
             SkillInputSchemaNode additionalSchema = schema.additionalPropertiesSchema();
-            builder.append("\n`").append(mapPath).append("` must be a ").append(additionalSchema.type());
+            builder.append("\n`").append(mapPath).append("` must be ").append(typeDescription(additionalSchema));
             if (!additionalSchema.enumValues().isEmpty())
             {
                 builder.append(" with one of ").append(additionalSchema.enumValues());
             }
             if (additionalSchema.isArray() && additionalSchema.items() != null)
             {
-                builder.append("\n`").append(mapPath).append("[]` items must be a ").append(additionalSchema.items().type());
+                builder.append("\n`").append(mapPath).append("[]` items must be ")
+                        .append(typeDescription(additionalSchema.items()));
             }
             if (additionalSchema.additionalPropertiesSchema() != null)
             {
-                builder.append("\n`").append(mapPath).append(".*` values must be a ")
-                        .append(additionalSchema.additionalPropertiesSchema().type());
+                builder.append("\n`").append(mapPath).append(".*` values must be ")
+                        .append(typeDescription(additionalSchema.additionalPropertiesSchema()));
             }
             if (additionalSchema.isObject() || additionalSchema.isArray())
             {
-                appendVerboseRules(builder, nestedSchema(additionalSchema), mapPath, depth + 1, maxDepth);
+                appendVerboseRules(builder, nestedSchema(additionalSchema),
+                        additionalSchema.isArray() ? mapPath + "[]" : mapPath, depth + 1, maxDepth);
             }
         }
         for (Map.Entry<String, SkillInputSchemaNode> entry : new TreeMap<>(schema.properties()).entrySet())
         {
             SkillInputSchemaNode child = entry.getValue();
             String childPath = path == null || path.isBlank() ? entry.getKey() : path + "." + entry.getKey();
-            builder.append("\n`").append(childPath).append("` must be a ").append(child.type());
+            builder.append("\n`").append(childPath).append("` must be ").append(typeDescription(child));
 
             if (!child.enumValues().isEmpty())
             {
@@ -159,16 +163,18 @@ public class SkillInputPromptRenderer
             }
             if (child.isArray() && child.items() != null)
             {
-                builder.append("\n`").append(childPath).append("[]` items must be a ").append(child.items().type());
+                builder.append("\n`").append(childPath).append("[]` items must be ")
+                        .append(typeDescription(child.items()));
             }
             if (child.additionalPropertiesSchema() != null)
             {
-                builder.append("\n`").append(childPath).append(".*` values must be a ")
-                        .append(child.additionalPropertiesSchema().type());
+                builder.append("\n`").append(childPath).append(".*` values must be ")
+                        .append(typeDescription(child.additionalPropertiesSchema()));
             }
             if (child.isObject() || child.isArray())
             {
-                appendVerboseRules(builder, nestedSchema(child), childPath, depth + 1, maxDepth);
+                appendVerboseRules(builder, nestedSchema(child),
+                        child.isArray() ? childPath + "[]" : childPath, depth + 1, maxDepth);
             }
         }
     }
@@ -180,5 +186,10 @@ public class SkillInputPromptRenderer
             return null;
         }
         return schema.isArray() ? schema.items() : schema;
+    }
+
+    private String typeDescription(SkillInputSchemaNode schema)
+    {
+        return schema.isUnconstrained() ? "any JSON value" : "a " + schema.type();
     }
 }

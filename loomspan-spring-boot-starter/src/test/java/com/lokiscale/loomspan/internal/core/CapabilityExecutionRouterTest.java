@@ -12,6 +12,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -146,7 +147,8 @@ class CapabilityExecutionRouterTest {
         assertThat(result).isEqualTo("child result");
         verify(stateService).restorePlan(session, snapshot);
         verify(stateService).restoreSuccessfulSkills(session, evidenceSnapshot);
-        verify(refResolver, never()).resolveArguments(org.mockito.ArgumentMatchers.any(), eq(session));
+        verify(refResolver, never()).resolveArguments(
+                org.mockito.ArgumentMatchers.any(), eq(session), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -269,7 +271,8 @@ class CapabilityExecutionRouterTest {
         Object result = router.execute(capability, Map.of("invoiceId", "INV-7"), session, null);
 
         assertThat(result).isEqualTo("child result");
-        verify(refResolver, never()).resolveArguments(org.mockito.ArgumentMatchers.any(), eq(session));
+        verify(refResolver, never()).resolveArguments(
+                org.mockito.ArgumentMatchers.any(), eq(session), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -321,11 +324,61 @@ class CapabilityExecutionRouterTest {
                         """),
                 "binaryTargetBean#binaryTool");
 
-        when(refResolver.resolveArguments(any(), eq(session))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(refResolver.resolveArguments(any(), eq(session), eq(capability.inputContract())))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         Object result = router.execute(capability, Map.of("payload", payload), session, null);
 
         assertThat(result).isSameAs(payload);
-        verify(refResolver).resolveArguments(any(), eq(session));
+        verify(refResolver).resolveArguments(any(), eq(session), eq(capability.inputContract()));
+    }
+
+    @Test
+    void mappedCapabilityPreservesRefStringsInsideUnconstrainedValues() {
+        RefResolver refResolver = (value, ignoredSession) -> {
+            throw new AssertionError("Unconstrained strings must not be resolved as VFS references");
+        };
+        CapabilityExecutionRouter router = new CapabilityExecutionRouter(
+                refResolver,
+                new StaticListableBeanFactory().getBeanProvider(ExecutionCoordinator.class),
+                mock(ExecutionStateService.class),
+                new DefaultAccessGuard());
+        LoomspanSession session = new LoomspanSession("session-1", "test.entry", 2);
+        SkillInputContractResolver contractResolver = new SkillInputContractResolver();
+        String schema = """
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {},
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                      }
+                    }
+                  },
+                  "required": ["value", "options"],
+                  "additionalProperties": false
+                }
+                """;
+        CapabilityMetadata capability = new CapabilityMetadata(
+                "yaml:genericMapTarget",
+                "genericMapTarget",
+                "generic map target",
+                SkillExecutionDescriptor.none(),
+                java.util.Set.of(),
+                arguments -> arguments,
+                CapabilityKind.YAML_SKILL,
+                new CapabilityToolDescriptor("genericMapTarget", "generic map target", schema),
+                contractResolver.resolveFromToolSchema(schema),
+                "targetBean#genericMapTarget");
+        Map<String, Object> input = Map.of(
+                "value", "ref://artifacts/missing-value.txt",
+                "options", List.of(Map.of("identifier", "ref://artifacts/missing-option.txt")));
+
+        Object result = router.execute(capability, input, session, null);
+
+        assertThat(result).isEqualTo(input);
     }
 }

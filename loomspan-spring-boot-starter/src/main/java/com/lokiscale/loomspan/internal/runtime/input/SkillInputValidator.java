@@ -49,6 +49,7 @@ public class SkillInputValidator
     {
         return switch (schema.type())
         {
+            case SkillInputSchemaNode.ANY_TYPE -> validateUnconstrained(value, path, issues);
             case "object" -> validateObject(value, schema, path, issues);
             case "array" -> validateArray(value, schema, path, issues);
             case "integer" -> validateInteger(value, schema, path, issues);
@@ -56,8 +57,71 @@ public class SkillInputValidator
             case "boolean" -> validateBoolean(value, schema, path, issues);
             case "string" -> validateString(value, schema, path, issues);
             case "attachment" -> validateAttachment(value, schema, path, issues);
-            default -> value;
+            default -> {
+                issues.add(issue(path, "unsupported_schema_type",
+                        "Unsupported input schema type '" + schema.type() + "'.", value));
+                yield value;
+            }
         };
+    }
+
+    private Object validateUnconstrained(Object value,
+            String path,
+            List<SkillInputValidationIssue> issues)
+    {
+        if (value == null || value instanceof String || value instanceof Boolean)
+        {
+            return value;
+        }
+        if (value instanceof Float floatValue)
+        {
+            if (Float.isFinite(floatValue))
+            {
+                return value;
+            }
+            issues.add(issue(path, "non_json_value", "Expected a JSON-compatible value.", value));
+            return value;
+        }
+        if (value instanceof Double doubleValue)
+        {
+            if (Double.isFinite(doubleValue))
+            {
+                return value;
+            }
+            issues.add(issue(path, "non_json_value", "Expected a JSON-compatible value.", value));
+            return value;
+        }
+        if (value instanceof Number)
+        {
+            return value;
+        }
+        if (value instanceof Map<?, ?> mapValue)
+        {
+            LinkedHashMap<String, Object> normalized = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : mapValue.entrySet())
+            {
+                if (!(entry.getKey() instanceof String fieldName))
+                {
+                    issues.add(issue(path, "non_json_value", "JSON object keys must be strings.", entry.getKey()));
+                    continue;
+                }
+                normalized.put(fieldName,
+                        validateUnconstrained(entry.getValue(), join(path, fieldName), issues));
+            }
+            return immutableMap(normalized);
+        }
+        if (value instanceof List<?> listValue)
+        {
+            List<Object> normalized = new ArrayList<>();
+            for (int i = 0; i < listValue.size(); i++)
+            {
+                normalized.add(validateUnconstrained(listValue.get(i), path + "[" + i + "]", issues));
+            }
+            return immutableList(normalized);
+        }
+
+        issues.add(issue(path, "non_json_value", "Expected a JSON-compatible value.", value));
+        return value;
     }
 
     private Object validateObject(Object value,

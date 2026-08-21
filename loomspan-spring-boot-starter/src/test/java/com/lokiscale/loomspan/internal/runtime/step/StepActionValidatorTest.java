@@ -333,6 +333,44 @@ class StepActionValidatorTest {
         }
 
         @Test
+        void stepValidationAcceptsGenericMapValuesAndStillRejectsNestedPlaceholders()
+        {
+            List<BoundCapability> tools = List.of(mockTool("invoiceParser", """
+                    {
+                      "type": "object",
+                      "properties": {
+                        "options": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                          }
+                        }
+                      },
+                      "required": ["options"],
+                      "additionalProperties": false
+                    }
+                    """));
+            Map<String, Object> validOption = Map.of(
+                    "operator", "Northeast Regional",
+                    "price", 69.0,
+                    "durationMinutes", 210);
+
+            StepValidationResult accepted = StepActionValidator.validate(
+                    StepAction.callTool("t-1", "invoiceParser", Map.of("options", List.of(validOption))),
+                    plan, tools, true);
+            StepValidationResult placeholder = StepActionValidator.validate(
+                    StepAction.callTool("t-1", "invoiceParser", Map.of(
+                            "options", List.of(Map.of("operator", "<value>", "price", 69.0)))),
+                    plan, tools, true);
+
+            assertThat(accepted.valid()).isTrue();
+            assertThat(placeholder.valid()).isFalse();
+            assertThat(placeholder.rejectionReason()).contains("unresolved placeholder values");
+            assertThat(placeholder.rejectionReason()).contains("options[0].operator");
+        }
+
+        @Test
         void typedMapToolSchemaIsNotTreatedAsGeneric() {
             List<BoundCapability> typedMapTools = List.of(mockTool("invoiceParser", """
                     {

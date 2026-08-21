@@ -111,6 +111,37 @@ class SkillMethodBeanPostProcessorTest {
     }
 
     @Test
+    void publishesDescriptionsAndBindsUnconstrainedReflectedInputs() throws JacksonException
+    {
+        InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
+        SkillMethodBeanPostProcessor processor = processor(registry);
+        process(processor, new UnconstrainedInvocationBean(), "unconstrainedInvocationBean");
+
+        SkillImplementationTarget target = registry.getTarget("unconstrainedInvocationBean#acceptValues");
+        Method method = getDeclaredMethod(UnconstrainedInvocationBean.class, "acceptValues", Object.class, List.class);
+        String valueName = method.getParameters()[0].getName();
+        String optionsName = method.getParameters()[1].getName();
+        tools.jackson.databind.JsonNode schema = objectMapper.readTree(target.inputSchema());
+
+        assertThat(schema.path("properties").path(valueName).has("type")).isFalse();
+        assertThat(schema.path("properties").path(valueName).path("description").asText())
+                .isEqualTo("Any JSON-compatible value");
+        assertThat(schema.path("required").size()).isEqualTo(1);
+        assertThat(schema.path("required").get(0).asText()).isEqualTo(optionsName);
+        assertThat(target.inputContract().schema().properties().get(valueName).isUnconstrained()).isTrue();
+        assertThat(target.inputContract().schema().properties().get(optionsName)
+                .items().additionalPropertiesSchema().isUnconstrained()).isTrue();
+
+        Map<String, Object> arguments = Map.of(
+                valueName, List.of("alpha", 2, true),
+                optionsName, List.of(Map.of("operator", "Northeast Regional", "price", 69.0)));
+        tools.jackson.databind.JsonNode result = objectMapper.readTree((String) target.invoker().invoke(arguments));
+        assertThat(result.path("value").get(1).isIntegralNumber()).isTrue();
+        assertThat(result.path("options").get(0).path("operator").asText()).isEqualTo("Northeast Regional");
+        assertThat(result.path("options").get(0).path("price").isFloatingPointNumber()).isTrue();
+    }
+
+    @Test
     void rejectsOptionalPrimitiveParameterDuringTargetDiscovery()
     {
         InMemorySkillImplementationTargetRegistry registry = new InMemorySkillImplementationTargetRegistry();
@@ -460,6 +491,17 @@ class SkillMethodBeanPostProcessorTest {
         @SkillMethod(description = "Read typed collection")
         String readTypedCollection(List<String> payload) {
             return String.join("|", payload);
+        }
+    }
+
+    static class UnconstrainedInvocationBean
+    {
+        @SkillMethod(description = "Accept unconstrained values")
+        Map<String, Object> acceptValues(
+                @SkillParam(description = "Any JSON-compatible value", required = false) Object value,
+                @SkillParam(description = "Scalar-valued option maps") List<Map<String, Object>> options)
+        {
+            return Map.of("value", value, "options", options);
         }
     }
 

@@ -96,7 +96,12 @@ public final class LoomspanMethodInputSchemaGenerator
         {
             schema.put("type", "string");
         }
-        else if (raw == Object.class || !visiting.add(raw))
+        else if (raw == Object.class)
+        {
+            // The empty JSON Schema is the Draft 2020-12 representation of an
+            // unconstrained JSON-compatible value.
+        }
+        else if (!visiting.add(raw))
         {
             schema.put("type", "object");
         }

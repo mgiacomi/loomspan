@@ -399,6 +399,43 @@ class StepPromptBuilderTest {
     }
 
     @Test
+    void buildStepPromptDescribesUnconstrainedValuesWithoutObjectOrNoArgumentClaims()
+    {
+        ExecutionPlan plan = createTwoTaskPlan();
+        String schema = """
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {},
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                      }
+                    }
+                  },
+                  "required": ["value", "options"],
+                  "additionalProperties": false
+                }
+                """;
+
+        String compact = StepPromptBuilder.buildStepPrompt(
+                plan, "objective", 1, null, null, List.of(mockTool("invoiceParser", schema)), false, null);
+        String verbose = StepPromptBuilder.buildStepPrompt(
+                plan, "objective", null, 1, null, null,
+                List.of(mockTool("invoiceParser", schema)), false, true, null);
+
+        assertThat(compact).contains("\"value\": <any JSON value>");
+        assertThat(compact).contains("\"<key>\": <any JSON value>");
+        assertThat(compact).doesNotContain("This tool takes no arguments");
+        assertThat(verbose).contains("`value` must be any JSON value");
+        assertThat(verbose).contains("`options[].<key>` must be any JSON value");
+        assertThat(verbose).doesNotContain("`options[].<key>` must be a object");
+        assertThat(verbose).doesNotContain("This tool takes no arguments");
+    }
+
+    @Test
     void buildStepPromptListsToolNames() {
         ExecutionPlan plan = createTwoTaskPlan();
         String prompt = StepPromptBuilder.buildStepPrompt(

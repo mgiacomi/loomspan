@@ -1,6 +1,8 @@
 package com.lokiscale.loomspan.internal.vfs;
 
 import com.lokiscale.loomspan.internal.core.LoomspanSession;
+import com.lokiscale.loomspan.internal.runtime.input.SkillInputContract;
+import com.lokiscale.loomspan.internal.runtime.input.SkillInputContractResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -49,7 +51,7 @@ class RefResolverTest {
                                 "ref://artifacts/child.txt",
                                 Map.of("deep", "ref://artifacts/deep.txt")),
                         "unchanged", "prefix ref://artifacts/not-a-ref"),
-                "array", new Object[]{"ref://artifacts/array.txt", 42}), session);
+                "array", new Object[]{"ref://artifacts/array.txt", 42}), session, SkillInputContract.genericObject());
 
         assertThat(readResource(resolved.get("direct"))).isEqualTo("resolved:ref://artifacts/root.txt");
         assertThat(readNestedResources(resolved.get("nested"))).isEqualTo(Map.of(
@@ -86,7 +88,8 @@ class RefResolverTest {
                 "nested", Map.of(
                         "spaced", "ref://artifacts/not exact",
                         "list", List.of("hello", "suffix ref://artifacts/nope")),
-                "array", new Object[]{" ref://artifacts/nope", "ref://artifacts/real.txt "}), session);
+                "array", new Object[]{" ref://artifacts/nope", "ref://artifacts/real.txt "}), session,
+                SkillInputContract.genericObject());
 
         assertThat(resolved).isEqualTo(Map.of(
                 "prefixed", "see ref://artifacts/not-exact",
@@ -135,7 +138,7 @@ class RefResolverTest {
                         "list", List.of(
                                 "ref://artifacts/child.txt",
                                 Map.of("deep", "ref://artifacts/deep.txt"))),
-                "array", new Object[]{"ref://artifacts/array.txt"}), session);
+                "array", new Object[]{"ref://artifacts/array.txt"}), session, SkillInputContract.genericObject());
 
         assertThat(readNestedResources(resolved)).isEqualTo(Map.of(
                 "nested", Map.of(
@@ -143,6 +146,44 @@ class RefResolverTest {
                                 "resolved:artifacts/child.txt",
                                 Map.of("deep", "resolved:artifacts/deep.txt"))),
                 "array", List.of("resolved:artifacts/array.txt")));
+    }
+
+    @Test
+    void contractBackedResolutionPreservesRefStringsOutsideDedicatedRefNodes() {
+        LoomspanSession session = com.lokiscale.loomspan.internal.core.TestLoomspanSessions.withId(
+                "session-contract", "test.entry", 2);
+        DefaultRefResolver resolver = new DefaultRefResolver((ignoredSession, ref) ->
+                new ByteArrayResource(("resolved:" + ref.relativePath()).getBytes(StandardCharsets.UTF_8)));
+        SkillInputContract contract = new SkillInputContractResolver().resolveFromToolSchema("""
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {},
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                      }
+                    },
+                    "payload": {
+                      "type": "string",
+                      "x-loomspan-runtime-ref-capable": true
+                    }
+                  },
+                  "additionalProperties": false
+                }
+                """);
+
+        Map<String, Object> resolved = resolver.resolveArguments(Map.of(
+                "value", "ref://artifacts/missing-value.txt",
+                "options", List.of(Map.of("identifier", "ref://artifacts/missing-option.txt")),
+                "payload", "ref://artifacts/payload.txt"), session, contract);
+
+        assertThat(resolved.get("value")).isEqualTo("ref://artifacts/missing-value.txt");
+        assertThat(resolved.get("options")).isEqualTo(
+                List.of(Map.of("identifier", "ref://artifacts/missing-option.txt")));
+        assertThat(readResource(resolved.get("payload"))).isEqualTo("resolved:artifacts/payload.txt");
     }
 
     private Object readNestedResources(Object value) {

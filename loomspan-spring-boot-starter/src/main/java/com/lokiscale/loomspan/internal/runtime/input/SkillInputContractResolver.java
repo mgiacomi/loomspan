@@ -124,7 +124,9 @@ public class SkillInputContractResolver
 
     private SkillInputSchemaNode fromJsonNode(JsonNode schema)
     {
-        String type = schema.path("type").asText("object");
+        String type = schema.path("type").isTextual()
+                ? schema.path("type").asText()
+                : SkillInputSchemaNode.ANY_TYPE;
         Map<String, SkillInputSchemaNode> properties = new LinkedHashMap<>();
         JsonNode propertiesNode = schema.path("properties");
         if (propertiesNode.isObject())
@@ -200,7 +202,10 @@ public class SkillInputContractResolver
     private Map<String, Object> toJsonSchemaNode(SkillInputSchemaNode schema)
     {
         Map<String, Object> jsonSchema = new LinkedHashMap<>();
-        jsonSchema.put("type", schema.isAttachment() ? "string" : schema.type());
+        if (!schema.isUnconstrained())
+        {
+            jsonSchema.put("type", schema.isAttachment() ? "string" : schema.type());
+        }
 
         if (!schema.properties().isEmpty())
         {

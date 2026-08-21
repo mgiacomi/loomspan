@@ -1,0 +1,4 @@
+name: mappedGenericMapSkill
+description: YAML skill mapped to a generic-map Java implementation.
+mapping:
+  target_id: targetBean#genericMapTarget

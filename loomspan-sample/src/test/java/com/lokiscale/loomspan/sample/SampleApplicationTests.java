@@ -9,12 +9,17 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = SampleApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class SampleApplicationTests {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Autowired
     private ApplicationContext applicationContext;
@@ -46,6 +51,27 @@ class SampleApplicationTests {
         assertThat(skillTemplate.invoke("expenseLookup", Map.of()))
                 .contains("Software")
                 .contains("Hardware");
+    }
+
+    @Test
+    void invokesRankTransportOptionsWithNativeScalarMapsThroughSkillTemplate() throws Exception
+    {
+        List<Map<String, Object>> options = List.of(
+                Map.of("operator", "Northeast Regional", "price", 69.0, "durationMinutes", 210),
+                Map.of("operator", "Acela Express", "price", 149.0, "durationMinutes", 165),
+                Map.of("operator", "Scenic Coach", "price", 189.0, "durationMinutes", 360));
+
+        String result = skillTemplate.invoke("rankTransportOptions", Map.of(
+                "options", options,
+                "sortBy", "price"));
+
+        JsonNode response = OBJECT_MAPPER.readTree(result);
+        assertThat(response.path("ok").asBoolean()).isTrue();
+        assertThat(response.path("ranked").get(0).path("operator").asText()).isEqualTo("Northeast Regional");
+        assertThat(response.path("ranked").get(1).path("operator").asText()).isEqualTo("Acela Express");
+        assertThat(response.path("ranked").get(2).path("operator").asText()).isEqualTo("Scenic Coach");
+        assertThat(response.path("ranked").get(0).path("price").isFloatingPointNumber()).isTrue();
+        assertThat(response.path("ranked").get(0).path("durationMinutes").isIntegralNumber()).isTrue();
     }
 
     private static void assertManifestContains(String path, String property, String expression) throws IOException {

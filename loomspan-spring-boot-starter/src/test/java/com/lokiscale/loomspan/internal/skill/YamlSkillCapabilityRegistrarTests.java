@@ -43,6 +43,8 @@ import java.util.Map;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -190,7 +192,8 @@ class YamlSkillCapabilityRegistrarTests {
                             new StaticListableBeanFactory().getBeanProvider(ExecutionCoordinator.class),
                             stateService,
                             new DefaultAccessGuard());
-                    when(refResolver.resolveArguments(any(), eq(session))).thenAnswer(invocation -> invocation.getArgument(0));
+                    when(refResolver.resolveArguments(any(), eq(session), any()))
+                            .thenAnswer(invocation -> invocation.getArgument(0));
 
                     assertThat(router.execute(first, Map.of("input", "alpha"), session, authentication("ROLE_ONE")))
                             .isEqualTo("\"mapped:alpha\"");
@@ -258,6 +261,32 @@ class YamlSkillCapabilityRegistrarTests {
 
                     assertThat(metadata.inputContract().schema().required()).containsExactly("input");
                     assertThat(metadata.inputContract().schema().properties()).containsKey("input");
+                });
+    }
+
+    @Test
+    void mappedGenericMapTargetInheritsMatchingToolSchemaAndContract()
+    {
+        contextRunner
+                .withUserConfiguration(TargetBeanConfiguration.class)
+                .withPropertyValues("loomspan.skills.locations=classpath:/skills/valid/mapped-generic-map-skill.yaml")
+                .run(context -> {
+                    CapabilityMetadata metadata = context.getBean(CapabilityRegistry.class)
+                            .getCapability("mappedGenericMapSkill");
+                    JsonNode schema = new ObjectMapper().readTree(metadata.tool().inputSchema());
+                    JsonNode valueSchema = schema.path("properties").path("options")
+                            .path("items").path("additionalProperties");
+
+                    assertThat(metadata.inputContract().kind())
+                            .isEqualTo(SkillInputContract.SkillInputContractKind.YAML_INHERITED);
+                    assertThat(valueSchema.isObject()).isTrue();
+                    assertThat(valueSchema.size()).isZero();
+                    assertThat(metadata.inputContract().schema().properties().get("options")
+                            .items().additionalPropertiesSchema().isUnconstrained()).isTrue();
+                    assertThat(metadata.invoker().invoke(Map.of("options", List.of(Map.of(
+                            "operator", "Northeast Regional", "price", 69.0, "durationMinutes", 210)))))
+                            .asString()
+                            .contains("Northeast Regional");
                 });
     }
 
@@ -375,6 +404,12 @@ class YamlSkillCapabilityRegistrarTests {
         @SkillMethod(description = "Deterministic target")
         String deterministicTarget(String input) {
             return "mapped:" + input;
+        }
+
+        @SkillMethod(description = "Generic map target")
+        Map<String, Object> genericMapTarget(List<Map<String, Object>> options)
+        {
+            return options.getFirst();
         }
     }
 

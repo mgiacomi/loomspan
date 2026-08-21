@@ -93,6 +93,8 @@ Omitting `input_schema` from a mapped YAML skill is an explicit authoring choice
 
 The Java method signature and parameter metadata therefore MUST describe the input that callers and parent planners are allowed to supply. Verify requiredness, field names, types, descriptions, nested shapes, and runtime markers at the Java boundary rather than assuming reflection will express the intended public contract.
 
+For the exact reflected meanings of Java `Object`, generic and typed maps, DTOs, arrays, requiredness, and JSON null, read [input-contracts.md](input-contracts.md). In particular, `Object` and `Map<String, Object>` deliberately permit heterogeneous JSON-compatible values; use a typed record or DTO when the planner needs discoverable stable fields.
+
 A mapped skill MUST omit `input_schema` and `output_schema`. Do not copy a schema into a mapped wrapper merely to repeat reflected fields. Loomspan rejects those declarations so Java remains the single authoritative contract source.
 
 If two public mapped capabilities need genuinely different input shapes, use separate deterministic Java adapter targets so transformation and validation remain explicit and testable.

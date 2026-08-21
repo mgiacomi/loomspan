@@ -35,6 +35,7 @@ Read [source-verification.md](source-verification.md) before performing a source
 | --- | --- | --- |
 | Understand Loomspan skill trees | [mental-model.md](mental-model.md) | Relevant topic documents below |
 | Design or review a new tree | [checklists/evaluate-a-skill-design.md](checklists/evaluate-a-skill-design.md) | [mental-model.md](mental-model.md) |
+| Design or diagnose reflected Java inputs for a mapped skill | [input-contracts.md](input-contracts.md) | [mental-model.md](mental-model.md) for mapping ownership |
 | Add evidence-backed output claims | [evidence-contracts.md](evidence-contracts.md) | [mental-model.md](mental-model.md) |
 | Select a model or configure its connection | [model-selection-and-connections.md](model-selection-and-connections.md) | [mental-model.md](mental-model.md) |
 | Diagnose retries, usage, terminal failures, or a nested runtime path with the packaged Agent Skill | [traces-and-debugging.md](traces-and-debugging.md) | The relevant validation or evidence topic |
@@ -52,7 +53,7 @@ Do not load every document by default. Start with the routing entry most relevan
 | Source verification | Initial | How an LLM should use guide, tests, fixtures, samples, and production code together |
 | Skill-design review | Initial | Cross-cutting questions; not a manifest validator |
 | YAML manifest reference | Not yet documented | Inspect current manifest, catalog validation, tests, and samples when required |
-| Input contracts | Foundational | The mental model covers strict mapped Java contract ownership; complete schema syntax and pure-YAML input behavior are not yet documented |
+| Input contracts | Initial, source-verified | Reflected Java `Object`, generic and typed maps, DTOs, arrays, requiredness boundaries, mapped inheritance, validation, and planner guidance; complete pure-YAML schema syntax remains undocumented |
 | Output contracts | Not yet documented | Evidence documentation covers only property-level supportability annotations and their interaction with candidate output |
 | Prompts | Not yet documented | Private prompt composition needs a dedicated topic |
 | Planning and nested planning | Foundational | The mental model covers choosing direct versus step-based execution; complete planning, retry, and cost semantics are not yet documented |
