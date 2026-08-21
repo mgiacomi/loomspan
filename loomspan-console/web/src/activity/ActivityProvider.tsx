@@ -27,12 +27,22 @@ type ActivityContextValue = ActivityState & {
   loadRecent: (cursor?: string) => Promise<void>;
 };
 
+const authoritativeRefreshDelayMillis = 250;
+
+type AuthoritativeRefresh = {
+  instance?: boolean;
+  activeExecutions?: boolean;
+  traces?: boolean;
+};
+
 const ActivityContext = createContext<ActivityContextValue | undefined>(undefined);
 
 export function ActivityProvider({ children }: { children: ReactNode }) {
   const { target, scopeGeneration } = useTarget();
   const observability = useOptionalObservability();
+  const loadInstance = observability?.loadInstance;
   const loadActiveExecutions = observability?.loadActiveExecutions;
+  const loadTraces = observability?.loadTraces;
   const session = useBrowserSession();
   const [state, dispatch] = useReducer(activityReducer, initialActivityState);
   const generationRef = useRef(0);
@@ -41,6 +51,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const closeStreamRef = useRef<(() => void) | null>(null);
   const openStreamRef = useRef<(() => void) | null>(null);
   const resyncingRef = useRef(false);
+  const authoritativeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAuthoritativeRefreshRef = useRef<AuthoritativeRefresh>({});
   const targetScopeID = target.status.targetScopeId;
   const connected = target.status.targetConnection === "REACHABLE" &&
     target.status.targetAuthentication === "ESTABLISHED";
@@ -57,6 +69,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       closeStreamRef.current();
       closeStreamRef.current = null;
     }
+    if (authoritativeRefreshTimerRef.current) {
+      clearTimeout(authoritativeRefreshTimerRef.current);
+      authoritativeRefreshTimerRef.current = null;
+    }
+    pendingAuthoritativeRefreshRef.current = {};
   }, [scopeGeneration]);
 
   useEffect(() => () => {
@@ -67,7 +84,30 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       closeStreamRef.current();
       closeStreamRef.current = null;
     }
+    if (authoritativeRefreshTimerRef.current) {
+      clearTimeout(authoritativeRefreshTimerRef.current);
+      authoritativeRefreshTimerRef.current = null;
+    }
+    pendingAuthoritativeRefreshRef.current = {};
   }, []);
+
+  const queueAuthoritativeRefresh = useCallback((requested: AuthoritativeRefresh) => {
+    pendingAuthoritativeRefreshRef.current = {
+      instance: pendingAuthoritativeRefreshRef.current.instance || requested.instance,
+      activeExecutions: pendingAuthoritativeRefreshRef.current.activeExecutions ||
+        requested.activeExecutions,
+      traces: pendingAuthoritativeRefreshRef.current.traces || requested.traces,
+    };
+    if (authoritativeRefreshTimerRef.current) return;
+    authoritativeRefreshTimerRef.current = setTimeout(() => {
+      authoritativeRefreshTimerRef.current = null;
+      const pending = pendingAuthoritativeRefreshRef.current;
+      pendingAuthoritativeRefreshRef.current = {};
+      if (pending.instance) void loadInstance?.();
+      if (pending.activeExecutions) void loadActiveExecutions?.();
+      if (pending.traces) void loadTraces?.();
+    }, authoritativeRefreshDelayMillis);
+  }, [loadInstance, loadActiveExecutions, loadTraces]);
 
   const openStream = useCallback(() => {
     if (!connected || !tabId || !csrfToken) return;
@@ -80,17 +120,25 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         onActivity: (activity: Activity) => {
           lastCursorRef.current = activity.cursor;
           dispatch({ type: "stream-activity", activity });
-          if (
-            activity.kind === "TRACE_COMPLETED" ||
-            activity.kind === "EXECUTION_OBSERVATION_ENDED"
-          ) {
-            void loadActiveExecutions?.();
-          }
+          const executionStarted = activity.kind === "TRACE_STARTED";
+          const traceCompleted = activity.kind === "TRACE_COMPLETED";
+          const executionEnded = traceCompleted ||
+            activity.kind === "EXECUTION_OBSERVATION_ENDED";
+          queueAuthoritativeRefresh({
+            activeExecutions: true,
+            instance: executionStarted || executionEnded,
+            traces: traceCompleted,
+          });
         },
         onConnection: (fact: ConnectionFact) => {
           dispatch({ type: "stream-connection", fact });
           if (fact.connected) {
             dispatch({ type: "stream-connected" });
+            queueAuthoritativeRefresh({
+              instance: true,
+              activeExecutions: true,
+              traces: true,
+            });
           }
         },
         onContinuity: (continuity: Continuity) => {
@@ -125,6 +173,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
                 continuity: response.continuity,
                 beginningUnavailable: true,
               });
+              queueAuthoritativeRefresh({
+                instance: true,
+                activeExecutions: true,
+                traces: true,
+              });
               resyncingRef.current = false;
               openStreamRef.current?.();
             })
@@ -146,7 +199,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
             type: "baseline-refreshed",
             observedAt: observedAt ?? new Date().toISOString(),
           });
-          void loadActiveExecutions?.();
+          queueAuthoritativeRefresh({
+            instance: true,
+            activeExecutions: true,
+            traces: true,
+          });
         },
         onError: (error: Error) => {
           if (resyncingRef.current) return;
@@ -164,7 +221,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       lastCursorRef.current ?? undefined,
     );
     closeStreamRef.current = close;
-  }, [connected, tabId, csrfToken, loadActiveExecutions]);
+  }, [connected, tabId, csrfToken, queueAuthoritativeRefresh]);
   openStreamRef.current = openStream;
 
   useEffect(() => {

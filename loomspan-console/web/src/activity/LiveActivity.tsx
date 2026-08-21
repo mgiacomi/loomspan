@@ -1,8 +1,28 @@
-import { ACTIVITY_KIND_LABELS, type ActivityKind } from "../api/contracts";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
+import {
+  ACTIVITY_KIND_LABELS,
+  type ActiveExecution,
+  type ActivityKind,
+} from "../api/contracts";
+import { useOptionalObservability } from "../observability/ObservabilityProvider";
+import { scopeBoundPath } from "../observability/scope";
 import { useActivity } from "./ActivityProvider";
 import { ActivityNarrative } from "./ActivityNarrative";
+import { formatDateTime } from "./activityPresentation";
+
+function formatElapsedMilliseconds(elapsedMillis: number): string {
+  if (elapsedMillis < 1000) return `${elapsedMillis}ms`;
+  if (elapsedMillis < 60_000) return `${Math.floor(elapsedMillis / 1000)}s`;
+  const minutes = Math.floor(elapsedMillis / 60_000);
+  const seconds = Math.floor((elapsedMillis % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
 
 export function LiveActivity() {
+  const observability = useOptionalObservability();
+  const activeExecutions = observability?.activeExecutions;
+  const loadActiveExecutions = observability?.loadActiveExecutions;
   const {
     activities,
     recentCompletions,
@@ -14,6 +34,47 @@ export function LiveActivity() {
     continuity,
     loadRecent,
   } = useActivity();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (
+      activeExecutions &&
+      !activeExecutions.loaded &&
+      !activeExecutions.loading &&
+      !activeExecutions.error
+    ) {
+      void loadActiveExecutions?.();
+    }
+  }, [activeExecutions, loadActiveExecutions]);
+
+  useEffect(() => {
+    if (
+      activeExecutions?.loaded &&
+      activeExecutions.hasMore &&
+      activeExecutions.nextCursor &&
+      !activeExecutions.loading
+    ) {
+      void loadActiveExecutions?.(activeExecutions.nextCursor);
+    }
+  }, [activeExecutions, loadActiveExecutions]);
+
+  useEffect(() => {
+    if (!connected || (activeExecutions?.items.length ?? 0) === 0) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [activeExecutions?.items.length, connected]);
+
+  const executions = (activeExecutions?.items ?? []) as ActiveExecution[];
+  const activityBySession = useMemo(() => {
+    const grouped = new Map<string, typeof activities>();
+    for (const activity of activities) {
+      const current = grouped.get(activity.sessionId);
+      if (current) current.push(activity);
+      else grouped.set(activity.sessionId, [activity]);
+    }
+    return grouped;
+  }, [activities]);
 
   const replayGap = connectionFact?.reason === "relay_frame_limit" ||
     connectionFact?.reason === "relay_byte_limit" ||
@@ -74,12 +135,72 @@ export function LiveActivity() {
         </div>
       )}
 
-      {activities.length === 0 && !loading && !error && (
+      {activeExecutions?.loading && executions.length === 0 && (
+        <p aria-live="polite">Loading active executions…</p>
+      )}
+
+      {activeExecutions?.error && executions.length === 0 && (
+        <div className="target-error" role="alert">
+          <strong>{activeExecutions.error.message}</strong>
+        </div>
+      )}
+
+      {activeExecutions?.loaded && executions.length === 0 && !activeExecutions.loading && !activeExecutions.error && (
+        <p className="empty-state">No active executions. New executions will appear here as they start.</p>
+      )}
+
+      {!activeExecutions && activities.length === 0 && !loading && !error && (
         <p className="empty-state">No activity yet. Events will appear here as they occur.</p>
       )}
 
-      {activities.length > 0 && (
-        <ActivityNarrative activities={activities} isLive={connected} />
+      {executions.length > 0 && (
+        <div className="live-execution-feeds" aria-label="Active execution activity feeds">
+          {executions.map((execution) => {
+            const executionActivities = activityBySession.get(execution.sessionId) ?? [];
+            const headingId = `live-execution-${encodeURIComponent(execution.sessionId)}`;
+            const observedAtMillis = activeExecutions?.observedAt
+              ? Date.parse(activeExecutions.observedAt)
+              : Number.NaN;
+            const elapsedMillis = execution.elapsedMillis +
+              (connected && Number.isFinite(observedAtMillis)
+                ? Math.max(0, now - observedAtMillis)
+                : 0);
+            const detailPath = scopeBoundPath(
+              `/active-executions/${encodeURIComponent(execution.sessionId)}`,
+              activeExecutions?.targetScopeId,
+            );
+
+            return (
+              <article
+                key={execution.sessionId}
+                className="live-execution-feed"
+                aria-labelledby={headingId}
+              >
+                <header className="live-execution-feed-header">
+                  <h3 id={headingId}>{execution.entrySkill}</h3>
+                  <dl className="live-execution-feed-facts">
+                    <div>
+                      <dt>Started</dt>
+                      <dd>{formatDateTime(execution.startedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Running</dt>
+                      <dd>{formatElapsedMilliseconds(elapsedMillis)}</dd>
+                    </div>
+                  </dl>
+                  <Link to={detailPath}>View active execution</Link>
+                </header>
+                <ActivityNarrative
+                  activities={executionActivities}
+                  isLive={connected}
+                  alwaysFollow
+                  compact
+                  ariaLabel={`${execution.entrySkill} activity`}
+                />
+              </article>
+            );
+          })}
+        </div>
       )}
 
       {recentCompletions.length > 0 && (

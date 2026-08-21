@@ -46,6 +46,11 @@ const sessionView = {
 
 const mockOpenActivityStream = vi.hoisted(() => vi.fn());
 const mockFetchRecentActivities = vi.hoisted(() => vi.fn());
+const observabilityView = vi.hoisted(() => ({
+  loadInstance: vi.fn(),
+  loadActiveExecutions: vi.fn(),
+  loadTraces: vi.fn(),
+}));
 
 vi.mock("../target/TargetProvider", () => ({
   useTarget: () => targetView,
@@ -67,6 +72,10 @@ vi.mock("../api/client", () => ({
   },
   openActivityStream: mockOpenActivityStream,
   fetchRecentActivities: mockFetchRecentActivities,
+}));
+
+vi.mock("../observability/ObservabilityProvider", () => ({
+  useOptionalObservability: () => observabilityView,
 }));
 
 import { ActivityProvider, useActivity } from "./ActivityProvider";
@@ -113,6 +122,9 @@ function Consumer() {
 describe("ActivityProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    observabilityView.loadInstance.mockResolvedValue(undefined);
+    observabilityView.loadActiveExecutions.mockResolvedValue(undefined);
+    observabilityView.loadTraces.mockResolvedValue(undefined);
     mockOpenActivityStream.mockReturnValue(() => {});
     mockFetchRecentActivities.mockResolvedValue({
       items: [],
@@ -365,5 +377,48 @@ describe("ActivityProvider", () => {
         "2026-07-25T12:01:00Z",
       );
     });
+  });
+
+  it("coalesces activity into authoritative collection and header refreshes", async () => {
+    vi.useFakeTimers();
+    let callbacks: any;
+    mockOpenActivityStream.mockImplementation((nextCallbacks: any) => {
+      callbacks = nextCallbacks;
+      return () => {};
+    });
+    withProvider(<Consumer />);
+
+    act(() => {
+      callbacks.onActivity(makeActivity("1", "TRACE_STARTED", "Started"));
+      callbacks.onActivity(makeActivity("2", "STEP_STARTED", "Step started"));
+      callbacks.onActivity(makeActivity("3", "TRACE_COMPLETED", "Completed"));
+      callbacks.onActivity(makeActivity("4", "EXECUTION_OBSERVATION_ENDED", "Ended"));
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(observabilityView.loadInstance).toHaveBeenCalledTimes(1);
+    expect(observabilityView.loadActiveExecutions).toHaveBeenCalledTimes(1);
+    expect(observabilityView.loadTraces).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("refreshes all authoritative views after each periodic baseline", () => {
+    vi.useFakeTimers();
+    let callbacks: any;
+    mockOpenActivityStream.mockImplementation((nextCallbacks: any) => {
+      callbacks = nextCallbacks;
+      return () => {};
+    });
+    withProvider(<Consumer />);
+
+    act(() => {
+      callbacks.onBaselineRefreshed("2026-07-25T12:01:00Z");
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(observabilityView.loadInstance).toHaveBeenCalledTimes(1);
+    expect(observabilityView.loadActiveExecutions).toHaveBeenCalledTimes(1);
+    expect(observabilityView.loadTraces).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });

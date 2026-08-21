@@ -8,6 +8,7 @@ const observabilityView = vi.hoisted(() => ({
   current: undefined as unknown as {
     instance: { status: InstanceStatus | undefined; error: BrowserAPIError | undefined };
     skills: { items: SkillSummary[]; hasMore: boolean; nextCursor: string | null; loading: boolean; error?: BrowserAPIError };
+    activeExecutions: { targetScopeId: string | null; items: unknown[]; hasMore: boolean; nextCursor: string | null; observedAt: string | null; loading: boolean; loaded: boolean; error?: BrowserAPIError };
     loadInstance: ReturnType<typeof vi.fn>;
     loadSkills: ReturnType<typeof vi.fn>;
     loadActiveExecutions: ReturnType<typeof vi.fn>;
@@ -20,6 +21,7 @@ const routerView = vi.hoisted(() => ({
 
 vi.mock("./ObservabilityProvider", () => ({
   useObservability: () => observabilityView.current,
+  useOptionalObservability: () => observabilityView.current,
   ObservabilityProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
@@ -87,6 +89,7 @@ beforeEach(() => {
   observabilityView.current = {
     instance: { status: undefined, error: undefined },
     skills: { items: [], hasMore: false, nextCursor: null, loading: false },
+    activeExecutions: { targetScopeId: "scope-1", items: [], hasMore: false, nextCursor: null, observedAt: null, loading: false, loaded: true },
     loadInstance: vi.fn(),
     loadSkills: vi.fn(),
     loadActiveExecutions: vi.fn(),

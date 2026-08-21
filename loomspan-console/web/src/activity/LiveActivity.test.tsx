@@ -1,8 +1,15 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { LiveActivity } from "./LiveActivity";
 import { BrowserAPIError } from "../api/client";
-import type { Activity, ActivityKind, ConnectionFact, Continuity } from "../api/contracts";
+import type {
+  ActiveExecution,
+  Activity,
+  ActivityKind,
+  ConnectionFact,
+  Continuity,
+} from "../api/contracts";
 
 function makeActivity(
   cursor: string,
@@ -55,13 +62,97 @@ const baseView: ActivityView = {
 
 let view: ActivityView;
 
+function makeExecution(
+  sessionId: string,
+  entrySkill: string,
+  overrides?: Partial<ActiveExecution>,
+): ActiveExecution {
+  return {
+    targetScopeId: "scope-1",
+    sessionId,
+    traceId: `trace-${sessionId}`,
+    lastCanonicalSequence: 2,
+    startedAt: "2026-07-25T12:00:00Z",
+    updatedAt: "2026-07-25T12:05:00Z",
+    elapsedMillis: 305_000,
+    entrySkill,
+    status: "ACTIVE",
+    phase: "EXECUTING",
+    summary: "Running",
+    activePath: [],
+    totalFrameDepth: 0,
+    activePathTruncated: false,
+    usage: {
+      skillInvocations: 1,
+      toolInvocations: 0,
+      linterRetries: 0,
+      modelCalls: 0,
+      providerAttempts: 0,
+      promptUnits: 0,
+      completionUnits: 0,
+      usageUnits: 0,
+      exactModelResponses: 0,
+      heuristicModelResponses: 0,
+      unavailableModelResponses: 0,
+    },
+    configuredLimits: {
+      maxSkillInvocations: 10,
+      maxToolInvocations: 10,
+      maxLinterRetries: 10,
+      maxModelCalls: 10,
+      maxProviderAttempts: 10,
+      maxUsageUnits: 100,
+    },
+    ...overrides,
+  };
+}
+
+const observabilityView = vi.hoisted(() => ({
+  current: {
+    activeExecutions: {
+      targetScopeId: "scope-1" as string | null,
+      items: [] as ActiveExecution[],
+      hasMore: false,
+      nextCursor: null as string | null,
+      resumeCursor: null as string | null,
+      observedAt: "2026-07-25T12:05:00Z" as string | null,
+      loading: false,
+      loaded: true,
+      error: undefined as BrowserAPIError | undefined,
+    },
+    loadActiveExecutions: vi.fn(),
+  },
+}));
+
 vi.mock("./ActivityProvider", () => ({
   useActivity: () => view,
+}));
+
+vi.mock("../observability/ObservabilityProvider", () => ({
+  useOptionalObservability: () => observabilityView.current,
+}));
+
+vi.mock("react-router", () => ({
+  Link: ({ children, to }: { children: ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 
 describe("LiveActivity", () => {
   beforeEach(() => {
     view = { ...baseView, loadRecent: vi.fn() };
+    observabilityView.current.activeExecutions = {
+      targetScopeId: "scope-1",
+      items: [],
+      hasMore: false,
+      nextCursor: null,
+      resumeCursor: null,
+      observedAt: "2026-07-25T12:05:00Z",
+      loading: false,
+      loaded: true,
+      error: undefined,
+    };
+    observabilityView.current.loadActiveExecutions.mockReset();
   });
 
   it("renders title and connection status when disconnected", () => {
@@ -84,7 +175,7 @@ describe("LiveActivity", () => {
 
   it("renders empty state when no activities and not loading", () => {
     render(<LiveActivity />);
-    expect(screen.getByText("No activity yet. Events will appear here as they occur.")).toBeInTheDocument();
+    expect(screen.getByText("No active executions. New executions will appear here as they start.")).toBeInTheDocument();
   });
 
   it("renders loading indicator", () => {
@@ -136,10 +227,53 @@ describe("LiveActivity", () => {
       makeActivity("1", "TRACE_STARTED", "Started"),
       makeActivity("2", "STEP_COMPLETED", "Step done"),
     ];
+    observabilityView.current.activeExecutions.items = [makeExecution("session-1", "root_skill")];
     view.connected = true;
     render(<LiveActivity />);
-    expect(screen.getByText("Started")).toBeInTheDocument();
+    expect(screen.getAllByText("Started").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Step done").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("separates activity into one compact always-following feed per active execution", () => {
+    view.activities = [
+      makeActivity("1", "TRACE_STARTED", "First execution started"),
+      { ...makeActivity("2", "STEP_COMPLETED", "Second execution step"), sessionId: "session-2" },
+    ];
+    observabilityView.current.activeExecutions.items = [
+      makeExecution("session-1", "first_root"),
+      makeExecution("session-2", "second_root"),
+    ];
+
+    render(<LiveActivity />);
+
+    const firstFeed = screen.getByRole("article", { name: "first_root" });
+    const secondFeed = screen.getByRole("article", { name: "second_root" });
+    expect(firstFeed).toHaveTextContent("First execution started");
+    expect(firstFeed).not.toHaveTextContent("Second execution step");
+    expect(secondFeed).toHaveTextContent("Second execution step");
+    expect(secondFeed).not.toHaveTextContent("First execution started");
+    expect(screen.queryByRole("button", { name: /auto-scroll/i })).toBeNull();
+  });
+
+  it("shows execution metadata, a scoped detail link, and an empty feed", () => {
+    observabilityView.current.activeExecutions.items = [makeExecution("session 1", "root_skill")];
+    render(<LiveActivity />);
+
+    const feed = screen.getByRole("article", { name: "root_skill" });
+    expect(feed).toHaveTextContent("Started");
+    expect(feed).toHaveTextContent("Running");
+    expect(feed).toHaveTextContent("5m 5s");
+    expect(feed).toHaveTextContent("No activity yet.");
+    expect(screen.getByRole("link", { name: "View active execution" })).toHaveAttribute(
+      "href",
+      "/active-executions/session%201?targetScopeId=scope-1",
+    );
+  });
+
+  it("loads active executions for the overview activity feeds", () => {
+    observabilityView.current.activeExecutions.loaded = false;
+    render(<LiveActivity />);
+    expect(observabilityView.current.loadActiveExecutions).toHaveBeenCalledWith();
   });
 
   it("renders recent completions section", () => {

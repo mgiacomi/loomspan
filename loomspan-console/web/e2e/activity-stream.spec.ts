@@ -79,5 +79,11 @@ test("paired developer sees live activity stream after connecting", async ({
   await expect(page.getByRole("complementary", { name: "Current target and live context" })).toContainText("ConnectionREACHABLE");
   await page.goto(`${consoleProcess.origin}/`);
   await expect(page.getByRole("heading", { name: "Live Activity" })).toBeVisible();
-  await expect(page.getByRole("log", { name: "Activity narrative" }).getByText("Execution completed", { exact: true })).toBeVisible({ timeout: 10_000 });
+  const completions = page.getByText("Recent completions (1)");
+  await expect(completions).toBeVisible({ timeout: 10_000 });
+  await completions.click();
+  await expect(
+    page.getByRole("list", { name: "Recently completed executions" })
+      .locator(".activity-summary", { hasText: "Execution completed" }),
+  ).toBeVisible();
 });

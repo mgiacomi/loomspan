@@ -238,6 +238,27 @@ const test = consoleTest.extend<{
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
+test("Overview gives each active execution its own compact activity feed", async ({
+  page,
+  consoleProcess,
+  targetApp,
+}) => {
+  await page.goto(consoleProcess.pairingUrl);
+  await page.goto(`${consoleProcess.origin}/target`);
+  await page.getByLabel("Target address").fill(targetApp.origin);
+  await page.getByLabel("Application key").fill("E2E_APPLICATION_KEY_12345678901234567890");
+  await page.getByRole("button", { name: "Connect" }).click();
+
+  const feed = page.getByRole("article", { name: "test-skill" });
+  await expect(feed).toBeVisible({ timeout: 10_000 });
+  await expect(feed.getByText("Started", { exact: true })).toBeVisible();
+  await expect(feed.getByText("Running", { exact: true })).toBeVisible();
+  await expect(feed.getByRole("log", { name: "test-skill activity" }).getByText("Step completed", { exact: true })).toBeVisible();
+  await expect(feed.getByRole("button", { name: /auto-scroll/i })).toHaveCount(0);
+  await feed.getByRole("link", { name: "View active execution" }).click();
+  await expect(page).toHaveURL(/\/active-executions\/session-1\?targetScopeId=/);
+});
+
 test("WF-SLOW-EXECUTION (WF-SE) preserves selection while live activity advances", async ({
   page,
   consoleProcess,

@@ -61,6 +61,38 @@ describe("ActivityNarrative", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("always follows without rendering a follow control", () => {
+    const { rerender } = render(
+      <ActivityNarrative
+        activities={[makeActivity("1", "TRACE_STARTED", "Started")]}
+        isLive={true}
+        alwaysFollow
+        compact
+        ariaLabel="entry activity"
+      />,
+    );
+    const list = screen.getByRole("log", { name: "entry activity" });
+    Object.defineProperty(list, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(list, "scrollTop", { value: 0, configurable: true, writable: true });
+
+    rerender(
+      <ActivityNarrative
+        activities={[
+          makeActivity("1", "TRACE_STARTED", "Started"),
+          makeActivity("2", "STEP_COMPLETED", "Step done"),
+        ]}
+        isLive={true}
+        alwaysFollow
+        compact
+        ariaLabel="entry activity"
+      />,
+    );
+
+    expect(list.scrollTop).toBe(1000);
+    expect(screen.queryByRole("button", { name: /auto-scroll/i })).toBeNull();
+    expect(list.closest(".activity-narrative")).toHaveClass("compact");
+  });
+
   it("pauses following when user scrolls backward", () => {
     const activities = [makeActivity("1", "TRACE_STARTED", "Started")];
     render(<ActivityNarrative activities={activities} isLive={true} />);

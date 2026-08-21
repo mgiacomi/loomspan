@@ -452,16 +452,25 @@ upstream reports `LIVE_MONITORING_UNAVAILABLE`, the coordinator enters a
 terminal state and stops reconnecting. Reconnect backoff is exponential with
 jitter, capped at 30 seconds.
 
-The React activity experience renders a target-wide recent narrative on the
-overview and filters the current summary, bounded active path, and
-follow/pause narrative to the execution selected in the active-execution
-detail route. Completion preserves that selected route and exposes trace
-inspection only when the terminal activity reports availability. Active and
-temporary recent-completion collections remain separate. Connection, reset,
-freshness, and replay-gap facts are announced
+The React activity experience renders one compact, always-following narrative
+per active execution on the overview. Each feed identifies its root skill,
+start time, running time, and scoped active-execution detail route. The detail
+route filters the current summary, bounded active path, and follow/pause
+narrative to its selected execution. Completion preserves that selected route
+and exposes trace inspection only when the terminal activity reports
+availability. Active and temporary recent-completion collections remain
+separate. Connection, reset, freshness, and replay-gap facts are announced
 via ARIA live regions. The SSE decoder handles split UTF-8 chunks
 incrementally and validates event names against the `loomspan.activity` and
 `console.*` namespaces.
+
+The globally mounted activity provider coalesces stream events into
+authoritative instance and collection reloads. Execution activity refreshes
+the active-execution snapshot, execution starts and endings refresh the
+instance counts used by the shell, and trace completion refreshes the trace
+catalog. Connection, replay-gap recovery, and the periodic baseline refresh
+all three snapshots on every route. Manual refresh controls remain available
+for explicit recovery and verification.
 
 ## Artifact cache, saving, and opening trace files
 

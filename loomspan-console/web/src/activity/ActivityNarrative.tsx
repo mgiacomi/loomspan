@@ -5,9 +5,18 @@ import { presentActivity, formatTimestamp, formatDelta } from "./activityPresent
 type ActivityNarrativeProps = {
   activities: Activity[];
   isLive: boolean;
+  alwaysFollow?: boolean;
+  ariaLabel?: string;
+  compact?: boolean;
 };
 
-export function ActivityNarrative({ activities, isLive }: ActivityNarrativeProps) {
+export function ActivityNarrative({
+  activities,
+  isLive,
+  alwaysFollow = false,
+  ariaLabel = "Activity narrative",
+  compact = false,
+}: ActivityNarrativeProps) {
   const [following, setFollowing] = useState(true);
   const listRef = useRef<HTMLOListElement>(null);
   const wasAtBottomRef = useRef(true);
@@ -24,18 +33,19 @@ export function ActivityNarrative({ activities, isLive }: ActivityNarrativeProps
   }, []);
 
   useEffect(() => {
-    if (following && wasAtBottomRef.current) {
+    if (alwaysFollow || (following && wasAtBottomRef.current)) {
       scrollToBottom();
     }
-  }, [activities, following, scrollToBottom]);
+  }, [activities, alwaysFollow, following, scrollToBottom]);
 
   const handleScroll = useCallback(() => {
+    if (alwaysFollow) return;
     const atBottom = isAtBottom();
     wasAtBottomRef.current = atBottom;
     if (!atBottom && following) {
       setFollowing(false);
     }
-  }, [isAtBottom, following]);
+  }, [alwaysFollow, isAtBottom, following]);
 
   const handleFollowToggle = useCallback(() => {
     setFollowing((prev) => {
@@ -48,23 +58,25 @@ export function ActivityNarrative({ activities, isLive }: ActivityNarrativeProps
   }, [scrollToBottom]);
 
   useEffect(() => {
-    if (!isLive && following) {
+    if (!alwaysFollow && !isLive && following) {
       setFollowing(false);
     }
-  }, [isLive, following]);
+  }, [alwaysFollow, isLive, following]);
 
   return (
-    <div className="activity-narrative">
+    <div className={`activity-narrative${compact ? " compact" : ""}`}>
       <div className="activity-narrative-controls">
-        <button
-          type="button"
-          className="follow-toggle"
-          onClick={handleFollowToggle}
-          aria-pressed={following}
-          aria-label={following ? "Pause auto-scroll" : "Resume auto-scroll"}
-        >
-          {following ? "⏸ Pause" : "▶ Follow"}
-        </button>
+        {!alwaysFollow && (
+          <button
+            type="button"
+            className="follow-toggle"
+            onClick={handleFollowToggle}
+            aria-pressed={following}
+            aria-label={following ? "Pause auto-scroll" : "Resume auto-scroll"}
+          >
+            {following ? "⏸ Pause" : "▶ Follow"}
+          </button>
+        )}
         <span className="activity-count" aria-live="polite">
           {activities.length} event{activities.length !== 1 ? "s" : ""}
         </span>
@@ -73,7 +85,7 @@ export function ActivityNarrative({ activities, isLive }: ActivityNarrativeProps
         ref={listRef}
         onScroll={handleScroll}
         className="activity-narrative-list"
-        aria-label="Activity narrative"
+        aria-label={ariaLabel}
         role="log"
         aria-live="polite"
         aria-relevant="additions"
