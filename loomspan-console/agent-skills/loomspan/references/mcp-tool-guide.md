@@ -31,8 +31,11 @@ LOOMSPAN_list_traces -> LOOMSPAN_get_trace -> compact frames -> record descripto
   parsed summary. `retryCount` counts validated attempts after attempt 1, not
   retry-sequence IDs. `recordCountsByType` is the complete nonzero physical
   histogram; omitted known keys mean zero and the values sum to `recordCount`.
-  Query selected types for details. Keep the histogram independent from
-  terminal outcome, logical failures, gaps, uncertainties, and usage completeness.
+  For a failed or aborted trace, use its recorded `terminalFailureId` as an
+  exact record-query `failureId` filter to retrieve the terminal failure fact
+  and sequence. Query selected types for other details. Keep the histogram
+  independent from terminal outcome, logical failures, gaps, uncertainties,
+  and usage completeness.
 - `LOOMSPAN_query_trace_frames` defaults to `COMPACT`; request `DETAILED` only
   for elapsed-millisecond duration, usage, retry identities, validation,
   failure, gap, or uncertainty evidence. COMPACT omits those details. A
@@ -86,8 +89,10 @@ before 64 complete items. Exact default ranges use a separate 48 KiB result
 budget. A continuation is opaque and belongs only
 to its query. Continue while `hasMore` is true by repeating every original
 argument unchanged and adding the returned continuation; never infer authority
-or identity from an opaque token. Tools are the complete MCP investigation path;
-no custom Loomspan resources are advertised.
+or identity from an opaque token. A continuation finishes that fixed query;
+when refining filters or exploring a different `minSequence`/`maxSequence`
+window, start a fresh query without it. Tools are the complete MCP investigation
+path; no custom Loomspan resources are advertised.
 
 Preserve exact domain errors and recovery:
 

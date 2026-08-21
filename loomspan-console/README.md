@@ -312,6 +312,9 @@ content references require a refreshed record descriptor by `traceId`.
 `attemptNumber > 1`, not the number of retry sequences. A frame's
 `directRetryCount` counts those later attempts explicitly attributed to that
 frame; `PLAN_RETRY_REQUESTED` is unrelated planning-quality evidence.
+For a failed or aborted trace, `terminalFailureId` is the recorded terminal
+failure pointer; use it as an exact record-query `failureId` filter to retrieve
+the terminal failure fact and its sequence before reading selected diagnostics.
 Use frame-query `filter.minDirectRetries` to select frames whose existing
 `directRetryCount` meets a minimum. The filter uses only validated later
 attempts explicitly attributed to the exact frame; it does not propagate

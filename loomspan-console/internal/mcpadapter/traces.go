@@ -29,7 +29,7 @@ func addTraceTools(server *mcp.Server, options ServerOptions) {
 	})
 	getSchema := traceInputSchema[getTraceInput]()
 	nonblankBoundedString(getSchema, "traceId", maxTraceTokenLength)
-	get := &mcp.Tool{Name: GetTraceToolName, Description: "Resolve one unique available trace by traceId and return its parsed mechanical summary. retryCount counts validated attempts after attempt 1; recordCountsByType is the complete nonzero physical-record histogram and omitted known types mean zero.", InputSchema: getSchema}
+	get := &mcp.Tool{Name: GetTraceToolName, Description: "Resolve one unique available trace by traceId and return its parsed mechanical summary. terminalFailureId is the recorded terminal failure pointer for a failed or aborted trace. retryCount counts validated attempts after attempt 1; recordCountsByType is the complete nonzero physical-record histogram and omitted known types mean zero.", InputSchema: getSchema}
 	add(get)
 	addValidatedTool(server, get, traceSummaryOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input getTraceInput) (*mcp.CallToolResult, toolEnvelope[getTraceResult], error) {
 		return handleGetTrace(ctx, options, input)
@@ -545,7 +545,11 @@ func traceInventoryFallbackLine(x traceInventoryItemDTO) string {
 func traceSummaryText(value getTraceResult) string {
 	s := value.Summary
 	var b strings.Builder
-	fmt.Fprintf(&b, "traceId=%q sessionId=%q outcome=%q records=%d frames=%d attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d usageComplete=%t\n", value.Evidence.TraceID, value.Evidence.SessionID, s.Outcome, s.RecordCount, s.FrameCount, s.AttemptCount, s.RetryCount, s.ValidationCount, s.FailureCount, s.GapCount, s.UncertaintyCount, s.UsageComplete)
+	fmt.Fprintf(&b, "traceId=%q sessionId=%q outcome=%q", value.Evidence.TraceID, value.Evidence.SessionID, s.Outcome)
+	if s.TerminalFailureID != nil {
+		fmt.Fprintf(&b, " terminalFailureId=%q", fallbackField(*s.TerminalFailureID))
+	}
+	fmt.Fprintf(&b, " records=%d frames=%d attempts=%d retries=%d validations=%d failures=%d gaps=%d uncertainties=%d usageComplete=%t\n", s.RecordCount, s.FrameCount, s.AttemptCount, s.RetryCount, s.ValidationCount, s.FailureCount, s.GapCount, s.UncertaintyCount, s.UsageComplete)
 	for _, recordType := range traceanalysis.RecordTypeValues() {
 		if count := s.RecordCountsByType[recordType]; count > 0 {
 			fmt.Fprintf(&b, "recordType=%q count=%d\n", recordType, count)

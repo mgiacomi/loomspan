@@ -200,7 +200,7 @@ func traceSummaryOutputSchema() *jsonschema.Schema {
 	}
 	summary := compactObject([]string{"outcome", "recordCount", "recordCountsByType", "frameCount", "attemptCount", "retryCount", "failureCount", "rootFrameIds", "usageComplete"}, map[string]*jsonschema.Schema{
 		"outcome": compactString(), "recordCount": compactInteger(), "frameCount": compactInteger(), "attemptCount": compactInteger(), "retryCount": compactInteger(),
-		"recordCountsByType": compactObject(nil, recordCounts, false), "failureCount": compactInteger(), "rootFrameIds": compactArray(compactString()), "usageComplete": compactBoolean(),
+		"terminalFailureId": compactString(), "recordCountsByType": compactObject(nil, recordCounts, false), "failureCount": compactInteger(), "rootFrameIds": compactArray(compactString()), "usageComplete": compactBoolean(),
 	}, true)
 	return compactEnvelopeSchema(compactObject([]string{"evidence", "summary"}, map[string]*jsonschema.Schema{"evidence": compactEvidenceSchema(), "summary": summary}, true))
 }

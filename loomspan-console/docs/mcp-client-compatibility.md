@@ -20,7 +20,7 @@ structured content, and the deterministic text fallback:
 
 | Response class | Post-change bytes | Committed ceiling |
 | --- | ---: | ---: |
-| `tools/list` | 23,262 | 23,552 |
+| `tools/list` | 23,390 | 23,552 |
 | Inventory page (byte-stopped) | 12,012 | 32,768 |
 | COMPACT frame page (byte-stopped) | 21,241 | 32,768 |
 | DETAILED frame page (byte-stopped) | 20,751 | 32,768 |

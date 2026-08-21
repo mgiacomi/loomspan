@@ -35,14 +35,15 @@ func TestTraceRangeTextFallbackPreservesContent(t *testing.T) {
 }
 
 func TestTraceSummaryFallbackListsEveryNonzeroRecordTypeInEnumOrder(t *testing.T) {
+	terminalFailureID := "failure-terminal"
 	text := traceSummaryText(getTraceResult{Evidence: evidenceDTO{TraceID: "trace", SessionID: "session"}, Summary: traceSummaryDTO{
-		Outcome: "SUCCEEDED", RecordCount: 4, RecordCountsByType: map[string]int64{
+		Outcome: "FAILED", TerminalFailureID: &terminalFailureID, RecordCount: 4, RecordCountsByType: map[string]int64{
 			string(traceanalysis.RecordTraceCompleted):   1,
 			string(traceanalysis.RecordModelRequestSent): 2,
 			string(traceanalysis.RecordTraceStarted):     1,
 		},
 	}})
-	wants := []string{`recordType="TRACE_STARTED" count=1`, `recordType="MODEL_REQUEST_SENT" count=2`, `recordType="TRACE_COMPLETED" count=1`}
+	wants := []string{`terminalFailureId="failure-terminal"`, `recordType="TRACE_STARTED" count=1`, `recordType="MODEL_REQUEST_SENT" count=2`, `recordType="TRACE_COMPLETED" count=1`}
 	position := -1
 	for _, want := range wants {
 		next := strings.Index(text, want)
@@ -53,6 +54,10 @@ func TestTraceSummaryFallbackListsEveryNonzeroRecordTypeInEnumOrder(t *testing.T
 	}
 	if strings.Contains(text, "PLAN_RETRY_REQUESTED") {
 		t.Fatalf("zero histogram entry rendered: %q", text)
+	}
+	succeeded := traceSummaryText(getTraceResult{Summary: traceSummaryDTO{Outcome: "SUCCEEDED", RecordCountsByType: map[string]int64{}}})
+	if strings.Contains(succeeded, "terminalFailureId=") {
+		t.Fatalf("absent terminal failure rendered: %q", succeeded)
 	}
 }
 
