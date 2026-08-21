@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
 
@@ -81,10 +81,39 @@ test("uses compact frames for hierarchy and detailed frames for rich views", asy
 	await screen.findByText(/FAILED/);
 	expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "COMPACT", 1000);
 	fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
-	await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "DETAILED"));
+	await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "DETAILED", 1000));
 	fireEvent.click(screen.getByRole("tab", { name: "Hierarchy" }));
 	fireEvent.click(screen.getByRole("button", { name: /SKILL: hello/ }));
 	await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, { frameIds: ["f-1"] }, "CANONICAL", "TARGET", "DETAILED"));
+});
+
+test("timeline replaces selected-frame detail with every canonical frame page", async () => {
+  const frame = (frameId: string, route: string, openedTimestampMillis: number) => ({
+    frameId, parentFrameId: null, childFrameIds: [], frameType: "SKILL", route,
+    openedTimestampMillis, closedTimestampMillis: openedTimestampMillis + 5,
+    inclusiveDurationMillis: 5, selfDurationMillis: 5,
+    directUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, directUsageComplete: true,
+    descendantUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, descendantUsageComplete: true,
+    inclusiveUsage: { promptUnits: 0, completionUnits: 0, totalUnits: 0 }, inclusiveUsageComplete: true,
+    skillNames: [], outcome: "completed", attemptIds: [], retrySequenceIds: [], validationStatuses: [], failureIds: [],
+  });
+  const one = frame("frame-1", "one", 1);
+  const two = frame("frame-2", "two", 10);
+  const page = (items: unknown[], hasMore = false, nextCursor: string | null = null) => ({ source: "TARGET", targetScopeId: "scope-1", items, hasMore, nextCursor });
+  api.getTraceFrames
+    .mockResolvedValueOnce(page([one, two]))
+    .mockResolvedValueOnce(page([one]))
+    .mockResolvedValueOnce(page([one], true, "timeline-next"))
+    .mockResolvedValueOnce(page([two]));
+  render(<MemoryRouter initialEntries={["/?view=hierarchy&frameId=frame-1"]}><TraceExplorer traceId="trace-1" /></MemoryRouter>);
+
+  await vi.waitFor(() => expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, { frameIds: ["frame-1"] }, "CANONICAL", "TARGET", "DETAILED"));
+  fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+  await screen.findByRole("button", { name: "two" });
+  expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", undefined, {}, "CANONICAL", "TARGET", "DETAILED", 1000);
+  expect(api.getTraceFrames).toHaveBeenCalledWith("trace-1", "timeline-next", {}, "CANONICAL", "TARGET", "DETAILED", 1000);
+  expect(within(screen.getByLabelText("Trace timeline")).getByRole("button", { name: "one" }).closest(".trace-timeline-row")).toHaveAttribute("aria-current", "true");
+  expect(screen.queryByRole("button", { name: "Load more timeline frames" })).toBeNull();
 });
 
 test("usage operations deep-link to and focus their exact model response record", async () => {

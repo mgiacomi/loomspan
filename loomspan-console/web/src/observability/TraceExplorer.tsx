@@ -65,6 +65,7 @@ export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailabl
   const [summary, setSummary] = useState<TraceAnalysisSummary>();
   const [frames, setFrames] = useState<TraceAnalysisPage<TraceFrame>>();
 	const [detailedFrames, setDetailedFrames] = useState<TraceAnalysisPage<TraceFrame>>();
+  const [timelineStatus, setTimelineStatus] = useState<"idle" | "loading" | "loaded" | "failed">("idle");
   const [records, setRecords] = useState<TraceAnalysisPage<TraceRecord>>();
   const [failures, setFailures] = useState<TraceAnalysisPage<TraceFailure>>();
   const [searchText, setSearchText] = useState("");
@@ -110,6 +111,8 @@ export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailabl
       select({ view: undefined, frameId: undefined, recordSequence: undefined, failureId: undefined });
       setSummary(undefined);
       setFrames(undefined);
+      setDetailedFrames(undefined);
+      setTimelineStatus("idle");
       setRecords(undefined);
       setRange(undefined);
       onArtifactUnavailable?.(browserError);
@@ -128,6 +131,7 @@ export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailabl
     setSummary(undefined);
     setFrames(undefined);
 		setDetailedFrames(undefined);
+    setTimelineStatus("idle");
     setRecords(undefined);
     setFailures(undefined);
     setSearchResults(undefined);
@@ -182,11 +186,28 @@ export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailabl
     }
   }, [pending, reportError, scopeMismatch, source, traceId, usage, verifyScope]);
 	const loadDetailedFrames = useCallback(() => {
-		if (scopeMismatch || detailedFrames || pending.has("detailed-frames")) return;
+		if (scopeMismatch || timelineStatus !== "idle" || pending.has("detailed-frames")) return;
+		setTimelineStatus("loading");
 		begin("detailed-frames");
-		void getTraceFrames(traceId, undefined, {}, "CANONICAL", source, "DETAILED").then(verifyScope).then(setDetailedFrames)
-			.catch((value) => reportError(value, true)).finally(() => end("detailed-frames"));
-	}, [detailedFrames, pending, reportError, scopeMismatch, source, traceId, verifyScope]);
+		const loadAll = async () => {
+      const items: TraceFrame[] = [];
+      let cursor: string | undefined;
+      let lastPage: TraceAnalysisPage<TraceFrame> | undefined;
+      do {
+        const page = await getTraceFrames(traceId, cursor, {}, "CANONICAL", source, "DETAILED", 1000).then(verifyScope);
+        items.push(...page.items);
+        lastPage = page;
+        if (!page.hasMore) break;
+        if (!page.nextCursor || page.nextCursor === cursor) throw new Error("Timeline continuation was invalid.");
+        cursor = page.nextCursor;
+      } while (true);
+      if (!lastPage) return;
+      setDetailedFrames({ ...lastPage, items, hasMore: false, nextCursor: null });
+      setTimelineStatus("loaded");
+    };
+    void loadAll()
+			.catch((value) => { setTimelineStatus("failed"); reportError(value, true); }).finally(() => end("detailed-frames"));
+	}, [pending, reportError, scopeMismatch, source, timelineStatus, traceId, verifyScope]);
   useEffect(() => {
     if (!summary) return;
     if (state.view === "records") loadRecords();
@@ -431,7 +452,9 @@ export function TraceExplorer({ traceId, source = "TARGET", onArtifactUnavailabl
       <div role="tablist" aria-label="Trace evidence views">{views.map((view, index) => <button id={`trace-tab-${view}`} aria-controls={`trace-panel-${view}`} key={view} type="button" role="tab" tabIndex={state.view === view ? 0 : -1} aria-selected={state.view === view} onKeyDown={(event) => handleTabKey(event, index)} onClick={() => select({ view })}>{view[0].toUpperCase() + view.slice(1)}</button>)}</div>
       <div id={`trace-panel-${state.view}`} role="tabpanel" aria-labelledby={`trace-tab-${state.view}`} tabIndex={0}>
         {state.view === "hierarchy" && <><TraceHierarchy frames={frames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />{frames?.hasMore && <button type="button" disabled={pending.has("frames")} onClick={() => loadMore("frames", frames, (cursor) => getTraceFrames(traceId, cursor, {}, "CANONICAL", source, "COMPACT", 1000), setFrames)}>Load more frames</button>}</>}
-		{state.view === "timeline" && <><TraceTimeline frames={detailedFrames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />{detailedFrames?.hasMore && <button type="button" disabled={pending.has("detailed-frames-page")} onClick={() => loadMore("detailed-frames-page", detailedFrames, (cursor) => getTraceFrames(traceId, cursor, {}, "CANONICAL", source, "DETAILED"), setDetailedFrames)}>Load more timeline frames</button>}</>}
+		{state.view === "timeline" && (timelineStatus === "loaded"
+          ? <TraceTimeline frames={detailedFrames?.items ?? []} selectedFrameId={state.frameId} onSelect={selectFrame} />
+          : timelineStatus === "failed" ? <p>Timeline could not be loaded.</p> : <p role="status">Loading full timeline&hellip;</p>)}
         {state.view === "usage" && <TraceUsage usage={usage} frame={selectedFrame} summary={summary} contributors={usageFrames?.items} responseRecords={usageResponseRecords} recordHref={(record) => {
           const target = setTraceExplorerSelection(params, { view: "records", frameId: record.frameId || undefined, recordSequence: record.sequence, failureId: undefined });
           return `?${target.toString()}`;

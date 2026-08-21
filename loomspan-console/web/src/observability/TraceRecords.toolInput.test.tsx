@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { getRawRecordRange, getTraceRecords } from "../api/client";
@@ -65,6 +65,12 @@ function renderToolInput(current = record()) {
   render(<TraceRecords traceId="trace-1" records={[current]} failures={[]} onSelectRecord={vi.fn()} onSelectFailure={vi.fn()} onContent={vi.fn()} />);
 }
 
+async function findLoadedToolInput(sequence: number, expectedContent: string) {
+  const detail = await screen.findByRole("region", { name: `Tool input for record ${sequence}` });
+  await waitFor(() => expect(detail).toHaveTextContent(expectedContent));
+  return detail;
+}
+
 beforeEach(() => {
   getRawRecordRangeMock.mockReset();
   getTraceRecordsMock.mockReset();
@@ -94,7 +100,7 @@ test("shows planned tool input only after explicit selection", async () => {
   expect(getRawRecordRangeMock).not.toHaveBeenCalled();
 
   fireEvent.click(action);
-  const detail = await screen.findByRole("region", { name: "Tool input for record 100" });
+  const detail = await findLoadedToolInput(100, "Planned");
   expect(action).toHaveAttribute("aria-expanded", "true");
   expect(detail).toHaveTextContent("Planned");
   expect(detail).toHaveTextContent("Retrieve customer");
@@ -134,7 +140,7 @@ test("resolves a planned task title through an ordinary mission model frame", as
   renderToolInput(record(100, { parentFrameId: "model-frame" }));
   fireEvent.click(screen.getByRole("button", { name: "Tool input" }));
 
-  const detail = await screen.findByRole("region", { name: "Tool input for record 100" });
+  const detail = await findLoadedToolInput(100, "Retrieve customer");
   expect(detail).toHaveTextContent("Retrieve customer");
   expect(getTraceRecordsMock).toHaveBeenCalledWith("trace-1", undefined, expect.objectContaining({
     types: ["FRAME_OPENED"],
@@ -154,7 +160,7 @@ test.each([
   renderToolInput(record(25, { route: "lookupPolicy", parentFrameId: "root-frame" }));
 
   fireEvent.click(screen.getByRole("button", { name: "Tool input" }));
-  const detail = await screen.findByRole("region", { name: "Tool input for record 25" });
+  const detail = await findLoadedToolInput(25, "Unplanned");
   expect(detail).toHaveTextContent("Unplanned");
   expect(detail).toHaveTextContent("No plan task was linked");
   expect(detail).toHaveTextContent(expected);
@@ -179,7 +185,7 @@ test("loads complete input across ranges and renders malicious-looking arguments
   const action = screen.getByRole("button", { name: "Tool input" });
   action.focus();
   await userEvent.keyboard("{Enter}");
-  const detail = await screen.findByRole("region", { name: "Tool input for record 100" });
+  const detail = await findLoadedToolInput(100, malicious);
   expect(within(detail).getByText(malicious)).toBeVisible();
   expect(detail.querySelector("script")).toBeNull();
   expect(getRawRecordRangeMock).toHaveBeenNthCalledWith(1, "trace-1", 100, undefined, "TARGET");
@@ -195,7 +201,7 @@ test("keeps the recorded planned task ID when no title can be resolved", async (
   renderToolInput();
 
   fireEvent.click(screen.getByRole("button", { name: "Tool input" }));
-  const detail = await screen.findByRole("region", { name: "Tool input for record 100" });
+  const detail = await findLoadedToolInput(100, "task-missing-title");
   expect(detail).toHaveTextContent("task-missing-title");
   expect(within(detail).queryByText("Task", { exact: true })).toBeNull();
   expect(within(detail).getByText("null")).toBeVisible();
