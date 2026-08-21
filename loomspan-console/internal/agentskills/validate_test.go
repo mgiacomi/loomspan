@@ -47,7 +47,7 @@ func TestRuntimeDebuggingSkillValidationRejectsUnsafeAndNonPortableVariants(t *t
 		{"extra file", func(t *testing.T, root string) { write(t, filepath.Join(root, "extra.md"), "x") }, "unexpected"},
 		{"missing file", func(t *testing.T, root string) { os.Remove(filepath.Join(root, "references", "runtime-model.md")) }, "incomplete"},
 		{"unsupported frontmatter", replaceSkill("license: MPL-2.0", "allowed-tools: []\nlicense: MPL-2.0"), "unsupported"},
-		{"wrong name", replaceSkill("name: loomspan-runtime-debugging", "name: another-skill"), "name"},
+		{"wrong name", replaceSkill("name: loomspan", "name: another-skill"), "name"},
 		{"wrong version", replaceSkill("skill-version: \"1.0.0\"", "skill-version: \"2.0.0\""), "version"},
 		{"non-string metadata", replaceSkill("skill-version: \"1.0.0\"", "skill-version: 1"), "string"},
 		{"broken reference", replaceSkill("references/runtime-model.md", "references/missing.md"), "reference"},

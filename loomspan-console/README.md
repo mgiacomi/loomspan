@@ -53,7 +53,7 @@ The release names are
 `loomspan-console-VERSION-linux-x86_64.tar.gz`, and
 `loomspan-console-VERSION-macos-arm64.tar.gz`. Each has one top-level directory
 containing the executable, `LICENSE`, the runtime `README.md`, and the exact
-six-file portable Agent Skill at `skills/loomspan-runtime-debugging/`
+six-file portable Agent Skill at `skills/loomspan/`
 (`SKILL.md` plus five files in `references/`). The skill's `1.0.0` metadata is
 versioned independently from Console and is not target negotiation.
 Check `SHA256SUMS` with `sha256sum -c SHA256SUMS` on POSIX systems; in
@@ -363,8 +363,8 @@ evidence procedure and scope.
 ## Portable runtime debugging skill
 
 The canonical client-neutral package is
-`agent-skills/loomspan-runtime-debugging/`; every native archive embeds those
-same bytes at `skills/loomspan-runtime-debugging/`. Installation is explicit:
+`agent-skills/loomspan/`; every native archive embeds those
+same bytes at `skills/loomspan/`. Installation is explicit:
 copy that directory, or create a filesystem link to it, in a client-selected
 user/global Agent Skill location. Console does not auto-install it, edit client
 configuration, or publish a client-specific fork.

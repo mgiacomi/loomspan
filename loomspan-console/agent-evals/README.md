@@ -1,7 +1,7 @@
 # Agent evaluation harness
 
 This directory contains repository release evidence for the portable
-`loomspan-runtime-debugging` Agent Skill. Cases link to existing authoritative
+`loomspan` Agent Skill. Cases link to existing authoritative
 fixtures rather than copying trace NDJSON. Records are sanitized development
 evidence, not a Loomspan runtime interchange format.
 

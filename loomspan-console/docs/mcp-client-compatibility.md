@@ -38,7 +38,7 @@ run`; the committed ceilings are implementation safety bounds, not claims of
 25% headroom below an unobserved host threshold.
 
 The release also carries the byte-identical, client-neutral
-`skills/loomspan-runtime-debugging/` package. Installation is a user-selected
+`skills/loomspan/` package. Installation is a user-selected
 copy or filesystem link into a local client's user/global skill location; it
 does not auto-install or contain an endpoint or key. Skill package version
 1.0.0 is independent of the Console version. Live use requires the existing

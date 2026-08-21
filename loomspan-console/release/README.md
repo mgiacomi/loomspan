@@ -12,7 +12,7 @@ On shutdown the current transient workspace is removed best-effort, but an enabl
 
 Release archives are named `loomspan-console-VERSION-windows-x86_64.zip`, `loomspan-console-VERSION-linux-x86_64.tar.gz`, and `loomspan-console-VERSION-macos-arm64.tar.gz`. Verify a downloaded archive against `SHA256SUMS` with `sha256sum -c SHA256SUMS` on POSIX systems, or on PowerShell compare `(Get-FileHash -Algorithm SHA256 .\\ARCHIVE).Hash.ToLowerInvariant()` with its entry in `SHA256SUMS`.
 
-Each archive also contains `skills/loomspan-runtime-debugging/`, with one
+Each archive also contains `skills/loomspan/`, with one
 `SKILL.md` and five focused `references/*.md` files. Its package version 1.0.0
 is independent distribution metadata. To opt in, copy or filesystem-link that
 unchanged directory into a local client's user/global Agent Skill location.
