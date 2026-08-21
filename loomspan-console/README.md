@@ -312,6 +312,10 @@ content references require a refreshed record descriptor by `traceId`.
 `attemptNumber > 1`, not the number of retry sequences. A frame's
 `directRetryCount` counts those later attempts explicitly attributed to that
 frame; `PLAN_RETRY_REQUESTED` is unrelated planning-quality evidence.
+Use frame-query `filter.minDirectRetries` to select frames whose existing
+`directRetryCount` meets a minimum. The filter uses only validated later
+attempts explicitly attributed to the exact frame; it does not propagate
+descendant retries or determine a cause or anomaly.
 `recordCountsByType` is the complete histogram of nonzero physical record
 types, so omitted known keys mean zero and its values sum to `recordCount`.
 Use selected keys with the paginated record query; do not infer logical
@@ -322,8 +326,9 @@ Frame queries default to `COMPACT`, which retains orientation/count facts but
 omits duration, usage, and identity detail. `DETAILED` supplies elapsed-
 millisecond duration and rich usage/retry/validation/failure/gap/uncertainty
 facts. A frame has an optional scalar close `outcome`; no close status means it
-is absent. Record timestamps are epoch milliseconds; frame durations are
-elapsed milliseconds.
+is absent. Frame filters compose with AND semantics, including
+`minDirectRetries` against the existing exact-frame count. Record timestamps
+are epoch milliseconds; frame durations are elapsed milliseconds.
 
 Trace pages accept at most 64 complete items. Content descriptors are returned
 without bytes by default. Explicit `inlineContent` includes complete values no

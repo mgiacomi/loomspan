@@ -51,6 +51,31 @@ func TestEncodedPageBudgetAdmitsOnlyWholeItems(t *testing.T) {
 	}
 }
 
+func TestAttemptFailureFallbackParticipatesInWholeItemAdmission(t *testing.T) {
+	item := recordDTO{Sequence: 1, Type: string(traceanalysis.RecordModelAttemptFailed), Facts: recordFactsDTO{Attempts: []attemptDTO{{
+		AttemptID: "attempt-1", RetrySequenceID: "retry-1", AttemptNumber: 2, AttemptReason: "PROVIDER_RETRY",
+		ProviderAttemptNumber: 2, FailureClassification: "TRANSIENT", FailureCategory: "TIMEOUT",
+		RetryDecision: "RETRY", RetryDelayMillis: 419, RetryDelaySource: "BACKOFF",
+		ProviderErrorType: strings.Repeat("p", 512),
+	}}}}
+	fallback := recordFallbackLine(item)
+	structured, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedFallback, err := json.Marshal(fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact := len(structured) + len(encodedFallback) + 2
+	if !(&pageAdmission{budget: exact}).admit(item, fallback) {
+		t.Fatal("complete attempt-failure item was not admitted at its exact encoded size")
+	}
+	if (&pageAdmission{budget: exact - 1}).admit(item, fallback) {
+		t.Fatal("attempt-failure item was partially admitted below its exact encoded size")
+	}
+}
+
 type countedBudgetCandidate struct {
 	Value        string
 	MarshalCalls int

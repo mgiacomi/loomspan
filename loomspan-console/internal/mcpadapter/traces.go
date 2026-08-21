@@ -36,7 +36,7 @@ func addTraceTools(server *mcp.Server, options ServerOptions) {
 	})
 	frameSchema := traceInputSchema[queryTraceFramesInput]()
 	prepareQueryFramesSchema(frameSchema)
-	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts. COMPACT is the default orientation projection and omits duration, usage, and identity detail. DETAILED returns elapsed-millisecond duration, usage attribution, retry identities, validations, failures, gaps, and uncertainties. pageSize is a maximum; continue until hasMore is false.", InputSchema: frameSchema}
+	frames := &mcp.Tool{Name: QueryTraceFramesToolName, Description: "Query bounded trace frame facts. filter.minDirectRetries uses later attempts explicitly attributed to the exact frame; it is not a root-cause or anomaly determination. COMPACT is the default orientation projection and omits duration, usage, and identity detail. DETAILED returns elapsed-millisecond duration, usage attribution, retry identities, validations, failures, gaps, and uncertainties. pageSize is a maximum; continue until hasMore is false.", InputSchema: frameSchema}
 	add(frames)
 	addValidatedTool(server, frames, frameQueryOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input queryTraceFramesInput) (*mcp.CallToolResult, toolEnvelope[queryFramesResult], error) {
 		return handleQueryTraceFrames(ctx, options, input)
@@ -79,6 +79,15 @@ func prepareQueryFramesSchema(schema *jsonschema.Schema) {
 	nestedEnumProperty(schema, "filter", "frameType", traceanalysis.FrameTypeValues()...)
 	nestedEnumProperty(schema, "filter", "outcome", traceanalysis.FrameOutcomeValues()...)
 	nestedEnumProperty(schema, "filter", "validationStatus", traceanalysis.ValidationStatusValues()...)
+	if filter := schema.Properties["filter"]; filter != nil {
+		if minimum := filter.Properties["minDirectRetries"]; minimum != nil {
+			minimumValue := float64(1)
+			minimum.Type = "integer"
+			minimum.Types = nil
+			minimum.Minimum = &minimumValue
+			minimum.Description = "Minimum directRetryCount; counts later attempts explicitly attributed to the exact frame"
+		}
+	}
 	boundedInteger(schema, "pageSize", 1, 64)
 	boundedString(schema, "continuation", maxTraceTokenLength)
 }
@@ -594,6 +603,22 @@ func recordFallbackLine(x recordDTO) string {
 		inlineContent = x.Content.InlineContent
 	}
 	line := fmt.Sprintf("sequence=%d type=%q frameId=%q representation=%q contentRef=%q retainedBytes=%d", x.Sequence, x.Type, fallbackField(x.FrameID), x.Representation, fallbackField(ref), bytes)
+	if x.Type == string(traceanalysis.RecordModelAttemptFailed) {
+		for _, attempt := range x.Facts.Attempts {
+			line += fmt.Sprintf(" attemptId=%q retrySequenceId=%q attemptNumber=%d attemptReason=%q providerAttemptNumber=%d failureClassification=%q failureCategory=%q retryDecision=%q retryDelayMillis=%d retryDelaySource=%q",
+				fallbackField(attempt.AttemptID), fallbackField(attempt.RetrySequenceID), attempt.AttemptNumber, fallbackField(attempt.AttemptReason), attempt.ProviderAttemptNumber,
+				fallbackField(attempt.FailureClassification), fallbackField(attempt.FailureCategory), fallbackField(attempt.RetryDecision), attempt.RetryDelayMillis, fallbackField(attempt.RetryDelaySource))
+			if attempt.HTTPStatus != 0 {
+				line += fmt.Sprintf(" httpStatus=%d", attempt.HTTPStatus)
+			}
+			if attempt.ProviderErrorType != "" {
+				line += fmt.Sprintf(" providerErrorType=%q", fallbackField(attempt.ProviderErrorType))
+			}
+			if attempt.ProviderErrorCode != "" {
+				line += fmt.Sprintf(" providerErrorCode=%q", fallbackField(attempt.ProviderErrorCode))
+			}
+		}
+	}
 	if inlineContent != "" {
 		line += fmt.Sprintf(" inlineEligibility=%t inlineContent=%q", inlineEligibility, inlineContent)
 	}

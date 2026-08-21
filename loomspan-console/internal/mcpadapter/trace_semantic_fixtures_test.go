@@ -372,6 +372,63 @@ func TestPlanAndSearchAdaptersPreserveSameSemantics(t *testing.T) {
 	}
 }
 
+func TestFrameRetryMinimumAndAttemptFailureFallbackUseRealParsedFacts(t *testing.T) {
+	t.Run("frame filter", func(t *testing.T) {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "loomspan-console-fixtures", "traces", "current-plan-semantic-evidence.ndjson"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw = bytes.ReplaceAll(raw, []byte(`"consoleCompatibilityVersion":"0.1.0-SNAPSHOT"`), []byte(`"consoleCompatibilityVersion":"development"`))
+		h := newRealSemanticHarnessFromRaw(t, raw)
+		options := newMCPTestOptions(t, nil)
+		options.TraceAnalysis = h.analysis
+		options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
+
+		_, envelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{
+			TraceID: h.acquired.Metadata.TraceID, PageSize: 64, Projection: traceanalysis.FrameProjectionCompact,
+			Filter: traceanalysis.FrameFilter{MinDirectRetries: 1},
+		})
+		if err != nil || envelope.Result == nil || len(envelope.Result.Items) != 1 || envelope.Result.Items[0].FrameID != "planning-primary" || envelope.Result.Items[0].DirectRetryCount != 1 {
+			t.Fatalf("filtered frames=%#v err=%v", envelope, err)
+		}
+	})
+
+	t.Run("attempt failure fallback", func(t *testing.T) {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "loomspan-console-fixtures", "traces", "timeout-step-failure.ndjson"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw = bytes.ReplaceAll(raw, []byte(`"consoleCompatibilityVersion":"0.1.0-SNAPSHOT"`), []byte(`"consoleCompatibilityVersion":"development"`))
+		h := newRealSemanticHarnessFromRaw(t, raw)
+		options := newMCPTestOptions(t, nil)
+		options.TraceAnalysis = h.analysis
+		options.TraceResolver = &fakeTraceArtifacts{result: h.acquired, ref: evidence.ForImported()}
+
+		call, envelope, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{
+			TraceID: h.acquired.Metadata.TraceID, PageSize: 64,
+			Filter: traceanalysis.RecordFilter{Types: []string{string(traceanalysis.RecordModelAttemptFailed)}},
+		})
+		if err != nil || envelope.Result == nil || len(envelope.Result.Items) != 1 {
+			t.Fatalf("attempt failure records=%#v err=%v", envelope, err)
+		}
+		attempts := envelope.Result.Items[0].Facts.Attempts
+		if len(attempts) != 1 || attempts[0].FailureCategory != "TIMEOUT" || attempts[0].RetryDecision != "ATTEMPTS_EXHAUSTED" {
+			t.Fatalf("structured attempt facts=%#v", attempts)
+		}
+		fallback := call.Content[0].(*mcp.TextContent).Text
+		for _, want := range []string{`attemptId="attempt-timeout"`, `retrySequenceId="retry-timeout"`, `attemptNumber=1`, `failureClassification="TRANSIENT"`, `failureCategory="TIMEOUT"`, `retryDecision="ATTEMPTS_EXHAUSTED"`, `retryDelayMillis=0`, `retryDelaySource="NONE"`} {
+			if !strings.Contains(fallback, want) {
+				t.Fatalf("fallback missing %q: %q", want, fallback)
+			}
+		}
+		for _, omitted := range []string{"httpStatus=", "providerErrorType=", "providerErrorCode="} {
+			if strings.Contains(fallback, omitted) {
+				t.Fatalf("fallback fabricated %q: %q", omitted, fallback)
+			}
+		}
+	})
+}
+
 func newSemanticBrowserPost(t *testing.T, h *realSemanticHarness) func(string, string) map[string]any {
 	t.Helper()
 	router, sessionID := newSemanticBrowserTransport(t, h)

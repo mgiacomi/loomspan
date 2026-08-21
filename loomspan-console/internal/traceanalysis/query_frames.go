@@ -45,6 +45,9 @@ type FrameFilter struct {
 	RetrySequenceID  string `json:"retrySequenceId,omitempty"`
 	ValidationStatus string `json:"validationStatus,omitempty"`
 	FailureID        string `json:"failureId,omitempty"`
+	// MinDirectRetries selects frames with at least this many validated later
+	// attempts explicitly attributed to the exact frame. Zero means unset.
+	MinDirectRetries int `json:"minDirectRetries,omitempty"`
 }
 
 // FrameQuery is a bounded, continuable frame query.
@@ -107,6 +110,9 @@ func (service *Service) QueryFrames(ctx context.Context, scopeID evidence.Refere
 	}
 	if query.Filter.ValidationStatus != "" && !knownValidationStatus(query.Filter.ValidationStatus) {
 		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The validation status filter is not supported.", scopeID.ID(), consolecore.Details{}, nil)
+	}
+	if query.Filter.MinDirectRetries < 0 {
+		return Page[FrameSummary]{}, consolecore.NewError(consolecore.CodeInvalidArgument, "The minimum direct retry count must not be negative.", scopeID.ID(), consolecore.Details{}, nil)
 	}
 	for _, frameID := range query.Filter.FrameIDs {
 		if frameID == "" {
@@ -261,6 +267,9 @@ func frameMatchesFilter(fr frameResult, f FrameFilter, idSet map[string]bool) bo
 		}
 	}
 	if f.FrameType != "" && fr.FrameType != f.FrameType {
+		return false
+	}
+	if f.MinDirectRetries > 0 && fr.DirectRetryCount < f.MinDirectRetries {
 		return false
 	}
 	if f.Route != "" && fr.Route != f.Route {

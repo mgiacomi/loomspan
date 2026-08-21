@@ -15,12 +15,12 @@ framing at 1, 4, and 16 MiB, concurrent clients, and explicit rejection of the
 32 and 64 MiB candidates; representative-client checks are post-implementation
 compatibility observations.
 
-PR 31 checked-in full HTTP measurements include the JSON-RPC response envelope,
+Current checked-in full HTTP measurements include the JSON-RPC response envelope,
 structured content, and the deterministic text fallback:
 
 | Response class | Post-change bytes | Committed ceiling |
 | --- | ---: | ---: |
-| `tools/list` | 22,839 | 23,552 |
+| `tools/list` | 23,262 | 23,552 |
 | Inventory page (byte-stopped) | 12,012 | 32,768 |
 | COMPACT frame page (byte-stopped) | 21,241 | 32,768 |
 | DETAILED frame page (byte-stopped) | 20,751 | 32,768 |

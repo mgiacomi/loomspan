@@ -62,9 +62,33 @@ func TestClosedTraceVocabulariesUseAuthoritativeServiceInventories(t *testing.T)
 	assertSchemaEnum("frame type", frames.Properties["filter"].Properties["frameType"], traceanalysis.FrameTypeValues())
 	assertSchemaEnum("frame outcome", frames.Properties["filter"].Properties["outcome"], traceanalysis.FrameOutcomeValues())
 	assertSchemaEnum("frame validation", frames.Properties["filter"].Properties["validationStatus"], traceanalysis.ValidationStatusValues())
+	minimum := frames.Properties["filter"].Properties["minDirectRetries"]
+	if minimum == nil || minimum.Type != "integer" || minimum.Minimum == nil || *minimum.Minimum != 1 || !strings.Contains(minimum.Description, "later attempts explicitly attributed to the exact frame") {
+		t.Fatalf("minDirectRetries schema=%+v", minimum)
+	}
 	assertSchemaEnum("record representation", records.Properties["representation"], traceanalysis.RecordRepresentationValues())
 	assertSchemaEnum("record type", records.Properties["filter"].Properties["types"].Items, traceanalysis.RecordTypeValues())
 	assertSchemaEnum("record validation", records.Properties["filter"].Properties["validationStatus"], traceanalysis.ValidationStatusValues())
+}
+
+func TestFrameRetryMinimumSchemaRejectsValuesBelowOneWhenPresent(t *testing.T) {
+	schema := traceInputSchema[queryTraceFramesInput]()
+	prepareQueryFramesSchema(schema)
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resolved.Validate(map[string]any{"traceId": "t"}); err != nil {
+		t.Fatalf("omitted minDirectRetries rejected: %v", err)
+	}
+	if err := resolved.Validate(map[string]any{"traceId": "t", "filter": map[string]any{"minDirectRetries": float64(1)}}); err != nil {
+		t.Fatalf("minDirectRetries=1 rejected: %v", err)
+	}
+	for name, value := range map[string]any{"zero": float64(0), "negative": float64(-1), "fractional": 1.5, "string": "1"} {
+		if err := resolved.Validate(map[string]any{"traceId": "t", "filter": map[string]any{"minDirectRetries": value}}); err == nil {
+			t.Fatalf("%s minDirectRetries was accepted", name)
+		}
+	}
 }
 
 func TestTraceToolSchemasExposeOnlyDeveloperIntentIdentity(t *testing.T) {

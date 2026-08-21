@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -278,6 +279,82 @@ func TestFrameDirectRetryCountCountsLaterAttemptsInSameFrame(t *testing.T) {
 	page, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{Handle: h.handle, Projection: FrameProjectionDetailed, PageSize: 10})
 	if domain != nil || len(page.Items) != 1 || page.Items[0].DirectAttemptCount != 2 || page.Items[0].DirectRetryCount != 1 {
 		t.Fatalf("same-frame retries page=%+v domain=%v", page, domain)
+	}
+}
+
+func TestFrameMinDirectRetriesFiltersExistingExactFrameCount(t *testing.T) {
+	withFrame := func(record, frameID string) string {
+		return strings.Replace(record, `"frameId":null`, `"frameId":"`+frameID+`"`, 1)
+	}
+	lines := []string{startedRecord(1), frameRecord(2, "root", "", false, "ROOT_MISSION", true)}
+	sequence := 3
+	addFrame := func(frameID string, attempts int) {
+		lines = append(lines, frameRecord(sequence, frameID, "root", true, "MODEL_CALL", true))
+		sequence++
+		for attempt := 1; attempt <= attempts; attempt++ {
+			attemptID := frameID + "-attempt-" + itoa(attempt)
+			lines = append(lines,
+				withFrame(requestRecord(sequence, frameID+"-retry", attemptID, attempt, false), frameID),
+				responseRecord(sequence+1, frameID, frameID+"-retry", attemptID, attempt, 0, 0, 0, "EXACT"),
+			)
+			sequence += 2
+		}
+		lines = append(lines, frameRecord(sequence, frameID, "root", true, "MODEL_CALL", false))
+		sequence++
+	}
+	addFrame("zero", 1)
+	addFrame("one", 2)
+	addFrame("two", 3)
+	lines = append(lines, frameRecord(sequence, "root", "", false, "ROOT_MISSION", false), completionRecord(sequence+1, "SUCCEEDED", 0, 0, 0, ""))
+	h := newServiceTestHarness(t, "t", strings.Join(lines, "\n")+"\n")
+
+	query := func(filter FrameFilter, projection FrameProjection, order FrameOrder, pageSize int, cursor string) (Page[FrameSummary], *consolecore.Error) {
+		return h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
+			Handle: h.handle, Filter: filter, Projection: projection, Order: order, PageSize: pageSize, Cursor: cursor,
+		})
+	}
+	assertIDs := func(page Page[FrameSummary], domain *consolecore.Error, want ...string) {
+		t.Helper()
+		if domain != nil {
+			t.Fatalf("QueryFrames failed: %v", domain)
+		}
+		got := make([]string, 0, len(page.Items))
+		for _, item := range page.Items {
+			got = append(got, item.FrameID)
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Fatalf("frame IDs=%v want=%v", got, want)
+		}
+	}
+
+	page, domain := query(FrameFilter{MinDirectRetries: 1}, FrameProjectionCompact, FrameOrderCanonical, 10, "")
+	assertIDs(page, domain, "one", "two")
+	page, domain = query(FrameFilter{MinDirectRetries: 2}, FrameProjectionDetailed, FrameOrderCanonical, 10, "")
+	assertIDs(page, domain, "two")
+	page, domain = query(FrameFilter{MinDirectRetries: 1, FrameIDs: []string{"zero", "one"}}, FrameProjectionDetailed, FrameOrderUsageDesc, 10, "")
+	assertIDs(page, domain, "one")
+	page, domain = query(FrameFilter{MinDirectRetries: 1, FrameType: "ROOT_MISSION"}, FrameProjectionDetailed, FrameOrderDurationDesc, 10, "")
+	assertIDs(page, domain)
+
+	first, domain := query(FrameFilter{MinDirectRetries: 1}, FrameProjectionDetailed, FrameOrderCanonical, 1, "")
+	if domain != nil || !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("first retry page=%+v domain=%v", first, domain)
+	}
+	_, domain = query(FrameFilter{MinDirectRetries: 2}, FrameProjectionDetailed, FrameOrderCanonical, 1, first.NextCursor)
+	if domain == nil || domain.Code != consolecore.CodeInvalidCursor {
+		t.Fatalf("changed threshold domain=%v", domain)
+	}
+}
+
+func TestFrameMinDirectRetriesRejectsNegativeInternalInput(t *testing.T) {
+	h := newServiceTestHarness(t, "trace-nested-frame-usage", nestedFrameUsageTrace)
+	_, domain := h.service.QueryFrames(context.Background(), targetEvidence(h.scopeID), FrameQuery{
+		Handle: h.handle, Filter: FrameFilter{MinDirectRetries: -1}, PageSize: 10,
+	})
+	if domain == nil || domain.Code != consolecore.CodeInvalidArgument {
+		t.Fatalf("domain=%v", domain)
 	}
 }
 

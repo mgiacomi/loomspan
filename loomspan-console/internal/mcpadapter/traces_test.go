@@ -95,6 +95,59 @@ func TestRecordTextFallbackIncludesReturnedInlineContentAndOmission(t *testing.T
 	}
 }
 
+func TestModelAttemptFailedFallbackProjectsOnlyRecordedNormalizedFacts(t *testing.T) {
+	record := mapRecord(traceanalysis.RecordSummary{
+		Sequence: 7, Type: string(traceanalysis.RecordModelAttemptFailed), FrameID: "model", Representation: "PHYSICAL",
+		Facts: traceanalysis.RecordFacts{Attempts: []traceanalysis.AttemptSummary{{
+			AttemptID: "attempt\n\"1", RetrySequenceID: "retry-1", AttemptNumber: 2, AttemptReason: "PROVIDER_RETRY",
+			ProviderAttemptNumber: 3, FailureClassification: "TRANSIENT", FailureCategory: "TIMEOUT",
+			RetryDecision: "RETRY", RetryDelayMillis: 419, RetryDelaySource: "BACKOFF",
+			HTTPStatus: 504, ProviderErrorType: "type\n\"unsafe", ProviderErrorCode: "code-1",
+		}}},
+	})
+	before, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := recordFallbackLine(record)
+	after, err := json.Marshal(record)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("fallback changed structured result: before=%s after=%s err=%v", before, after, err)
+	}
+	wants := []string{
+		`attemptId="attempt\n\"1"`, `retrySequenceId="retry-1"`, `attemptNumber=2`, `attemptReason="PROVIDER_RETRY"`,
+		`providerAttemptNumber=3`, `failureClassification="TRANSIENT"`, `failureCategory="TIMEOUT"`, `retryDecision="RETRY"`,
+		`retryDelayMillis=419`, `retryDelaySource="BACKOFF"`, `httpStatus=504`, `providerErrorType="type\n\"unsafe"`, `providerErrorCode="code-1"`,
+	}
+	position := -1
+	for _, want := range wants {
+		next := strings.Index(line, want)
+		if next <= position {
+			t.Fatalf("attempt fallback missing or out of order %q: %q", want, line)
+		}
+		position = next
+	}
+	if strings.Count(line, "\n") != 1 {
+		t.Fatalf("attempt fallback is not one escaped physical-record line: %q", line)
+	}
+	for _, forbidden := range []string{"cause=", "errorReason=", "exceptionMessage=", "diagnostic"} {
+		if strings.Contains(line, forbidden) {
+			t.Fatalf("attempt fallback invented %q: %q", forbidden, line)
+		}
+	}
+
+	absent := record
+	absent.Facts.Attempts[0].HTTPStatus = 0
+	absent.Facts.Attempts[0].ProviderErrorType = ""
+	absent.Facts.Attempts[0].ProviderErrorCode = ""
+	absentLine := recordFallbackLine(absent)
+	for _, omitted := range []string{"httpStatus=", "providerErrorType=", "providerErrorCode=", `unknown`} {
+		if strings.Contains(absentLine, omitted) {
+			t.Fatalf("absent optional field rendered as %q: %q", omitted, absentLine)
+		}
+	}
+}
+
 func TestOptionalFallbackFormattingIsDeterministic(t *testing.T) {
 	blank := ""
 	present := "parent\nframe"
@@ -469,7 +522,9 @@ func TestTraceHandlersResolveTraceIDAndPreserveQuestionSpecificRequests(t *testi
 	traceContext := traceanalysis.TraceContext{Evidence: evidence.ForImported(), Handle: handle, TraceID: "trace-i", SessionID: "session-i"}
 	analysis := &fakeTraceAnalysis{
 		summary: traceanalysis.TraceSummary{Context: traceContext, RootFrameIDs: []string{}},
-		frames:  traceanalysis.Page[traceanalysis.FrameSummary]{Context: traceContext, Items: []traceanalysis.FrameSummary{}},
+		frames: traceanalysis.Page[traceanalysis.FrameSummary]{Context: traceContext, Items: []traceanalysis.FrameSummary{{
+			Context: traceContext, FrameID: "retrying", FrameType: "MODEL_CALL", ChildFrameIDs: []string{}, DirectRetryCount: 2,
+		}}},
 		records: traceanalysis.Page[traceanalysis.RecordSummary]{Context: traceContext, Items: []traceanalysis.RecordSummary{}, NextCursor: "next"},
 		payload: traceanalysis.ByteRangeResult{Context: traceContext, ContentType: "text/plain", Encoding: traceanalysis.RangeEncodingText, Content: []byte("ok")},
 		raw:     traceanalysis.ByteRangeResult{Context: traceContext, ContentType: "application/x-ndjson", Encoding: traceanalysis.RangeEncodingText, Content: []byte("{}\n")},
@@ -485,8 +540,9 @@ func TestTraceHandlersResolveTraceIDAndPreserveQuestionSpecificRequests(t *testi
 	if result, envelope, err := handleGetTrace(context.Background(), options, getTraceInput{TraceID: "trace-i"}); err != nil || result.IsError || envelope.Result == nil || envelope.Result.Evidence.TraceID != "trace-i" {
 		t.Fatalf("get result=%#v envelope=%#v err=%v", result, envelope, err)
 	}
-	if result, _, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: "trace-i", Order: traceanalysis.FrameOrderCanonical}); err != nil || result.IsError {
-		t.Fatalf("frames result=%#v err=%v", result, err)
+	frameFilter := traceanalysis.FrameFilter{MinDirectRetries: 2}
+	if result, envelope, err := handleQueryTraceFrames(context.Background(), options, queryTraceFramesInput{TraceID: "trace-i", Order: traceanalysis.FrameOrderCanonical, Filter: frameFilter}); err != nil || result.IsError || envelope.Result == nil || len(envelope.Result.Items) != 1 || analysis.frameQuery.Filter.MinDirectRetries != 2 {
+		t.Fatalf("frames result=%#v envelope=%#v request=%#v err=%v", result, envelope, analysis.frameQuery, err)
 	}
 	if result, _, err := handleQueryTraceRecords(context.Background(), options, queryTraceRecordsInput{TraceID: "trace-i", Continuation: "prior", InlineContent: true}); err != nil || result.IsError || analysis.recordQuery.Cursor != "prior" || !analysis.recordQuery.InlineContent {
 		t.Fatalf("records result=%#v request=%#v err=%v", result, analysis.recordQuery, err)
