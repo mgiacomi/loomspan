@@ -20,6 +20,7 @@ import com.lokiscale.loomspan.internal.runtime.usage.SessionUsageSnapshot;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -248,76 +249,93 @@ class ObservabilityRestIntegrationTest
     void activeContinuationUsesFreshPageObservationWithoutAtomicMembershipClaim() throws Exception
     {
         var runtime = activation.runtime().orElseThrow();
-        Instant now = Instant.now(runtime.clock());
-        for (int index = 1; index <= 3; index++)
+        try
         {
-            runtime.activeExecutions().replace(activeSnapshot("session-" + index, now));
+            Instant now = Instant.now(runtime.clock());
+            for (int index = 1; index <= 3; index++)
+            {
+                runtime.activeExecutions().replace(activeSnapshot("session-" + index, now));
+            }
+
+            String firstBody = mvc.perform(get(ObservabilityApiPaths.ACTIVE)
+                            .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
+                            .param("pageSize", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items[0].sessionId").value("session-3"))
+                    .andExpect(jsonPath("$.hasMore").value(true))
+                    .andReturn().getResponse().getContentAsString();
+            var mapper = new tools.jackson.databind.ObjectMapper();
+            var firstJson = mapper.readTree(firstBody);
+            String nextCursor = firstJson.get("nextCursor").asText();
+            Instant firstObservedAt = Instant.parse(firstJson.get("observedAt").asText());
+            awaitClockAfter(runtime.clock(), firstObservedAt);
+
+            runtime.activeExecutions().replace(activeSnapshot("session-4", now));
+            runtime.activeExecutions().replace(new ActiveExecutionSnapshot(
+                    "session-2", "trace-session-2", 0, 2, now.minusSeconds(2), now.plusMillis(1),
+                    "CheckDns", "RUNNING", "Checking DNS", List.of(), 0, false,
+                    SessionUsageSnapshot.empty(), null));
+            runtime.activeExecutions().remove("session-1");
+            String secondBody = mvc.perform(get(ObservabilityApiPaths.ACTIVE)
+                            .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
+                            .param("pageSize", "1")
+                            .param("cursor", nextCursor))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items[0].sessionId").value("session-2"))
+                    .andExpect(jsonPath("$.items[0].lastCanonicalSequence").value(2))
+                    .andExpect(jsonPath("$.hasMore").value(false))
+                    .andReturn().getResponse().getContentAsString();
+            var secondJson = mapper.readTree(secondBody);
+            assertThat(Instant.parse(secondJson.get("observedAt").asText())).isAfter(firstObservedAt);
+            assertThat(secondBody).doesNotContain("session-4", "session-1");
+
+            ObservabilityCursorCodec codec = new ObservabilityCursorCodec(
+                    new ObservabilityJsonCodec());
+            String stale = codec.encode(
+                    ObservabilityCursorCodec.Cursor.initial(UUID.randomUUID(), "active-executions", 3).before(3));
+            mvc.perform(get(ObservabilityApiPaths.ACTIVE)
+                            .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
+                            .param("cursor", stale))
+                    .andExpect(status().isGone())
+                    .andExpect(jsonPath("$.code").value("STALE_CURSOR"));
+
+            String impossible = codec.encode(
+                    ObservabilityCursorCodec.Cursor.initial(
+                            runtime.instanceId(), "active-executions", Long.MAX_VALUE).before(Long.MAX_VALUE));
+            mvc.perform(get(ObservabilityApiPaths.ACTIVE)
+                            .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
+                            .param("cursor", impossible))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
+
+            String impossibleTrace = codec.encode(
+                    ObservabilityCursorCodec.Cursor.initial(
+                            runtime.instanceId(), "traces", Long.MAX_VALUE).before(Long.MAX_VALUE));
+            mvc.perform(get(ObservabilityApiPaths.TRACES)
+                            .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
+                            .param("cursor", impossibleTrace))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
         }
-
-        String firstBody = mvc.perform(get(ObservabilityApiPaths.ACTIVE)
-                        .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
-                        .param("pageSize", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].sessionId").value("session-3"))
-                .andExpect(jsonPath("$.hasMore").value(true))
-                .andReturn().getResponse().getContentAsString();
-        var mapper = new tools.jackson.databind.ObjectMapper();
-        var firstJson = mapper.readTree(firstBody);
-        String nextCursor = firstJson.get("nextCursor").asText();
-        assertThat(firstJson.get("observedAt").asText()).isNotBlank();
-
-        runtime.activeExecutions().replace(activeSnapshot("session-4", now));
-        runtime.activeExecutions().replace(new ActiveExecutionSnapshot(
-                "session-2", "trace-session-2", 0, 2, now.minusSeconds(2), now.plusMillis(1),
-                "CheckDns", "RUNNING", "Checking DNS", List.of(), 0, false,
-                SessionUsageSnapshot.empty(), null));
-        runtime.activeExecutions().remove("session-1");
-        String secondBody = mvc.perform(get(ObservabilityApiPaths.ACTIVE)
-                        .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
-                        .param("pageSize", "1")
-                        .param("cursor", nextCursor))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].sessionId").value("session-2"))
-                .andExpect(jsonPath("$.items[0].lastCanonicalSequence").value(2))
-                .andExpect(jsonPath("$.hasMore").value(false))
-                .andReturn().getResponse().getContentAsString();
-        var secondJson = mapper.readTree(secondBody);
-        assertThat(secondJson.get("observedAt").asText()).isNotBlank();
-        assertThat(secondJson.get("observedAt").asText())
-                .isNotEqualTo(firstJson.get("observedAt").asText());
-        assertThat(secondBody).doesNotContain("session-4", "session-1");
-
-        ObservabilityCursorCodec codec = new ObservabilityCursorCodec(
-                new ObservabilityJsonCodec());
-        String stale = codec.encode(
-                ObservabilityCursorCodec.Cursor.initial(UUID.randomUUID(), "active-executions", 3).before(3));
-        mvc.perform(get(ObservabilityApiPaths.ACTIVE)
-                        .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
-                        .param("cursor", stale))
-                .andExpect(status().isGone())
-                .andExpect(jsonPath("$.code").value("STALE_CURSOR"));
-
-        String impossible = codec.encode(
-                ObservabilityCursorCodec.Cursor.initial(
-                        runtime.instanceId(), "active-executions", Long.MAX_VALUE).before(Long.MAX_VALUE));
-        mvc.perform(get(ObservabilityApiPaths.ACTIVE)
-                        .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
-                        .param("cursor", impossible))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
-
-        String impossibleTrace = codec.encode(
-                ObservabilityCursorCodec.Cursor.initial(
-                        runtime.instanceId(), "traces", Long.MAX_VALUE).before(Long.MAX_VALUE));
-        mvc.perform(get(ObservabilityApiPaths.TRACES)
-                        .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
-                        .param("cursor", impossibleTrace))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
-
-        for (int index = 1; index <= 4; index++)
+        finally
         {
-            runtime.activeExecutions().remove("session-" + index);
+            for (int index = 1; index <= 4; index++)
+            {
+                runtime.activeExecutions().remove("session-" + index);
+            }
+        }
+    }
+
+    private static void awaitClockAfter(Clock clock, Instant observedAt)
+    {
+        long deadline = System.nanoTime() + 1_000_000_000L;
+        while (!Instant.now(clock).isAfter(observedAt))
+        {
+            if (System.nanoTime() >= deadline)
+            {
+                throw new AssertionError("Runtime clock did not advance after the first page observation");
+            }
+            Thread.onSpinWait();
         }
     }
 

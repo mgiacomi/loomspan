@@ -26,6 +26,33 @@ Compact schemas name the complete active orientation and activity coverage
 facts while full typed-result validation continues to enforce the concrete Go
 result shapes.
 
+## Dual-output boundary and active-result measurements
+
+Every successful tool call carries one Loomspan-authored deterministic text
+item and one SDK-populated `structuredContent` value. The supported protocol
+revisions provide no client capability for choosing between those result
+representations. The selected Go SDK also serializes typed structured output
+into text when a handler leaves `content` unset, so removing the authored
+fallback would not create a structured-only result.
+
+`dual_output_budget_test.go` records exact minified MCP `2025-11-25` JSON-RPC
+baselines for the committed one-item execution list, execution detail, and
+activity fixtures, plus deterministic 64-item execution and activity pages. It
+also measures the text and structured wire contributions independently. The
+maximum activity shape includes the existing 11 KiB-per-item synthetic details
+load and verifies that those untrusted details remain structured-only. These
+exact values are drift signals rather than new response ceilings: active and
+activity pages remain count-bounded at 64 complete items, while trace
+navigation and range reads retain their separate byte-admission budgets.
+
+Console owns construction of both result representations and the HTTP response.
+It does not own whether a downstream connector or client selects, suppresses,
+displays, externalizes, or forwards either representation. Client presentation
+thresholds and model-context inclusion therefore remain outside repository
+conformance and release gates. The current server behavior deliberately stays
+dual-output so structured results remain complete and text-only workflows keep
+their deterministic, safety-reviewed evidence.
+
 The release also carries the byte-identical, client-neutral
 `skills/loomspan/` package. Installation is a user-selected
 copy or filesystem link into a local client's user/global skill location; it

@@ -1,13 +1,14 @@
-# PR 35 — MCP Dual-Output Efficiency and Client Presentation
+# PR 35 — MCP Dual-Output Efficiency and Presentation Boundaries
 
 ## Status
 
-Proposed PR 35 ticket. Begin this work only after PR 34, “Active-Execution
-MCP Inspection Ergonomics and Evidence Semantics,” is committed. Start from the
-then-current default branch in a fresh context and run the repository's complete
-five-step process in `ai/commands/`:
+Research completed on 2026-08-21 and recorded in
+`ai/thoughts/research/2026-08-21-loomspan-console-pr-35-mcp-dual-output-boundaries.md`.
+The live follow-up used two independently started executions. No implementation
+direction is approved yet. Continue with the remaining repository process only
+after deciding that the measured savings justify a production change:
 
-1. `1_research_codebase.md`
+1. Use the completed `1_research_codebase.md` artifact as the evidence base.
 2. `2_create_plan.md`
 3. `3_testing_plan.md`
 4. `4_implement_plan.md`
@@ -15,7 +16,7 @@ five-step process in `ai/commands/`:
 
 Do not treat the observations or candidate directions in this brief as an
 approved implementation. First establish which layer creates and exposes each
-copy of a result and which supported clients depend on it.
+copy of a result and which supported MCP requirement, if any, protects it.
 
 The repository does not maintain client/model usability experiments, a manual
 compatibility checklist, or persisted client result records during development.
@@ -25,38 +26,47 @@ manually outside the repository.
 
 ## Outcome
 
-Reduce the model-visible size and processing cost of Loomspan MCP responses
-without weakening structured-output support, deterministic text fallback,
+Reduce duplicated server-emitted material and its potential model-processing
+cost without weakening structured-output support, deterministic text fallback,
 boundedness, diagnostic safety, or the supported MCP contract.
 
-A structured-output-capable client should not need to consume two effectively
-complete serializations of the same successful result. A text-only client must
+A structured-output-capable consumer should not need to process two effectively
+complete serializations of the same successful result. A text-only consumer must
 still receive sufficient deterministic evidence. The final behavior must be
-based on measured MCP SDK, transport, server, and client behavior rather than
-an assumption that either `content` or `structuredContent` can simply be
-removed.
+based on measured MCP SDK, transport, and server behavior rather than an
+assumption that either `content` or `structuredContent` can simply be removed.
+
+Repository conclusions must rest on server-owned protocol behavior. Any
+maintainer-observed client presentation is contextual evidence, not a
+repository compatibility gate.
 
 ## Why this ticket exists
 
 During a Codex Desktop review of the PR 34 live-execution surface on
-2026-08-21, every successful Loomspan call was presented to the model twice:
+2026-08-21, successful Loomspan calls returned both representations to the
+Codex-side callable MCP integration boundary:
 
 - `content` contained a deterministic flattened text representation; and
 - `structuredContent` contained the same result as structured JSON.
 
-The duplication was most noticeable for
-`LOOMSPAN_get_execution_activity`. A response containing only a few activity
-items repeated identities, timestamps, frame paths, summaries, continuity,
-coverage, usage, limits, and checkpoint facts in both forms. The calls were
-functionally correct, but the repeated representation materially enlarged the
-model-visible tool result and made the important facts harder to scan.
+Two live executions reproduced the active-detail behavior across the
+`planTrip` and `handleIncident` entry skills. The first active-detail response
+contained 48 structured leaf facts, all repeated line-for-line in the 49-line
+text fallback; the extra line was the derived `activePath.count`. Its combined
+Codex-side returned object was 3,955 UTF-8 bytes. The second response had the
+same 49-line shape and a combined returned-object size of 4,027 characters.
 
-This was a manual client observation, not a reproducible benchmark. It does not
-establish that Loomspan alone caused the duplication: the MCP Go SDK, server
-adapter, transport envelope, Codex connector, or client presentation layer may
-each affect what reaches the model. It also does not prove that omitting one
-representation is protocol-valid or compatible with Loomspan's supported
-clients.
+An eight-item `LOOMSPAN_get_execution_activity` response contained 108 text
+lines that exactly matched structured leaves, while 23 arbitrary `details`
+leaves intentionally remained structured-only. Its combined Codex-side
+returned object was 9,998 UTF-8 bytes. These are reproducible research samples,
+not maximum-page benchmarks or release budgets.
+
+The live observation proves that both encodings reach Codex's callable MCP
+result. It does not prove that every Codex host path places both encodings into
+model context: the local orchestration wrapper demonstrably could forward only
+the text representation. Do not describe this ticket or its eventual code
+review as proving universal model-visible duplication.
 
 No payloads, credentials, application YAML, raw trace bytes, or diagnostic
 detail content were opened during the observation.
@@ -64,8 +74,8 @@ detail content were opened during the observation.
 ## Relationship to PR 34
 
 PR 34 intentionally makes active-execution list text richer so text-fallback
-clients can orient without undocumented-key probing. It also keeps complete
-structured output for capable clients. Do not reverse those correctness and
+consumers can orient without undocumented-key probing. It also keeps complete
+structured output for capable consumers. Do not reverse those correctness and
 discoverability gains merely to reduce bytes.
 
 PR 34's active-execution semantics, cursor coverage facts, continuation
@@ -100,73 +110,100 @@ canonical repository skill. The repository authority remains
 
 ## Problem statements to resolve
 
-### 1. The source of duplication is not yet isolated
+### 1. Server ownership is isolated; downstream presentation is not
 
-Determine whether both representations are authored by Loomspan, synthesized
-or normalized by the MCP SDK, repeated by the connector, or deliberately
-presented by the client. Inspect the raw JSON-RPC response separately from the
-model-visible client event when the supported harness permits it.
+Loomspan authors the deterministic text and the typed result; the selected MCP
+Go SDK carries the typed result as `structuredContent`. Both survive into the
+Codex-side callable MCP result. Downstream selection, suppression, display, and
+model-context inclusion remain client-owned. A client event may provide
+contextual evidence, but it is not repository evidence or a release gate.
 
-### 2. Client capability and fallback behavior are unclear
+### 2. Protocol and fallback constraints limit the design space
 
-Establish which supported clients consume `structuredContent`, which consume
-only text `content`, which expose both to the model, and whether MCP provides a
-reliable negotiated capability that can alter result representation. Do not
-infer client behavior from one Codex Desktop observation.
+The completed research found no negotiated capability by which this server can
+select structured-only output for a capable caller. The MCP contract recommends
+a text serialization alongside structured output for backward compatibility,
+and the selected Go SDK can synthesize JSON text when content is absent. Any
+plan must verify these findings against the selected dependency and preserve
+generic text-fallback and structured-result behavior without creating a
+named-client matrix.
 
-### 3. Byte cost and model cost are unmeasured
+### 3. Representative cost is measured; maximum-page cost remains open
 
-Measure representative runtime, trace, execution-list, execution-detail, and
-activity calls at the raw protocol and client-event boundaries. Separate
-`tools/list` discovery size from `tools/call` result size. Report bytes and
-duplicated fields; do not calculate currency cost.
+The research artifact records representative runtime, trace, execution-list,
+execution-detail, and activity measurements plus duplicated-field counts.
+Planning must still establish stable raw-protocol measurements for small and
+maximum legal pages at server-owned serialization boundaries. Keep `tools/list`
+discovery size separate from `tools/call` result size and do not calculate
+currency cost.
 
 ### 4. Text fallback has independent safety and compatibility value
 
-The deterministic text representation supports clients that cannot use
+The deterministic text representation supports consumers that cannot use
 structured output and deliberately omits or bounds some untrusted content.
 Any optimization must preserve evidence fidelity, stable identifiers, typed
 absence, result limits, and sensitive-data restraint. A shorter narrative that
 drops required facts is not an acceptable optimization.
 
-### 5. Large results may be externalized or truncated by clients
+### 5. Client presentation thresholds are not repository contracts
 
-Determine whether duplicated representations push otherwise valid bounded
-Loomspan results across known client presentation thresholds. Keep Console's
-source-byte/result budgets separate from client display or externalization
-thresholds.
+Keep Console's source-byte and result budgets separate from client display,
+externalization, or truncation thresholds. Do not create a repository gate for
+client-owned thresholds that cannot be verified deterministically. A maintainer
+observation may motivate server-side measurement but does not establish a
+Loomspan-owned contract.
 
 ## Required research questions
 
 1. What exact JSON-RPC response does Loomspan emit for a representative success,
-   and which fields are added or transformed before the model sees it?
+   and which fields are authored by Loomspan versus added or transformed by the
+   selected Go SDK?
 2. Which current MCP specification and Go SDK rules govern `content`,
    `structuredContent`, and output schemas?
 3. Is either representation mandatory, and is there capability negotiation for
    structured-only or text-only results?
-4. Which supported clients consume text, structured content, or both? Which
-   expose both copies to the model context?
-5. What are the raw bytes, client-event bytes, and repeated-field contribution
-   for representative small and maximum legal result pages?
+4. What generic text-fallback and structured-result guarantees must the
+   supported MCP contract preserve?
+5. What are the raw response bytes, server-owned serialization bytes, and
+   repeated-field contribution for representative small and maximum legal
+   result pages?
 6. Can deterministic text become a compact orientation/index while structured
-   output remains complete without harming text-only clients or contradicting
-   PR 34 acceptance criteria?
-7. Could a server, connector, or client safely select one representation based
-   on an explicit capability, or would that create divergent contracts?
+   output remains complete without weakening the text-fallback contract or
+   contradicting PR 34 acceptance criteria?
+7. Could the server or SDK safely select one representation based on an
+   explicit protocol capability, or would that create divergent contracts?
 8. How do errors and domain failures behave? Optimizing successes must not make
    failure evidence harder to understand.
 9. Do current conformance tests, exact snapshots, and deterministic adapter
    tests already protect dual-output behavior?
 10. What is the smallest change at the correct ownership layer? If the waste is
     client-owned, should Loomspan make no production change and instead record
-    a client compatibility limitation?
+    that ownership limitation in MCP contract documentation?
+
+## Planning decision gate
+
+Before approving an implementation plan, choose and justify exactly one of
+these outcomes with deterministic measurements:
+
+- Make no Loomspan production change because the actionable duplication is at
+  a downstream presentation layer or the available server-owned savings do not
+  justify weakening the fallback.
+- Compact the Loomspan-authored text fallback while explicitly naming the
+  protected text-only workflows and facts it must retain.
+- Change representation behavior through a standards-based protocol mechanism
+  only if fresh dependency and conformance evidence identifies one.
+
+Do not plan unconditional removal of `content`, assume structured-output client
+capability negotiation that does not exist, or claim that the live samples
+prove both encodings always enter model context. A no-production-change result
+is a successful resolution when supported by the evidence.
 
 ## In scope
 
 - Raw protocol measurement of successful and failed tool results.
 - MCP adapter, SDK integration, deterministic text, and structured-output
   behavior where Loomspan owns the result.
-- Focused changes that reduce duplicated model-visible material while
+- Focused changes that reduce duplicated server-emitted material while
   preserving the supported MCP result contract.
 - Exact regression tests for result shape, result bytes, and safe omission when
   the selected design makes those assertions stable and meaningful.
@@ -174,8 +211,8 @@ thresholds.
 ## Out of scope
 
 - Redesigning PR 34's active-execution evidence semantics.
-- Removing text fallback without proving all protected consumers can use
-  structured output.
+- Removing text fallback unless the supported MCP result contract and
+  Loomspan's deliberate fallback guarantee are explicitly changed.
 - Removing structured output or complete-output validation.
 - Increasing or bypassing result limits to hide duplication.
 - Adding derived health, progress, stuckness, completeness, diagnosis, or
@@ -192,7 +229,7 @@ thresholds.
 - MCP tool results, text fallbacks, structured content, schemas, and errors are
   a deliberately supported pre-v1 Console diagnostic contract. They may change
   coherently before v1, but all protected consumers, fixtures, docs, and
-  evaluations must move together.
+  automated checks must move together.
 - Client presentation is not automatically a Loomspan-owned contract. Preserve
   the boundary between server evidence and client rendering.
 - Trace and live-execution contents remain ephemeral diagnostic formats.
@@ -202,19 +239,20 @@ thresholds.
 
 ## Acceptance signals
 
-- The research artifact identifies the exact layer responsible for each copy
-  of a representative result.
-- Before/after measurements cover raw JSON-RPC and at least one protected
-  model-visible client-event path.
-- Structured-output clients retain the complete validated result and text-only
-  clients retain every fact required by their protected workflows.
+- The research artifact identifies the exact layer responsible for each
+  server-emitted representation and keeps downstream presentation outside the
+  repository evidence boundary.
+- Before/after measurements cover raw JSON-RPC and every server-owned
+  serialization path affected by the change.
+- Structured output retains the complete validated result and deterministic
+  text fallback retains every fact required by its protected workflows.
 - The chosen behavior is MCP-conformant and does not rely on undocumented
   client heuristics.
 - Maximum legal pages remain bounded and consist only of complete items.
 - Domain errors remain concise, exact, and recoverable.
 - Untrusted details and sensitive content are not expanded into text or logs.
-- Compatibility documentation states which clients receive one or both
-  representations and records any limitation that Loomspan cannot control.
+- MCP contract documentation states what Loomspan emits, how it is bounded and
+  verified, and which presentation behavior remains outside Loomspan's control.
 - If no safe Loomspan-owned optimization exists, the ticket may correctly end
   with measured evidence and no production change.
 
@@ -250,8 +288,9 @@ YAML skill authoring. The implementation plan must still perform the required
 
 ## Guardrails
 
-- Treat the Codex Desktop observation as a lead, not proof of ownership or
-  general client behavior.
+- Treat the live Codex Desktop samples as proof that both server-emitted
+  encodings reach the callable MCP result, not as proof of universal downstream
+  presentation or model-context behavior.
 - Measure before changing the server.
 - Preserve deterministic, testable evidence; do not replace duplication with
   lossy prose.
@@ -264,9 +303,10 @@ YAML skill authoring. The implementation plan must still perform the required
 
 - Research, implementation plan, testing plan, implementation if justified,
   and final code review are recorded under `ai/thoughts/`.
-- Every supported client class has an explicit result-consumption expectation.
-- Measurements and compatibility conclusions are reproducible and sanitized.
+- Every retained or omitted result representation has an explicit protocol and
+  fallback rationale.
+- Protocol measurements and conclusions are reproducible and sanitized.
 - Automated checks protect the selected representation behavior and budgets.
-- Documentation and evaluation evidence agree with the implementation.
+- Documentation and automated evidence agree with the implementation.
 - Step 5 reports no unresolved blocking correctness, safety, compatibility, or
   evidence-fidelity finding.

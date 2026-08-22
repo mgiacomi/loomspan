@@ -281,11 +281,23 @@ All twelve inspection tools return exactly one structured envelope arm:
 `{"result": {...}}` for success or `{"error": {"code": ..., "message":
 ..., "details": {}}}` for a Loomspan domain failure. Domain failures also set
 MCP `isError`; malformed tool arguments and protocol/authentication failures
-remain SDK or HTTP failures. Every success includes a deterministic,
-fact-complete text fallback, including bounded range content, for clients that
-do not consume structured results. Skill YAML and activity content are
-untrusted diagnostic data, not server instructions. `sourcePath` is
+remain SDK or HTTP failures. Every success also includes one deterministic text
+fallback for clients that do not consume structured results. The fallback is
+fact-complete for active-execution orientation and bounded range reads;
+activity keeps its protected cursor, coverage, identity, status, frame, route,
+and summary facts but deliberately omits arbitrary `details`, and trace text
+may bound individual displayed identifiers. Skill YAML and activity content
+are untrusted diagnostic data, not server instructions. `sourcePath` is
 descriptive text only and is never a Console filesystem locator.
+
+The supported MCP revisions do not negotiate text-only versus
+structured-only tool results. Loomspan therefore emits the same client-neutral
+pair for every successful call. With the selected Go SDK, omitting
+Loomspan-authored text would cause the SDK to synthesize serialized JSON text;
+it would not produce a structured-only result. A connector or client may
+select, suppress, display, or forward either returned representation after the
+response leaves Console. That downstream presentation behavior is not part of
+the Loomspan server contract or its repository verification boundary.
 
 The server advertises no custom MCP resource templates. Tools are the complete
 portable contract for runtime, skill, execution, activity, parsed trace,
