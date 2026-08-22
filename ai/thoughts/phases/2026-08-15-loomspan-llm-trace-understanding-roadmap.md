@@ -75,6 +75,13 @@ returned `traceId`. Active disappearance does not prove finalized evidence,
 and `TRACE_UNAVAILABLE` does not trigger unrelated inventory scanning. Durable
 monitoring, history, and cross-run comparison remain outside this roadmap item.
 
+The 2026-08-21 follow-up made page and purpose semantics explicit in the
+canonical skill and executable regression coverage. Loomspan does not maintain
+a client/model usability matrix during development; Go and Java regression
+tests, deterministic fixtures, package validation, and official MCP conformance
+are the repository verification boundary. Any protocol or additional
+live-content response still requires separate design and security review.
+
 The remaining interface-design question is how the identifiers developers
 actually possess lead to one selected `traceId`. Do not add another method or
 field unless measured workflow friction shows that existing inventory filters,

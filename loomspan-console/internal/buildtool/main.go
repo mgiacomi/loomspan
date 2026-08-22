@@ -15,17 +15,6 @@ func main() {
 }
 
 func run(arguments []string) error {
-	if len(arguments) > 0 && arguments[0] == "agent-eval" {
-		paths, err := resolveProjectPaths()
-		if err != nil {
-			return err
-		}
-		version, err := readProductVersion(filepath.Join(paths.repository, "pom.xml"))
-		if err != nil {
-			return err
-		}
-		return runAgentEval(arguments[1:], paths, version)
-	}
 	if len(arguments) > 0 && arguments[0] == "mcp-conformance" {
 		if len(arguments) != 1 {
 			return fmt.Errorf("mcp-conformance accepts no arguments")
@@ -37,7 +26,7 @@ func run(arguments []string) error {
 		return runMCPConformance(paths)
 	}
 	if len(arguments) == 0 || (arguments[0] != string(modeVerify) && arguments[0] != string(modeBuild) && arguments[0] != string(modePackage) && arguments[0] != string(modeSmoke)) {
-		return fmt.Errorf("usage: go run ./internal/buildtool <verify|build|package|smoke|mcp-conformance|agent-eval> [options]")
+		return fmt.Errorf("usage: go run ./internal/buildtool <verify|build|package|smoke|mcp-conformance> [options]")
 	}
 	mode := buildMode(arguments[0])
 	flags := flag.NewFlagSet("buildtool", flag.ContinueOnError)

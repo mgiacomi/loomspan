@@ -65,6 +65,12 @@ appropriate when the developer explicitly needs it. Tools are the complete
 MCP path; no custom Loomspan resources are advertised. Do not impose a fixed
 call count, order, or report template.
 
+For active review, keep every activity continuation after `hasMore: false` as
+a future checkpoint, but reuse it only for a requested later observation. Treat
+execution-list pages as independent observations rather than one atomic fleet
+snapshot. When purpose is asked, use neutral live structure first and follow
+the least-disclosing purpose ladder in the active-review playbook.
+
 Keep `LOOMSPAN_query_trace_records` descriptor-default unless narrowed to a
 specific frame, failure, record type, sequence range, or deliberately small
 page.

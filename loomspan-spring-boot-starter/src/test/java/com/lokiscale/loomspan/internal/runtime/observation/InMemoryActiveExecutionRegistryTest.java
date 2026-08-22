@@ -86,6 +86,32 @@ class InMemoryActiveExecutionRegistryTest
                 .map(ActiveExecutionSnapshot::sessionId)).doesNotHaveDuplicates().doesNotContain("five");
     }
 
+    @Test
+    void reusesOrdinalAcrossReplacementButAssignsNewOrdinalAfterRemoval()
+    {
+        InMemoryActiveExecutionRegistry registry = new InMemoryActiveExecutionRegistry();
+        ActiveExecutionSnapshot admitted = registry.replace(snapshot("one", 1));
+        registry.replace(snapshot("two", 1));
+        long highWater = registry.highestOrdinal();
+
+        ActiveExecutionSnapshot replacement = registry.replace(snapshot("one", 2));
+        assertThat(replacement.registryOrdinal()).isEqualTo(admitted.registryOrdinal());
+        assertThat(registry.newestFirst(highWater, 0, 10))
+                .extracting(ActiveExecutionSnapshot::sessionId)
+                .containsExactly("two", "one");
+
+        assertThat(registry.remove("one")).isTrue();
+        assertThat(registry.newestFirst(highWater, 0, 10))
+                .extracting(ActiveExecutionSnapshot::sessionId)
+                .containsExactly("two");
+
+        ActiveExecutionSnapshot readmitted = registry.replace(snapshot("one", 3));
+        assertThat(readmitted.registryOrdinal()).isGreaterThan(highWater);
+        assertThat(registry.newestFirst(highWater, 0, 10))
+                .extracting(ActiveExecutionSnapshot::sessionId)
+                .containsExactly("two");
+    }
+
     static ActiveExecutionSnapshot snapshot(String sessionId, long sequence)
     {
         Instant now = Instant.parse("2026-07-24T12:00:00Z");

@@ -35,10 +35,6 @@ type ServerOptions struct {
 	TraceAnalysis  TraceAnalysisService
 	TraceInventory TraceInventoryService
 	Now            func() time.Time
-	// EvaluationCapabilities is used only by the repository agent-evaluation
-	// harness to exercise documented missing-capability degradation. Production
-	// assembly leaves it nil and advertises the complete installed families.
-	EvaluationCapabilities *[]string
 }
 
 type TraceInventoryService interface {
@@ -60,7 +56,7 @@ func NewServer(options ServerOptions) *Server {
 		options.Now = time.Now
 	}
 	sdk := mcp.NewServer(&mcp.Implementation{Name: "loomspan-console", Version: release.ProductVersion()}, nil)
-	addRuntimeTool(sdk, options.Status, options.Credentials, options.EvaluationCapabilities)
+	addRuntimeTool(sdk, options.Status, options.Credentials)
 	addSkillTools(sdk, options)
 	addExecutionTools(sdk, options)
 	addActivityTool(sdk, options)

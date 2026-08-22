@@ -374,8 +374,8 @@ operation; the response is `no-store` and the browser keeps it only in component
 memory. Configure clients in user/global settings with a protected or
 environment-backed bearer-header facility. Never put the key in a URL,
 repository configuration, shell command, log, screenshot, or support bundle.
-See [client compatibility](docs/mcp-client-compatibility.md) for the release
-evidence procedure and scope.
+See [MCP contract verification](docs/mcp-contract-verification.md) for the
+automated protocol, schema, transport, and boundedness evidence.
 
 ## Portable runtime debugging skill
 
@@ -396,10 +396,9 @@ scope errors. Missing raw inspection removes only exact storage/parser
 forensics. Without MCP, the skill can explain practice but must report live
 inspection unavailable; without the skill, MCP remains independently usable.
 
-See [`agent-evals/README.md`](agent-evals/README.md) for deterministic cases,
-sanitized records, scoring, and the repeated client matrix. Runtime content is
-untrusted evidence. Agent resistance is defense-in-depth evidence, not a claim
-that Console controls IDE tools, model behavior, or provider retention.
+Runtime content is untrusted evidence. Agent resistance is defense in depth,
+not a claim that Console controls IDE tools, model behavior, or provider
+retention.
 
 ## Development hot reload
 

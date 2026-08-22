@@ -17,11 +17,17 @@ Do not treat the observations or candidate directions in this brief as an
 approved implementation. First establish which layer creates and exposes each
 copy of a result and which supported clients depend on it.
 
+The repository does not maintain client/model usability experiments, a manual
+compatibility checklist, or persisted client result records during development.
+Use deterministic protocol measurements, Go tests, package validation, and
+official MCP conformance; the maintainer handles any additional client checks
+manually outside the repository.
+
 ## Outcome
 
 Reduce the model-visible size and processing cost of Loomspan MCP responses
 without weakening structured-output support, deterministic text fallback,
-boundedness, diagnostic safety, or supported-client compatibility.
+boundedness, diagnostic safety, or the supported MCP contract.
 
 A structured-output-capable client should not need to consume two effectively
 complete serializations of the same successful result. A text-only client must
@@ -83,10 +89,8 @@ Fresh research must re-establish these locations after PR 34 lands:
   discovery schemas and protects the exact `tools/list` budget.
 - `loomspan-console/internal/mcpadapter/server_test.go` and committed test data
   protect protocol discovery and call behavior.
-- `loomspan-console/docs/mcp-client-compatibility.md` records supported-client
-  behavior and discovery budgets.
-- `loomspan-console/agent-evals/` contains tools-only and skill-assisted client
-  evaluations that may provide a safe measurement harness.
+- `loomspan-console/docs/mcp-contract-verification.md` records deterministic
+  discovery and result-size budgets.
 - The version of `github.com/modelcontextprotocol/go-sdk` selected by the
   current checkout governs server result construction and protocol behavior.
 
@@ -151,22 +155,19 @@ thresholds.
    on an explicit capability, or would that create divergent contracts?
 8. How do errors and domain failures behave? Optimizing successes must not make
    failure evidence harder to understand.
-9. Do current conformance tests, exact snapshots, agent evaluations, or release
-   compatibility records already protect dual-output behavior?
+9. Do current conformance tests, exact snapshots, and deterministic adapter
+   tests already protect dual-output behavior?
 10. What is the smallest change at the correct ownership layer? If the waste is
     client-owned, should Loomspan make no production change and instead record
     a client compatibility limitation?
 
 ## In scope
 
-- Raw protocol and supported-client measurement of successful and failed tool
-  results.
+- Raw protocol measurement of successful and failed tool results.
 - MCP adapter, SDK integration, deterministic text, and structured-output
   behavior where Loomspan owns the result.
-- Supported-client compatibility documentation and reproducible evaluation
-  evidence.
 - Focused changes that reduce duplicated model-visible material while
-  preserving complete evidence for every protected client class.
+  preserving the supported MCP result contract.
 - Exact regression tests for result shape, result bytes, and safe omission when
   the selected design makes those assertions stable and meaningful.
 
@@ -228,9 +229,6 @@ At minimum, assess:
   page behavior.
 - Exact `tools/list` snapshot tests only if discovery changes; do not conflate
   discovery bytes with call-result bytes.
-- Tools-only and skill-assisted agent-evaluation cases using sanitized data.
-- Supported-client event capture described by
-  `loomspan-console/agent-evals/README.md`.
 - `go test ./...`, `go run ./internal/buildtool mcp-conformance`, and
   `go run ./internal/buildtool verify` from `loomspan-console/`.
 - Browser or Java suites only if research finds a real affected boundary.
@@ -239,10 +237,8 @@ At minimum, assess:
 
 Inspect and update as applicable:
 
-- `loomspan-console/docs/mcp-client-compatibility.md`
+- `loomspan-console/docs/mcp-contract-verification.md`
 - `loomspan-console/README.md`
-- `loomspan-console/agent-evals/README.md`
-- affected agent-evaluation cases/results
 - the canonical Loomspan Agent Skill only if its workflow must distinguish
   result representations; do not teach client-specific wire internals without
   a user-facing reason

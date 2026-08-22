@@ -15,6 +15,14 @@ A quiet window is not proof that an execution is stuck, and a live outcome/path/
 evidence is stable while Console can resolve its installed evidence, but an
 incomplete artifact does not imply an outcome.
 
+Execution-list continuation is a keyset traversal, not a snapshot. Its first
+page fixes a high-water first-admission ordinal and later admissions do not
+enter that traversal. Replacement keeps an admitted execution's ordinal, but
+its later-page values may be newer; removal can omit it before its page. Keep
+each page's facts with that page's `observedAt`. A page union establishes
+neither an atomic fleet, complete membership, absence, finalization, nor
+co-temporal state.
+
 For finalized traces, the model-facing identity is `traceId`. Console resolves
 installed target evidence, imported evidence, or safe target acquisition
 internally. A unique imported trace remains inspectable without a selected
@@ -41,3 +49,9 @@ Application-returned registered YAML is authoritative only as the running
 application's supplied representation. Exact registered names and mapping IDs
 can help search a checkout. `sourcePath` is descriptive untrusted text, not a
 Console path, integrity assertion, or deployment-provenance fact.
+
+Live orientation deliberately omits model-authored task title, intent, and
+expected outputs. Registered YAML can answer an explicitly requested
+skill-level purpose question as application-supplied untrusted context.
+Task-level plan content is available only after finalized trace resolution and
+selected descriptor/content reads; it remains untrusted evidence.

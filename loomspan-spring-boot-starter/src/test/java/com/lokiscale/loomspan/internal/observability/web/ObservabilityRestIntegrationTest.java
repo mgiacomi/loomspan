@@ -31,6 +31,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(
         classes = ObservabilityRestIntegrationTest.TestApplication.class,
@@ -244,7 +245,7 @@ class ObservabilityRestIntegrationTest
     }
 
     @Test
-    void activeContinuationRetainsFirstPageHighWaterAndRejectsAnotherInstance() throws Exception
+    void activeContinuationUsesFreshPageObservationWithoutAtomicMembershipClaim() throws Exception
     {
         var runtime = activation.runtime().orElseThrow();
         Instant now = Instant.now(runtime.clock());
@@ -260,16 +261,31 @@ class ObservabilityRestIntegrationTest
                 .andExpect(jsonPath("$.items[0].sessionId").value("session-3"))
                 .andExpect(jsonPath("$.hasMore").value(true))
                 .andReturn().getResponse().getContentAsString();
-        String nextCursor = new tools.jackson.databind.ObjectMapper()
-                .readTree(firstBody).get("nextCursor").asText();
+        var mapper = new tools.jackson.databind.ObjectMapper();
+        var firstJson = mapper.readTree(firstBody);
+        String nextCursor = firstJson.get("nextCursor").asText();
+        assertThat(firstJson.get("observedAt").asText()).isNotBlank();
 
         runtime.activeExecutions().replace(activeSnapshot("session-4", now));
-        mvc.perform(get(ObservabilityApiPaths.ACTIVE)
+        runtime.activeExecutions().replace(new ActiveExecutionSnapshot(
+                "session-2", "trace-session-2", 0, 2, now.minusSeconds(2), now.plusMillis(1),
+                "CheckDns", "RUNNING", "Checking DNS", List.of(), 0, false,
+                SessionUsageSnapshot.empty(), null));
+        runtime.activeExecutions().remove("session-1");
+        String secondBody = mvc.perform(get(ObservabilityApiPaths.ACTIVE)
                         .header(ObservabilityApiKeyFilter.API_KEY_HEADER, KEY)
                         .param("pageSize", "1")
                         .param("cursor", nextCursor))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].sessionId").value("session-2"));
+                .andExpect(jsonPath("$.items[0].sessionId").value("session-2"))
+                .andExpect(jsonPath("$.items[0].lastCanonicalSequence").value(2))
+                .andExpect(jsonPath("$.hasMore").value(false))
+                .andReturn().getResponse().getContentAsString();
+        var secondJson = mapper.readTree(secondBody);
+        assertThat(secondJson.get("observedAt").asText()).isNotBlank();
+        assertThat(secondJson.get("observedAt").asText())
+                .isNotEqualTo(firstJson.get("observedAt").asText());
+        assertThat(secondBody).doesNotContain("session-4", "session-1");
 
         ObservabilityCursorCodec codec = new ObservabilityCursorCodec(
                 new ObservabilityJsonCodec());

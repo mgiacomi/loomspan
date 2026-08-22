@@ -126,9 +126,8 @@ func TestReleaseAndAuthoringDocumentationReferenceCanonicalSkillContract(t *test
 		t.Fatal(err)
 	}
 	documents := map[string]string{
-		"Console README":  readTestFile(t, filepath.Join(paths.module, "README.md")),
-		"release README":  readTestFile(t, filepath.Join(paths.release, "README.md")),
-		"client evidence": readTestFile(t, filepath.Join(paths.module, "docs", "mcp-client-compatibility.md")),
+		"Console README": readTestFile(t, filepath.Join(paths.module, "README.md")),
+		"release README": readTestFile(t, filepath.Join(paths.release, "README.md")),
 	}
 	for name, contents := range documents {
 		for _, required := range []string{"skills/loomspan/", "copy", "link", "unversioned", "MCP"} {
@@ -137,10 +136,10 @@ func TestReleaseAndAuthoringDocumentationReferenceCanonicalSkillContract(t *test
 			}
 		}
 	}
-	client := documents["client evidence"]
-	for _, required := range []string{"Codex CLI", "Codex desktop", "Claude Code", "Antigravity", "Cursor", "Devin Desktop", "Local Devin CLI", "Hosted Codex", "Not run"} {
-		if !strings.Contains(client, required) {
-			t.Errorf("client evidence does not retain %q", required)
+	contractVerification := readTestFile(t, filepath.Join(paths.module, "docs", "mcp-contract-verification.md"))
+	for _, required := range []string{"MCP contract verification", "tools/list", "official conformance", "DNS-rebinding"} {
+		if !strings.Contains(contractVerification, required) {
+			t.Errorf("MCP contract verification does not contain %q", required)
 		}
 	}
 	authoringREADME := readTestFile(t, filepath.Join(paths.repository, "ai", "skill-authoring", "README.md"))

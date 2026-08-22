@@ -20,14 +20,22 @@ and next observation, or when live monitoring is unavailable.
 
 ## WF-ACTIVE-EXECUTION-REVIEW
 
-After runtime discovery, list at most one requested execution page, up to 64
-items. Orient from that complete list shape; do not call detail merely to probe
-fields. Make one bounded activity call per returned session and retain every
+After runtime discovery, list only the bounded page or traversal the developer
+requested, up to 64 items per page. A traversal is descending stable
+first-admission ordinal under the first page's high water: later admissions are
+excluded, retained executions may carry updated snapshots, removed executions
+may be omitted, and every page is independently observed. Merge identities in
+returned traversal order and attach each value to that page's `observedAt`.
+The union is not an atomic fleet or complete membership view and cannot support
+absence, finalization, or co-temporal comparisons. Do not call detail merely to
+probe fields.
+
+Make one bounded activity call per selected session and retain every
 continuation even when `hasMore` is false. If the developer asks for a second
-observation, reuse each checkpoint once and compare recorded sequences,
-cursors, timestamps, usage, and activity facts. Do not continue to another
-execution page or keep polling unless the developer requests broader review or
-monitoring.
+observation, reuse each retained checkpoint once and compare recorded
+sequences, cursors, timestamps, usage, and activity facts. An empty result may
+advance the checkpoint. Do not loop after an empty observation or keep polling
+unless the developer requests monitoring.
 
 Treat global eviction, selected-session start, selected-session eviction, and
 selected-session retained range as separate cursor facts. Missing facts stay
@@ -36,6 +44,16 @@ progress states. If an execution disappears, query retained activity by its
 already returned `sessionId`, then try trace resolution once by its already
 returned `traceId`. Preserve `TRACE_UNAVAILABLE`; disappearance does not prove
 finalized evidence and never justifies scanning unrelated trace inventory.
+
+For an explicit purpose question, use a least-disclosing ladder. Start with
+neutral `entrySkill`, route/path, phase, producer summary, usage, limits, and
+activity. If skill-level purpose remains unanswered, retrieve only the exact
+registered skill already named by live evidence and quote only the needed YAML
+description, labeled application-supplied untrusted context. Task title,
+intent, and expected outputs are not live facts. After trace resolution, a
+task-level question may use narrowed `PLAN_CREATED`/`PLAN_UPDATED` descriptors
+and selected content; label that model-authored content untrusted. If those
+paths do not establish active task intent, say it is unknown.
 
 ## WF-EXPENSIVE-EXECUTION
 

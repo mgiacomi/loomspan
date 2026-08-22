@@ -32,13 +32,13 @@ type runtimeStatusDTO struct {
 	LiveMonitoring       consolecore.LiveMonitoring  `json:"liveMonitoring"`
 }
 
-func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator, evaluationCapabilities *[]string) {
+func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials authenticator) {
 	addValidatedTool(server, &mcp.Tool{
 		Name: RuntimeToolName, Description: "Return current Loomspan Console runtime and target status without contacting the target.",
 		Annotations: readOnlyAnnotations,
 	}, runtimeOutputSchema(),
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, RuntimeOutput, error) {
-			output, err := buildRuntimeOutputWithCapabilities(ctx, provider, credentials, evaluationCapabilities)
+			output, err := buildRuntimeOutput(ctx, provider, credentials)
 			if err != nil {
 				return nil, RuntimeOutput{}, err
 			}
@@ -47,10 +47,6 @@ func addRuntimeTool(server *mcp.Server, provider StatusProvider, credentials aut
 }
 
 func buildRuntimeOutput(ctx context.Context, provider StatusProvider, credentials authenticator) (RuntimeOutput, error) {
-	return buildRuntimeOutputWithCapabilities(ctx, provider, credentials, nil)
-}
-
-func buildRuntimeOutputWithCapabilities(ctx context.Context, provider StatusProvider, credentials authenticator, evaluationCapabilities *[]string) (RuntimeOutput, error) {
 	status := provider()
 	if err := status.Validate(); err != nil {
 		return RuntimeOutput{}, fmt.Errorf("INTERNAL: runtime status is unavailable")
@@ -59,9 +55,6 @@ func buildRuntimeOutputWithCapabilities(ctx context.Context, provider StatusProv
 		return RuntimeOutput{}, fmt.Errorf("INTERNAL: MCP authentication generation changed")
 	}
 	capabilities := installedCapabilities()
-	if evaluationCapabilities != nil {
-		capabilities = append([]string{}, (*evaluationCapabilities)...)
-	}
 	mapped := runtimeStatusDTO{ObservedAt: status.ObservedAt, TargetSelection: status.TargetSelection, TargetConnection: status.TargetConnection, TargetAuthentication: status.TargetAuthentication, JavaGoCompatibility: status.JavaGoCompatibility, RuntimeIdentity: status.RuntimeIdentity, LiveMonitoring: status.LiveMonitoring}
 	return RuntimeOutput{Capabilities: capabilities, Status: mapped}, nil
 }
