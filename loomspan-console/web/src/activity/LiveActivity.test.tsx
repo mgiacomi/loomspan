@@ -6,6 +6,7 @@ import { BrowserAPIError } from "../api/client";
 import type {
   ActiveExecution,
   Activity,
+  ActivityCoverage,
   ActivityKind,
   ConnectionFact,
   Continuity,
@@ -40,7 +41,7 @@ type ActivityView = {
   lastCursor: string | null;
   continuity: Continuity | null;
   baselineObservedAt: string | null;
-  beginningUnavailable: boolean;
+  coverage: ActivityCoverage;
   reconnectAttempt: number;
   loadRecent: () => Promise<void>;
 };
@@ -55,7 +56,7 @@ const baseView: ActivityView = {
   lastCursor: null,
   continuity: null,
   baselineObservedAt: null,
-  beginningUnavailable: false,
+  coverage: {},
   reconnectAttempt: 0,
   loadRecent: vi.fn(),
 };
@@ -190,10 +191,18 @@ describe("LiveActivity", () => {
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
   });
 
-  it("renders beginning unavailable notice", () => {
-    view.beginningUnavailable = true;
+  it("renders exact coverage cursor facts", () => {
+    view.coverage = {
+      globalEvictedThroughCursor: "8",
+      sessionStartCursor: "9",
+      sessionEvictedThroughCursor: "10",
+      sessionRetainedCursorRange: { firstCursor: "11", lastCursor: "12" },
+    };
     render(<LiveActivity />);
-    expect(screen.getByText(/Earlier activity is no longer available/)).toBeInTheDocument();
+    expect(screen.getByText(/Global ring evicted through cursor 8/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected session start cursor 9/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected session evicted through cursor 10/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected session retained cursor range 11–12/)).toBeInTheDocument();
   });
 
   it("renders continuity reset notice", () => {

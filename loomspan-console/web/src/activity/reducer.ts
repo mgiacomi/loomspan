@@ -1,6 +1,7 @@
 import type { BrowserAPIError } from "../api/client";
 import type {
   Activity,
+  ActivityCoverage,
   ActivityKind,
   ConnectionFact,
   Continuity,
@@ -16,7 +17,7 @@ export type ActivityState = {
   lastCursor: string | null;
   continuity: Continuity | null;
   baselineObservedAt: string | null;
-  beginningUnavailable: boolean;
+  coverage: ActivityCoverage;
   reconnectAttempt: number;
 };
 
@@ -30,7 +31,7 @@ export type ActivityAction =
       nextCursor: string;
       append: boolean;
       continuity?: Continuity;
-      beginningUnavailable: boolean;
+      coverage: ActivityCoverage;
     }
   | { type: "recent-error"; error: BrowserAPIError }
   | { type: "stream-connected" }
@@ -52,7 +53,7 @@ export const initialActivityState: ActivityState = {
   lastCursor: null,
   continuity: null,
   baselineObservedAt: null,
-  beginningUnavailable: false,
+  coverage: {},
   reconnectAttempt: 0,
 };
 
@@ -147,7 +148,7 @@ export function activityReducer(
         lastCursor: all.at(-1)?.cursor ??
           (crossedBoundary ? null : state.lastCursor),
         continuity: action.continuity ?? state.continuity,
-        beginningUnavailable: action.beginningUnavailable,
+        coverage: action.coverage,
       };
     }
     case "recent-error":

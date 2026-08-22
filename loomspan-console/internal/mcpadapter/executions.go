@@ -25,14 +25,14 @@ type getExecutionInput struct {
 func addExecutionTools(server *mcp.Server, options ServerOptions) {
 	addValidatedTool(server, &mcp.Tool{
 		Name:        ListExecutionsToolName,
-		Description: "List bounded active-execution snapshots. Omitted pageSize defaults to 16. Results are provisional diagnostic evidence.",
+		Description: "List provisional active executions.",
 		Annotations: readOnlyAnnotations, InputSchema: pageInputSchema[listExecutionsInput](),
 	}, executionListOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input listExecutionsInput) (*mcp.CallToolResult, toolEnvelope[executionListResult], error) {
 		return handleListExecutions(ctx, options, input)
 	})
 	addValidatedTool(server, &mcp.Tool{
 		Name:        GetExecutionToolName,
-		Description: "Return one bounded active-execution snapshot by session ID. The result is provisional evidence.",
+		Description: "Return a provisional active execution by session ID.",
 		Annotations: readOnlyAnnotations, InputSchema: nonblankInputSchema[getExecutionInput]("sessionId"),
 	}, executionDetailOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input getExecutionInput) (*mcp.CallToolResult, toolEnvelope[executionDetailResult], error) {
 		return handleGetExecution(ctx, options, input)
@@ -116,13 +116,7 @@ func executionListText(result executionListResult) string {
 	writer.boolean("hasMore", result.HasMore)
 	writer.continuation(result.Continuation)
 	for index, item := range result.Items {
-		prefix := fmt.Sprintf("items[%d].", index)
-		writer.quoted(prefix+"sessionId", item.SessionID)
-		writer.quoted(prefix+"traceId", item.TraceID)
-		writer.quoted(prefix+"entrySkill", item.EntrySkill)
-		writer.quoted(prefix+"status", item.Status)
-		writer.quoted(prefix+"phase", item.Phase)
-		writer.quoted(prefix+"summary", item.Summary)
+		appendExecutionText(&writer, fmt.Sprintf("items[%d].", index), item)
 	}
 	return writer.String()
 }
@@ -131,28 +125,32 @@ func executionDetailText(result executionDetailResult) string {
 	execution := result.Execution
 	var writer lineWriter
 	appendCommon(&writer, result.ObservedAt)
-	writer.quoted("execution.sessionId", execution.SessionID)
-	writer.quoted("execution.traceId", execution.TraceID)
-	writer.integer("execution.lastCanonicalSequence", int64(execution.LastCanonicalSequence))
-	writer.time("execution.startedAt", execution.StartedAt)
-	writer.time("execution.updatedAt", execution.UpdatedAt)
-	writer.integer("execution.elapsedMillis", execution.ElapsedMillis)
-	writer.quoted("execution.entrySkill", execution.EntrySkill)
-	writer.quoted("execution.status", execution.Status)
-	writer.quoted("execution.phase", execution.Phase)
-	writer.quoted("execution.summary", execution.Summary)
-	writer.integer("execution.activePath.count", int64(len(execution.ActivePath)))
-	for index, entry := range execution.ActivePath {
-		prefix := fmt.Sprintf("execution.activePath[%d].", index)
-		writer.quoted(prefix+"frameId", entry.FrameID)
-		writer.quoted(prefix+"frameType", entry.FrameType)
-		writer.quoted(prefix+"route", entry.Route)
-	}
-	writer.integer("execution.totalFrameDepth", int64(execution.TotalFrameDepth))
-	writer.boolean("execution.activePathTruncated", execution.ActivePathTruncated)
-	appendUsageText(&writer, "execution.usage.", execution.Usage)
-	appendConfiguredLimitsText(&writer, "execution.configuredLimits.", execution.ConfiguredLimits)
+	appendExecutionText(&writer, "execution.", execution)
 	return writer.String()
+}
+
+func appendExecutionText(writer *lineWriter, prefix string, execution executionDTO) {
+	writer.quoted(prefix+"sessionId", execution.SessionID)
+	writer.quoted(prefix+"traceId", execution.TraceID)
+	writer.integer(prefix+"lastCanonicalSequence", int64(execution.LastCanonicalSequence))
+	writer.time(prefix+"startedAt", execution.StartedAt)
+	writer.time(prefix+"updatedAt", execution.UpdatedAt)
+	writer.integer(prefix+"elapsedMillis", execution.ElapsedMillis)
+	writer.quoted(prefix+"entrySkill", execution.EntrySkill)
+	writer.quoted(prefix+"status", execution.Status)
+	writer.quoted(prefix+"phase", execution.Phase)
+	writer.quoted(prefix+"summary", execution.Summary)
+	writer.integer(prefix+"activePath.count", int64(len(execution.ActivePath)))
+	for index, entry := range execution.ActivePath {
+		pathPrefix := fmt.Sprintf("%sactivePath[%d].", prefix, index)
+		writer.quoted(pathPrefix+"frameId", entry.FrameID)
+		writer.quoted(pathPrefix+"frameType", entry.FrameType)
+		writer.quoted(pathPrefix+"route", entry.Route)
+	}
+	writer.integer(prefix+"totalFrameDepth", int64(execution.TotalFrameDepth))
+	writer.boolean(prefix+"activePathTruncated", execution.ActivePathTruncated)
+	appendUsageText(writer, prefix+"usage.", execution.Usage)
+	appendConfiguredLimitsText(writer, prefix+"configuredLimits.", execution.ConfiguredLimits)
 }
 
 func appendUsageText(writer *lineWriter, prefix string, usage observability.Usage) {

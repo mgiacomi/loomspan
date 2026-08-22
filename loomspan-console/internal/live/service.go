@@ -66,27 +66,33 @@ type Baseline struct {
 }
 
 type Service struct {
-	mu              sync.Mutex
-	scope           *target.Scope
-	stream          *applicationclient.ActivityStream
-	cancel          context.CancelFunc
-	activities      []Activity
-	ringBytes       int
-	lastCursor      string
-	seenCursors     map[string][]byte
-	closed          bool
-	liveUnavailable bool
-	evicted         bool
-	subscriptions   map[*subscription]struct{}
-	parentCtx       context.Context
-	interval        *interval
-	now             func() time.Time
-	ticker          func(time.Duration, func()) tickerHandle
-	jitter          func(time.Duration) time.Duration
-	baselineLoader  func(context.Context, target.Scope) (Baseline, *consolecore.Error)
-	baseline        Baseline
-	connection      ConnectionFact
-	nextIntervalID  uint64
+	mu                         sync.Mutex
+	scope                      *target.Scope
+	stream                     *applicationclient.ActivityStream
+	cancel                     context.CancelFunc
+	activities                 []Activity
+	ringBytes                  int
+	lastCursor                 string
+	seenCursors                map[string][]byte
+	closed                     bool
+	liveUnavailable            bool
+	globalEvictedThroughCursor string
+	sessionCoverage            map[string]sessionCoverage
+	subscriptions              map[*subscription]struct{}
+	parentCtx                  context.Context
+	interval                   *interval
+	now                        func() time.Time
+	ticker                     func(time.Duration, func()) tickerHandle
+	jitter                     func(time.Duration) time.Duration
+	baselineLoader             func(context.Context, target.Scope) (Baseline, *consolecore.Error)
+	baseline                   Baseline
+	connection                 ConnectionFact
+	nextIntervalID             uint64
+}
+
+type sessionCoverage struct {
+	startCursor   string
+	evictedCursor string
 }
 
 type tickerHandle interface {
@@ -103,11 +109,12 @@ func (r *realTicker) C() <-chan time.Time { return r.t.C }
 
 func NewService(parentCtx context.Context) *Service {
 	s := &Service{
-		activities:    make([]Activity, 0, ringMaxCount),
-		seenCursors:   make(map[string][]byte),
-		subscriptions: make(map[*subscription]struct{}),
-		parentCtx:     parentCtx,
-		now:           time.Now,
+		activities:      make([]Activity, 0, ringMaxCount),
+		seenCursors:     make(map[string][]byte),
+		sessionCoverage: make(map[string]sessionCoverage),
+		subscriptions:   make(map[*subscription]struct{}),
+		parentCtx:       parentCtx,
+		now:             time.Now,
 		ticker: func(d time.Duration, _ func()) tickerHandle {
 			t := time.NewTicker(d)
 			return &realTicker{t: t}
@@ -158,7 +165,8 @@ func (service *Service) resetLocked(cause ResetCause) {
 	service.ringBytes = 0
 	service.lastCursor = ""
 	service.seenCursors = make(map[string][]byte)
-	service.evicted = false
+	service.globalEvictedThroughCursor = ""
+	service.sessionCoverage = make(map[string]sessionCoverage)
 	service.nextIntervalID++
 	service.interval = &interval{
 		id:    strconv.FormatUint(service.nextIntervalID, 10),
@@ -632,6 +640,7 @@ func (service *Service) acceptActivity(activity Activity) (bool, error) {
 		slog.Error("live activity exceeds max size", "cursor", activity.Cursor, "size", size)
 		return false, errors.New("activity exceeds maximum encoded size")
 	}
+	evictedAny := false
 	for len(service.activities) >= ringMaxCount || service.ringBytes+size > ringMaxBytes {
 		if len(service.activities) == 0 {
 			break
@@ -640,9 +649,23 @@ func (service *Service) acceptActivity(activity Activity) (bool, error) {
 		service.ringBytes -= evictedActivity.EncodedSize()
 		delete(service.seenCursors, evictedActivity.Cursor)
 		service.activities = service.activities[1:]
-		service.evicted = true
+		service.globalEvictedThroughCursor = evictedActivity.Cursor
+		coverage := service.sessionCoverage[evictedActivity.SessionID]
+		coverage.evictedCursor = evictedActivity.Cursor
+		service.sessionCoverage[evictedActivity.SessionID] = coverage
+		evictedAny = true
 	}
 	service.activities = append(service.activities, activity)
+	if activity.Kind == KindTraceStarted {
+		coverage := service.sessionCoverage[activity.SessionID]
+		if coverage.startCursor == "" {
+			coverage.startCursor = activity.Cursor
+		}
+		service.sessionCoverage[activity.SessionID] = coverage
+	}
+	if evictedAny {
+		service.pruneSessionCoverageLocked()
+	}
 	service.ringBytes += size
 	service.seenCursors[activity.Cursor] = encoded
 	service.lastCursor = activity.Cursor
@@ -694,7 +717,7 @@ func (service *Service) Recent(request RecentRequest) (RecentResponse, *consolec
 		}
 		if !found {
 			response.Continuity = service.continuityLocked()
-			response.BeginningUnavailable = true
+			response.Coverage = service.coverageLocked(sessionID)
 			return response, nil
 		}
 	}
@@ -742,13 +765,44 @@ func (service *Service) Recent(request RecentRequest) (RecentResponse, *consolec
 			nextCursor = items[len(items)-1].Cursor
 		}
 	}
-	beginningUnavailable := start > 0 || service.evicted || (service.interval != nil && service.interval.reset != nil)
 	response.Items = items
 	response.HasMore = hasMore
 	response.NextCursor = nextCursor
 	response.Continuity = service.continuityLocked()
-	response.BeginningUnavailable = beginningUnavailable
+	response.Coverage = service.coverageLocked(sessionID)
 	return response, nil
+}
+
+func (service *Service) coverageLocked(sessionID string) Coverage {
+	coverage := Coverage{GlobalEvictedThroughCursor: service.globalEvictedThroughCursor}
+	if sessionID == "" {
+		return coverage
+	}
+	tracked := service.sessionCoverage[sessionID]
+	coverage.SessionStartCursor = tracked.startCursor
+	coverage.SessionEvictedThroughCursor = tracked.evictedCursor
+	for _, activity := range service.activities {
+		if activity.SessionID != sessionID {
+			continue
+		}
+		if coverage.SessionRetainedCursorRange == nil {
+			coverage.SessionRetainedCursorRange = &CursorRange{FirstCursor: activity.Cursor}
+		}
+		coverage.SessionRetainedCursorRange.LastCursor = activity.Cursor
+	}
+	return coverage
+}
+
+func (service *Service) pruneSessionCoverageLocked() {
+	retained := make(map[string]struct{})
+	for _, activity := range service.activities {
+		retained[activity.SessionID] = struct{}{}
+	}
+	for sessionID := range service.sessionCoverage {
+		if _, ok := retained[sessionID]; !ok {
+			delete(service.sessionCoverage, sessionID)
+		}
+	}
 }
 
 func (service *Service) continuityLocked() *Continuity {

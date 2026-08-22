@@ -16,12 +16,11 @@ import (
 )
 
 const (
-	RuntimeDebuggingSkillName    = "loomspan"
-	RuntimeDebuggingSkillVersion = "1.0.1"
-	maxDescriptionBytes          = 1024
-	maxInstructionBytes          = 80 * 1024
-	maxReferenceBytes            = 80 * 1024
-	maxRecommendedTokens         = 5000
+	RuntimeDebuggingSkillName = "loomspan"
+	maxDescriptionBytes       = 1024
+	maxInstructionBytes       = 80 * 1024
+	maxReferenceBytes         = 80 * 1024
+	maxRecommendedTokens      = 5000
 )
 
 var RuntimeDebuggingFiles = []string{
@@ -42,11 +41,10 @@ var (
 )
 
 type manifest struct {
-	Name          string            `yaml:"name"`
-	Description   string            `yaml:"description"`
-	License       string            `yaml:"license"`
-	Compatibility string            `yaml:"compatibility"`
-	Metadata      map[string]string `yaml:"metadata"`
+	Name          string `yaml:"name"`
+	Description   string `yaml:"description"`
+	License       string `yaml:"license"`
+	Compatibility string `yaml:"compatibility"`
 }
 
 // ValidateRuntimeDebugging validates the one reviewed Agent Skill package.
@@ -190,22 +188,13 @@ func validateManifest(raw []byte) error {
 	if err := yaml.Unmarshal(raw, &fields); err != nil {
 		return fmt.Errorf("parse SKILL.md frontmatter: %w", err)
 	}
-	allowed := map[string]bool{"name": true, "description": true, "license": true, "compatibility": true, "metadata": true}
+	allowed := map[string]bool{"name": true, "description": true, "license": true, "compatibility": true}
 	for name := range fields {
 		if !allowed[name] {
 			return fmt.Errorf("unsupported SKILL.md frontmatter field %q", name)
 		}
 	}
 	var value manifest
-	metadata, ok := fields["metadata"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("skill metadata must be a mapping")
-	}
-	for key, item := range metadata {
-		if _, ok := item.(string); !ok {
-			return fmt.Errorf("skill metadata %q must be a string", key)
-		}
-	}
 	if err := yaml.Unmarshal(raw, &value); err != nil {
 		return fmt.Errorf("parse typed SKILL.md frontmatter: %w", err)
 	}
@@ -217,9 +206,6 @@ func validateManifest(raw []byte) error {
 	}
 	if value.License != "MPL-2.0" || strings.TrimSpace(value.Compatibility) == "" {
 		return fmt.Errorf("skill license or compatibility is invalid")
-	}
-	if len(value.Metadata) != 1 || value.Metadata["lokiscale.loomspan.skill-version"] != RuntimeDebuggingSkillVersion {
-		return fmt.Errorf("skill metadata must contain only version %q", RuntimeDebuggingSkillVersion)
 	}
 	return nil
 }

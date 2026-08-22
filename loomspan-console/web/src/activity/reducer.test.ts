@@ -49,7 +49,7 @@ describe("activityReducer", () => {
       hasMore: false,
       nextCursor: "",
       append: false,
-      beginningUnavailable: false,
+      coverage: {},
     });
     expect(state.activities).toEqual(items);
     expect(state.loading).toBe(false);
@@ -68,7 +68,7 @@ describe("activityReducer", () => {
       hasMore: false,
       nextCursor: "",
       append: true,
-      beginningUnavailable: false,
+      coverage: {},
     });
     expect(result.activities).toEqual([...existing, ...newItems]);
   });
@@ -81,7 +81,7 @@ describe("activityReducer", () => {
       hasMore: false,
       nextCursor: "",
       append: false,
-      beginningUnavailable: false,
+      coverage: {},
     });
     expect(state.activities).toEqual(items);
     expect(state.recentCompletions).toEqual([makeActivity("2", "TRACE_COMPLETED")]);
@@ -296,7 +296,7 @@ describe("activityReducer", () => {
       hasMore: false,
       nextCursor: "",
       append: true,
-      beginningUnavailable: false,
+      coverage: {},
     });
     expect(result.activities).toEqual([makeActivity("1"), makeActivity("2"), makeActivity("3")]);
   });
@@ -330,7 +330,7 @@ describe("activityReducer", () => {
         targetScopeId: "scope-2",
         instanceId: "22222222-2222-4222-8222-222222222222",
       },
-      beginningUnavailable: true,
+      coverage: { globalEvictedThroughCursor: "8" },
     });
     expect(result.activities).toEqual([replacement]);
     expect(result.recentCompletions).toEqual([]);

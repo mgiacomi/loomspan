@@ -131,7 +131,7 @@ func TestReleaseAndAuthoringDocumentationReferenceCanonicalSkillContract(t *test
 		"client evidence": readTestFile(t, filepath.Join(paths.module, "docs", "mcp-client-compatibility.md")),
 	}
 	for name, contents := range documents {
-		for _, required := range []string{"skills/loomspan/", "copy", "link", "1.0.1", "MCP"} {
+		for _, required := range []string{"skills/loomspan/", "copy", "link", "unversioned", "MCP"} {
 			if !strings.Contains(contents, required) {
 				t.Errorf("%s does not contain %q", name, required)
 			}

@@ -48,8 +48,7 @@ func TestRuntimeDebuggingSkillValidationRejectsUnsafeAndNonPortableVariants(t *t
 		{"missing file", func(t *testing.T, root string) { os.Remove(filepath.Join(root, "references", "runtime-model.md")) }, "incomplete"},
 		{"unsupported frontmatter", replaceSkill("license: MPL-2.0", "allowed-tools: []\nlicense: MPL-2.0"), "unsupported"},
 		{"wrong name", replaceSkill("name: loomspan", "name: another-skill"), "name"},
-		{"wrong version", replaceSkill("skill-version: \"1.0.1\"", "skill-version: \"2.0.0\""), "version"},
-		{"non-string metadata", replaceSkill("skill-version: \"1.0.1\"", "skill-version: 1"), "string"},
+		{"premature version metadata", replaceSkill("license: MPL-2.0", "metadata:\n  lokiscale.loomspan.skill-version: \"development\"\nlicense: MPL-2.0"), "unsupported"},
 		{"broken reference", replaceSkill("references/runtime-model.md", "references/missing.md"), "reference"},
 		{"endpoint", func(t *testing.T, root string) { appendSkill(t, root, "\nUse https://example.invalid/mcp\n") }, "endpoint"},
 		{"access key", func(t *testing.T, root string) {

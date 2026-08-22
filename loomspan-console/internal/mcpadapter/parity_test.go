@@ -102,9 +102,9 @@ func TestBrowserAndMCPPreserveSameRecentContinuityAndGapFacts(t *testing.T) {
 	mcpResult := activityResult{
 		ObservedAt: queryObservedAt,
 		Items:      []activityDTO{mcpItem}, ReturnedCursorRange: &cursorRangeDTO{FirstCursor: "9", LastCursor: "9"},
-		Continuity: mcpContinuity, BeginningUnavailable: true,
+		Continuity: mcpContinuity, Coverage: coverageDTO{GlobalEvictedThroughCursor: "7", SessionStartCursor: "9", SessionRetainedCursorRange: &cursorRangeDTO{FirstCursor: "9", LastCursor: "9"}},
 	}
-	if mcpResult.ObservedAt != queryObservedAt || mcpResult.Continuity != mcpContinuity || !mcpResult.BeginningUnavailable {
+	if mcpResult.ObservedAt != queryObservedAt || mcpResult.Continuity != mcpContinuity || mcpResult.Coverage.SessionStartCursor != "9" {
 		t.Fatalf("recent observation/continuity/gap facts changed: %#v", mcpResult)
 	}
 }

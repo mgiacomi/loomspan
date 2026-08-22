@@ -13,7 +13,8 @@ func TestEvaluationCasesAreVersionedUniqueAndWorkflowLinked(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{"failed-execution", "slow-execution", "expensive-execution", "unfamiliar-skill-path",
-		"composite-adversarial", "ambiguous-trace", "missing-required-capability", "missing-optional-raw", "skill-without-mcp", "mcp-without-skill"} {
+		"composite-adversarial", "ambiguous-trace", "missing-required-capability", "missing-optional-raw", "skill-without-mcp", "mcp-without-skill",
+		"pr34-tools-only-active-execution-review", "pr34-skill-assisted-active-execution-review"} {
 		if _, ok := cases[required]; !ok {
 			t.Errorf("missing case %q", required)
 		}
@@ -26,12 +27,13 @@ func TestEvaluationCasesResolveAuthoritativeFixtureFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	checks := map[string][]string{
-		"loomspan-console-fixtures/expected/runtime-terminal-failure.json":       {"trace-runtime-terminal-failure", "failure-terminal", "FAILED"},
-		"loomspan-console-fixtures/expected/nested-frame-usage.json":             {"trace-nested-frame-usage", "attempt-framed"},
-		"loomspan-console-fixtures/expected/unattributed-usage.json":             {"trace-unattributed-usage", "unattributed"},
-		"loomspan-console-fixtures/expected/repeated-skill-invocations.json":     {"trace-repeated-skill-invocations", "skill-1", "skill-2"},
-		"loomspan-console-fixtures/traces/current-plan-semantic-evidence.ndjson": {"framework-primary-plan", "framework-nested-plan", "attempt-accepted", "retry-primary", "INC-2401", "TOOL_CALL_COMPLETED", "STRUCTURED_OUTPUT_RECORDED"},
-		"loomspan-console/internal/mcpadapter/testdata/activity.json":            {"observedAt", "canonicalSequence", "beginningUnavailable", "reset"},
+		"loomspan-console-fixtures/expected/runtime-terminal-failure.json":        {"trace-runtime-terminal-failure", "failure-terminal", "FAILED"},
+		"loomspan-console-fixtures/expected/nested-frame-usage.json":              {"trace-nested-frame-usage", "attempt-framed"},
+		"loomspan-console-fixtures/expected/unattributed-usage.json":              {"trace-unattributed-usage", "unattributed"},
+		"loomspan-console-fixtures/expected/repeated-skill-invocations.json":      {"trace-repeated-skill-invocations", "skill-1", "skill-2"},
+		"loomspan-console-fixtures/traces/current-plan-semantic-evidence.ndjson":  {"framework-primary-plan", "framework-nested-plan", "attempt-accepted", "retry-primary", "INC-2401", "TOOL_CALL_COMPLETED", "STRUCTURED_OUTPUT_RECORDED"},
+		"loomspan-console/internal/mcpadapter/testdata/activity.json":             {"observedAt", "canonicalSequence", "coverage", "sessionStartCursor", "reset"},
+		"loomspan-console/agent-evals/fixtures/pr34-active-execution-review.json": {"session-observed-start", "globalEvictedThroughCursor", "sessionEvictedThroughCursor", "TRACE_UNAVAILABLE", "futureCheckpoint"},
 	}
 	for relative, markers := range checks {
 		content, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(relative)))

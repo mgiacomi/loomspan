@@ -91,7 +91,7 @@ func ValidateCase(value Case, repository string) error {
 		return fmt.Errorf("schema version, ID, and developer prompt are required")
 	}
 	approvedWorkflows := map[string]bool{
-		"WF-FAILED-EXECUTION": true, "WF-SLOW-EXECUTION": true,
+		"WF-FAILED-EXECUTION": true, "WF-SLOW-EXECUTION": true, "WF-ACTIVE-EXECUTION-REVIEW": true,
 		"WF-EXPENSIVE-EXECUTION": true, "WF-UNFAMILIAR-SKILL-PATH": true,
 	}
 	if len(value.WorkflowIDs)+len(value.RequirementIDs) == 0 {
@@ -103,7 +103,7 @@ func ValidateCase(value Case, repository string) error {
 		}
 	}
 	for _, id := range value.RequirementIDs {
-		if !strings.HasPrefix(id, "PR19-") && !strings.HasPrefix(id, "PR28-") && !strings.HasPrefix(id, "PR30-") && !strings.HasPrefix(id, "PR31-") && !strings.HasPrefix(id, "WF-") {
+		if !strings.HasPrefix(id, "PR19-") && !strings.HasPrefix(id, "PR28-") && !strings.HasPrefix(id, "PR30-") && !strings.HasPrefix(id, "PR31-") && !strings.HasPrefix(id, "PR34-") && !strings.HasPrefix(id, "WF-") {
 			return fmt.Errorf("unknown requirement ID %q", id)
 		}
 	}

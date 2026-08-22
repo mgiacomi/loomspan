@@ -407,10 +407,20 @@ export type RecentActivityRequest = {
   limit?: number;
 };
 
+export type ActivityCoverage = {
+  globalEvictedThroughCursor?: string;
+  sessionStartCursor?: string;
+  sessionEvictedThroughCursor?: string;
+  sessionRetainedCursorRange?: {
+    firstCursor: string;
+    lastCursor: string;
+  };
+};
+
 export type RecentActivityResponse = {
   items: Activity[];
   hasMore: boolean;
   nextCursor: string;
   continuity?: Continuity;
-  beginningUnavailable: boolean;
+  coverage: ActivityCoverage;
 };

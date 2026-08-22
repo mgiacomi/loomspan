@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mgiacomi/loomspan/loomspan-console/internal/applicationclient"
@@ -110,10 +112,14 @@ func StartServer(output string, caseValue Case, consoleVersion, consoleCommit st
 		return fail(err)
 	}
 	analysis := traceanalysis.NewServiceForCompatibilityVersion(nil, consoleVersion)
+	pr34Case := caseValue.ID == "pr34-tools-only-active-execution-review" || caseValue.ID == "pr34-skill-assisted-active-execution-review"
 	artifacts, err := artifact.New(artifact.Config{MaxBytes: 128 << 20, IdleTTL: time.Hour}, artifact.Dependencies{
 		Workspace: fixtureWorkspace,
 		TraceLoader: func(context.Context, target.Scope, string) (artifact.TraceMetadata, *consolecore.Error) {
-			return artifact.TraceMetadata{}, consolecore.NewError(consolecore.CodeTargetUnavailable, "Evaluation cases do not acquire application traces.", "", consolecore.Details{}, nil)
+			if !pr34Case {
+				return artifact.TraceMetadata{}, consolecore.NewError(consolecore.CodeTargetUnavailable, "Evaluation cases do not acquire application traces.", "", consolecore.Details{}, nil)
+			}
+			return artifact.TraceMetadata{}, consolecore.NewError(consolecore.CodeNotFound, "The evaluation trace is unavailable.", "", consolecore.Details{}, nil)
 		},
 		StreamOpener: func(context.Context, target.Scope, string) (*applicationclient.ArtifactStream, *consolecore.Error) {
 			return nil, consolecore.NewError(consolecore.CodeTargetUnavailable, "Evaluation cases do not acquire application traces.", "", consolecore.Details{}, nil)
@@ -153,6 +159,15 @@ func StartServer(output string, caseValue Case, consoleVersion, consoleCommit st
 	statusProvider := func() consolecore.StatusSnapshot { return evaluationStatus(caseValue.ID, time.Now().UTC()) }
 	if caseValue.ID == "slow-execution" {
 		targetContext, liveService, observabilityService, upstream, err = startSlowEvaluationTarget(repository, consoleVersion)
+		if err != nil {
+			artifacts.Close()
+			fixtureWorkspace.Close()
+			listener.Close()
+			return fail(err)
+		}
+		statusProvider = func() consolecore.StatusSnapshot { return targetContext.Snapshot().Status }
+	} else if pr34Case {
+		targetContext, liveService, observabilityService, upstream, err = startPR34EvaluationTarget(repository, caseValue.FixtureSources[0], consoleVersion, artifacts)
 		if err != nil {
 			artifacts.Close()
 			fixtureWorkspace.Close()
@@ -283,6 +298,222 @@ func startSlowEvaluationTarget(repository, consoleVersion string) (*target.Conte
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	return targetContext, liveService, observabilityService, upstream, nil
+}
+
+type pr34Execution struct {
+	SessionID             string `json:"sessionId"`
+	TraceID               string `json:"traceId"`
+	LastCanonicalSequence int    `json:"lastCanonicalSequence"`
+	ProviderAttempts      int    `json:"providerAttempts"`
+	ModelCalls            int    `json:"modelCalls"`
+}
+
+type pr34Activity struct {
+	Cursor    int    `json:"cursor"`
+	SessionID string `json:"sessionId"`
+	TraceID   string `json:"traceId"`
+	Kind      string `json:"kind"`
+}
+
+type pr34Replay struct {
+	FillerFromCursor    int            `json:"fillerFromCursor"`
+	FillerThroughCursor int            `json:"fillerThroughCursor"`
+	FillerSessionID     string         `json:"fillerSessionId"`
+	FillerTraceID       string         `json:"fillerTraceId"`
+	Activities          []pr34Activity `json:"activities"`
+}
+
+type pr34Observation struct {
+	ID                  string          `json:"id"`
+	Executions          []pr34Execution `json:"executions"`
+	Replay              *pr34Replay     `json:"replay,omitempty"`
+	Activities          []pr34Activity  `json:"activities,omitempty"`
+	CompletedSessionIDs []string        `json:"completedSessionIds,omitempty"`
+}
+
+type pr34Fixture struct {
+	SchemaVersion int               `json:"schemaVersion"`
+	Observations  []pr34Observation `json:"observations"`
+}
+
+func startPR34EvaluationTarget(repository, fixtureSource, consoleVersion string, artifacts *artifact.Service) (*target.Context, *live.Service, *observability.Service, *httptest.Server, error) {
+	const instanceID = "11111111-1111-4111-8111-111111111111"
+	rawFixture, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(fixtureSource)))
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	var fixture pr34Fixture
+	if err := json.Unmarshal(rawFixture, &fixture); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("decode PR 34 fixture: %w", err)
+	}
+	if fixture.SchemaVersion != 1 || len(fixture.Observations) != 2 || fixture.Observations[0].ID != "initial" || fixture.Observations[1].ID != "later" ||
+		fixture.Observations[0].Replay == nil || len(fixture.Observations[0].Replay.Activities) == 0 || len(fixture.Observations[1].Activities) == 0 {
+		return nil, nil, nil, nil, fmt.Errorf("PR 34 fixture must contain initial and later observations")
+	}
+	initial, later := fixture.Observations[0], fixture.Observations[1]
+	activeJSON := func(execution pr34Execution) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"sessionId": execution.SessionID, "traceId": execution.TraceID, "lastCanonicalSequence": execution.LastCanonicalSequence,
+			"startedAt": "2026-08-21T12:00:00Z", "updatedAt": "2026-08-21T12:00:05Z", "elapsedMillis": 5000,
+			"entrySkill": "review.entry", "status": "ACTIVE", "phase": "RUNNING", "summary": "provisional runtime fact",
+			"activePath": []any{}, "totalFrameDepth": 0, "activePathTruncated": false,
+			"usage": map[string]any{"skillInvocations": 1, "toolInvocations": 0, "linterRetries": 0, "modelCalls": execution.ModelCalls,
+				"providerAttempts": execution.ProviderAttempts, "promptUnits": 0, "completionUnits": 0, "usageUnits": 0,
+				"exactModelResponses": execution.ModelCalls, "heuristicModelResponses": 0, "unavailableModelResponses": 0},
+			"configuredLimits": map[string]any{"maxSkillInvocations": 64, "maxToolInvocations": 128, "maxLinterRetries": 32,
+				"maxModelCalls": 64, "maxProviderAttempts": 0, "maxUsageUnits": 0},
+		})
+	}
+	pageJSON := func(observation pr34Observation) ([]byte, map[string][]byte, error) {
+		items := make([]json.RawMessage, 0, len(observation.Executions))
+		details := make(map[string][]byte, len(observation.Executions))
+		for _, execution := range observation.Executions {
+			encoded, encodeErr := activeJSON(execution)
+			if encodeErr != nil {
+				return nil, nil, encodeErr
+			}
+			items = append(items, encoded)
+			details[execution.SessionID] = encoded
+		}
+		page, encodeErr := json.Marshal(map[string]any{"items": items, "hasMore": false, "nextCursor": nil,
+			"observedAt": "2026-08-21T12:00:06Z", "resumeCursor": "0"})
+		return page, details, encodeErr
+	}
+	initialPage, initialDetails, err := pageJSON(initial)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	laterPage, laterDetails, err := pageJSON(later)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	writeActivity := func(builder *strings.Builder, activity pr34Activity) {
+		fmt.Fprintf(builder, "id: %d\nevent: activity\ndata: {\"instanceId\":%q,\"cursor\":%q,\"sessionId\":%q,\"traceId\":%q,\"canonicalSequence\":%d,\"timestamp\":\"2026-08-21T12:00:06Z\",\"kind\":%q,\"executionStatus\":\"ACTIVE\",\"summary\":\"provisional runtime fact\",\"details\":{}}\n\n", activity.Cursor, instanceID, strconv.Itoa(activity.Cursor), activity.SessionID, activity.TraceID, activity.Cursor, activity.Kind)
+	}
+	var initialReplay strings.Builder
+	fmt.Fprintf(&initialReplay, "event: handshake\ndata: {\"instanceId\":%q,\"observedAt\":\"2026-08-21T12:00:06Z\",\"afterCursor\":\"0\"}\n\n", instanceID)
+	writeActivity(&initialReplay, initial.Replay.Activities[0])
+	for cursor := initial.Replay.FillerFromCursor; cursor <= initial.Replay.FillerThroughCursor; cursor++ {
+		writeActivity(&initialReplay, pr34Activity{Cursor: cursor, SessionID: initial.Replay.FillerSessionID, TraceID: initial.Replay.FillerTraceID, Kind: "STEP_STARTED"})
+	}
+	for _, activity := range initial.Replay.Activities[1:] {
+		writeActivity(&initialReplay, activity)
+	}
+	var laterReplay strings.Builder
+	for _, activity := range later.Activities {
+		writeActivity(&laterReplay, activity)
+	}
+	latestInitialCursor := initial.Replay.Activities[len(initial.Replay.Activities)-1].Cursor
+	var activeListCalls atomic.Int32
+	var laterActive atomic.Bool
+	laterReady := make(chan struct{})
+	var laterOnce sync.Once
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set(applicationclient.InstanceIDHeader, instanceID)
+		switch {
+		case strings.HasSuffix(request.URL.Path, "/instance"):
+			response.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(response, `{"instanceId":%q,"consoleCompatibilityVersion":%q,"observedAt":"2026-08-21T12:00:06Z","liveMonitoringAvailable":true,"registeredSkillCount":1,"activeExecutionCount":5,"catalogedTraceCount":0,"tracePersistencePolicy":"PERSISTENT","completionGraceTtl":"PT2M","traceCatalogMetadataTtl":"PT168H"}`, instanceID, consoleVersion)
+		case strings.HasSuffix(request.URL.Path, "/active-executions"):
+			response.Header().Set("Content-Type", "application/json")
+			if activeListCalls.Add(1) >= 3 {
+				laterActive.Store(true)
+				laterOnce.Do(func() { close(laterReady) })
+				_, _ = response.Write(laterPage)
+			} else {
+				_, _ = response.Write(initialPage)
+			}
+		case strings.Contains(request.URL.Path, "/active-executions/"):
+			sessionID := request.URL.Path[strings.LastIndex(request.URL.Path, "/")+1:]
+			details := initialDetails
+			if laterActive.Load() {
+				details = laterDetails
+			}
+			if body := details[sessionID]; body != nil {
+				response.Header().Set("Content-Type", "application/json")
+				_, _ = response.Write(body)
+				return
+			}
+			response.Header().Set("Content-Type", "application/json")
+			response.WriteHeader(http.StatusNotFound)
+			_, _ = response.Write([]byte(`{"status":404,"code":"NOT_FOUND","message":"The requested observability resource was not found"}`))
+		case strings.HasSuffix(request.URL.Path, "/activity"):
+			response.Header().Set("Content-Type", "text/event-stream")
+			body := strings.Replace(initialReplay.String(), `"afterCursor":"0"`, `"afterCursor":"`+request.URL.Query().Get("afterCursor")+`"`, 1)
+			_, _ = response.Write([]byte(body))
+			if flusher, ok := response.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			select {
+			case <-laterReady:
+				_, _ = response.Write([]byte(laterReplay.String()))
+				if flusher, ok := response.(http.Flusher); ok {
+					flusher.Flush()
+				}
+			case <-request.Context().Done():
+				return
+			}
+			<-request.Context().Done()
+		default:
+			response.Header().Set("Content-Type", "application/json")
+			response.WriteHeader(http.StatusNotFound)
+			_, _ = response.Write([]byte(`{"status":404,"code":"NOT_FOUND","message":"The requested observability resource was not found"}`))
+		}
+	}))
+	factory := func(address applicationclient.Address) (target.ProbeClient, error) {
+		return applicationclient.New(address, applicationclient.NetworkPolicy{ConnectTimeout: time.Second, ResponseHeaderTimeout: time.Second, RequestTimeout: 2 * time.Second}, consoleVersion)
+	}
+	targetContext, err := target.New(factory, func() (target.ScopeID, error) { return target.ScopeID("eval-scope-pr34"), nil }, time.Now)
+	if err != nil {
+		upstream.Close()
+		return nil, nil, nil, nil, err
+	}
+	liveService := live.NewService(context.Background())
+	observabilityService := observability.New()
+	liveService.SetBaselineLoader(func(ctx context.Context, scope target.Scope) (live.Baseline, *consolecore.Error) {
+		page, domain := observabilityService.ListActiveExecutions(ctx, scope, observability.ListRequest{})
+		resumeCursor := ""
+		if page.ResumeCursor != nil {
+			resumeCursor = *page.ResumeCursor
+		}
+		return live.Baseline{Executions: page.Items, ResumeCursor: resumeCursor, ObservedAt: page.ObservedAt}, domain
+	})
+	if err := targetContext.RegisterOwner("agent-eval-pr34", liveService); err != nil {
+		liveService.Close()
+		targetContext.Close()
+		upstream.Close()
+		return nil, nil, nil, nil, err
+	}
+	if err := targetContext.RegisterOwner("agent-eval-pr34-artifacts", artifacts); err != nil {
+		liveService.Close()
+		targetContext.Close()
+		upstream.Close()
+		return nil, nil, nil, nil, err
+	}
+	targetContext.StartServing()
+	if _, domain := targetContext.SelectAndConnect(context.Background(), upstream.URL, []byte(strings.Repeat("e", 32))); domain != nil {
+		liveService.Close()
+		targetContext.Close()
+		upstream.Close()
+		return nil, nil, nil, nil, fmt.Errorf("connect PR 34 evaluation target: %v", domain)
+	}
+	ready := false
+	for attempt := 0; attempt < 200; attempt++ {
+		if recent, domain := liveService.Recent(live.RecentRequest{Limit: 64}); domain == nil && recent.Continuity != nil && recent.Continuity.LastCursor == strconv.Itoa(latestInitialCursor) {
+			ready = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		liveService.Close()
+		targetContext.Close()
+		upstream.Close()
+		return nil, nil, nil, nil, fmt.Errorf("PR 34 initial activity did not reach cursor %d", latestInitialCursor)
 	}
 	return targetContext, liveService, observabilityService, upstream, nil
 }

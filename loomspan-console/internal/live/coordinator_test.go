@@ -250,7 +250,7 @@ func TestRecentActivityQueryClampsMaxPageSize(t *testing.T) {
 	}
 }
 
-func TestRecentActivityQueryReportsEvictedBeginningAsFact(t *testing.T) {
+func TestRecentActivityQueryReportsResetAndCoverageCursorFacts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	clock := &fakeClock{t: time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)}
@@ -273,9 +273,114 @@ func TestRecentActivityQueryReportsEvictedBeginningAsFact(t *testing.T) {
 	}
 	service.mu.Unlock()
 
-	beginningUnavailable := requireRecent(t, service, RecentRequest{Cursor: "5", Limit: 10}).BeginningUnavailable
-	if !beginningUnavailable {
-		t.Fatal("expected beginningUnavailable=true when querying after cursor from old interval")
+	recent := requireRecent(t, service, RecentRequest{Cursor: "5", SessionID: "session-1", Limit: 10})
+	if recent.Continuity == nil || recent.Continuity.Reset == nil || recent.Continuity.Reset.Cause != ResetTargetScopeChanged {
+		t.Fatalf("expected exact reset fact, got %#v", recent.Continuity)
+	}
+	if recent.Coverage.SessionStartCursor != "4" || recent.Coverage.SessionRetainedCursorRange == nil ||
+		recent.Coverage.SessionRetainedCursorRange.FirstCursor != "4" || recent.Coverage.SessionRetainedCursorRange.LastCursor != "6" {
+		t.Fatalf("unexpected session coverage facts: %#v", recent.Coverage)
+	}
+}
+
+func TestRecentActivityReportsExactGlobalAndSessionCoverageCursors(t *testing.T) {
+	t.Run("unrelated global eviction and later selected start remain distinct", func(t *testing.T) {
+		service := NewService(context.Background())
+		defer service.Close()
+		service.mu.Lock()
+		service.interval = &interval{instanceID: testInstanceID}
+		for i := 1; i <= ringMaxCount; i++ {
+			service.appendActivity(makeActivity(fmt.Sprintf("%d", i), "other", "STEP_STARTED"))
+		}
+		service.appendActivity(makeActivity(fmt.Sprintf("%d", ringMaxCount+1), "selected", "TRACE_STARTED"))
+		service.mu.Unlock()
+
+		recent := requireRecent(t, service, RecentRequest{SessionID: "selected", Limit: 10})
+		if recent.Coverage.GlobalEvictedThroughCursor != "1" ||
+			recent.Coverage.SessionStartCursor != fmt.Sprintf("%d", ringMaxCount+1) ||
+			recent.Coverage.SessionEvictedThroughCursor != "" || recent.Coverage.SessionRetainedCursorRange == nil {
+			t.Fatalf("unexpected coverage: %#v", recent.Coverage)
+		}
+	})
+
+	t.Run("selected eviction preserves admitted start while later activity remains", func(t *testing.T) {
+		service := NewService(context.Background())
+		defer service.Close()
+		service.mu.Lock()
+		service.interval = &interval{instanceID: testInstanceID}
+		service.appendActivity(makeActivity("1", "selected", "TRACE_STARTED"))
+		for i := 2; i <= ringMaxCount; i++ {
+			service.appendActivity(makeActivity(fmt.Sprintf("%d", i), "other", "STEP_STARTED"))
+		}
+		service.appendActivity(makeActivity(fmt.Sprintf("%d", ringMaxCount+1), "selected", "STEP_COMPLETED"))
+		service.mu.Unlock()
+
+		coverage := requireRecent(t, service, RecentRequest{SessionID: "selected", Limit: 10}).Coverage
+		if coverage.SessionStartCursor != "1" || coverage.SessionEvictedThroughCursor != "1" ||
+			coverage.SessionRetainedCursorRange == nil || coverage.SessionRetainedCursorRange.FirstCursor != fmt.Sprintf("%d", ringMaxCount+1) {
+			t.Fatalf("unexpected coverage: %#v", coverage)
+		}
+	})
+
+	t.Run("baseline without admitted start omits start fact", func(t *testing.T) {
+		service := NewService(context.Background())
+		defer service.Close()
+		service.mu.Lock()
+		service.interval = &interval{instanceID: testInstanceID}
+		service.appendActivity(makeActivity("1", "selected", "STEP_STARTED"))
+		service.mu.Unlock()
+		coverage := requireRecent(t, service, RecentRequest{SessionID: "selected", Limit: 10}).Coverage
+		if coverage.SessionStartCursor != "" || coverage.SessionEvictedThroughCursor != "" || coverage.SessionRetainedCursorRange == nil {
+			t.Fatalf("unexpected coverage: %#v", coverage)
+		}
+	})
+}
+
+func TestSessionCoverageCursorBookkeepingIsBoundedByRetainedRing(t *testing.T) {
+	service := NewService(context.Background())
+	defer service.Close()
+	service.mu.Lock()
+	service.interval = &interval{instanceID: testInstanceID}
+	for i := 1; i <= ringMaxCount+20; i++ {
+		service.appendActivity(makeActivity(fmt.Sprintf("%d", i), fmt.Sprintf("session-%d", i), "TRACE_STARTED"))
+	}
+	if len(service.sessionCoverage) != len(service.activities) || len(service.sessionCoverage) > ringMaxCount {
+		service.mu.Unlock()
+		t.Fatalf("coverage=%d retained=%d", len(service.sessionCoverage), len(service.activities))
+	}
+	service.resetLocked(ResetShutdown)
+	remaining := len(service.sessionCoverage)
+	service.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("coverage survived reset: %d", remaining)
+	}
+}
+
+func TestRecentActivityCursorRemainsFutureCheckpointAfterHasMoreFalse(t *testing.T) {
+	service := NewService(context.Background())
+	defer service.Close()
+	service.mu.Lock()
+	service.interval = &interval{instanceID: testInstanceID}
+	service.appendActivity(makeActivity("1", "selected", "TRACE_STARTED"))
+	service.mu.Unlock()
+	first := requireRecent(t, service, RecentRequest{SessionID: "selected", Limit: 10})
+	if first.HasMore || len(first.Items) != 1 {
+		t.Fatalf("first observation = %#v", first)
+	}
+	checkpoint := first.Items[0].Cursor
+
+	service.mu.Lock()
+	service.appendActivity(makeActivity("2", "other", "STEP_STARTED"))
+	service.appendActivity(makeActivity("3", "selected", "STEP_COMPLETED"))
+	service.mu.Unlock()
+	second := requireRecent(t, service, RecentRequest{Cursor: checkpoint, SessionID: "selected", Limit: 10})
+	if second.HasMore || len(second.Items) != 1 || second.Items[0].Cursor != "3" {
+		t.Fatalf("future checkpoint observation = %#v", second)
+	}
+
+	empty := requireRecent(t, service, RecentRequest{Cursor: "3", SessionID: "missing", Limit: 10})
+	if len(empty.Items) != 0 || empty.Continuity == nil || empty.Continuity.LastCursor != "3" {
+		t.Fatalf("empty filtered checkpoint boundary = %#v", empty)
 	}
 }
 

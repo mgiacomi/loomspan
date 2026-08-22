@@ -3,6 +3,7 @@ package com.lokiscale.loomspan.internal.core;
 import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 import com.lokiscale.loomspan.internal.runtime.observation.NoOpExecutionObservationHandleFactory;
+import com.lokiscale.loomspan.internal.runtime.observation.ExecutionObservationHandleFactory;
 
 import java.time.Clock;
 import java.util.List;
@@ -51,5 +52,15 @@ public final class TestLoomspanSessions {
                 TracePersistencePolicy.ALWAYS, clock, NoOpExecutionObservationHandleFactory.INSTANCE,
                 (ignoredSessionId, ignoredEntrySkill, ignoredPolicy, ignoredClock, ignoredObservation) -> traceHandle,
                 failureIdSupplier);
+    }
+
+    public static LoomspanSession withObservation(String sessionId,
+                                                   String entrySkill,
+                                                   int maxDepth,
+                                                   Clock clock,
+                                                   ExecutionObservationHandleFactory observationHandleFactory) {
+        return new LoomspanSession(
+                sessionId, entrySkill, maxDepth, null, TracePersistencePolicy.ALWAYS, clock,
+                observationHandleFactory);
     }
 }

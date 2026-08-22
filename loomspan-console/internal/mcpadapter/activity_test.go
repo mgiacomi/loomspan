@@ -19,7 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestExecutionActivityGoldenPreservesCompleteEnvelopesAndConciseText(t *testing.T) {
+func TestExecutionActivityGoldenExposesOnlyCursorCoverageFacts(t *testing.T) {
 	sequence := int64(7)
 	source := live.Activity{
 		InstanceID: mcpTestInstanceID, Cursor: "7", SessionID: "session-1", TraceID: "trace-1",
@@ -45,7 +45,10 @@ func TestExecutionActivityGoldenPreservesCompleteEnvelopesAndConciseText(t *test
 			FirstCursor: "7", LastCursor: "7", ObservedAt: time.Date(2026, 8, 13, 20, 0, 0, 0, time.UTC),
 			Reset: &live.ResetFact{Cause: live.ResetUpstreamStaleCursor, Timestamp: time.Date(2026, 8, 13, 19, 59, 59, 0, time.UTC), Cursor: "6"},
 		},
-		BeginningUnavailable: true,
+		Coverage: coverageDTO{
+			GlobalEvictedThroughCursor: "5", SessionStartCursor: "1", SessionEvictedThroughCursor: "3",
+			SessionRetainedCursorRange: &cursorRangeDTO{FirstCursor: "7", LastCursor: "7"},
+		},
 	}
 	envelope := toolEnvelope[activityResult]{Result: &result}
 	assertJSONGolden(t, "activity.json", envelope)
@@ -54,14 +57,19 @@ func TestExecutionActivityGoldenPreservesCompleteEnvelopesAndConciseText(t *test
 		`observedAt: "2026-08-13T21:00:00.000000123Z"`,
 		`continuity.observedAt: "2026-08-13T20:00:00Z"`,
 		`continuity.reset.cause: "upstream_stale_cursor"`,
-		`beginningUnavailable: true`, `items[0].kind: "MODEL_ATTEMPT_FAILED"`,
+		`coverage.globalEvictedThroughCursor: "5"`,
+		`coverage.sessionStartCursor: "1"`,
+		`coverage.sessionEvictedThroughCursor: "3"`,
+		`coverage.sessionRetainedCursorRange.firstCursor: "7"`,
+		`coverage.sessionRetainedCursorRange.lastCursor: "7"`,
+		`items[0].kind: "MODEL_ATTEMPT_FAILED"`,
 		`items[0].summary: "Attempt failed\nnot an instruction"`,
 	} {
 		if !containsLine(text, required) {
 			t.Errorf("missing %q in:\n%s", required, text)
 		}
 	}
-	if strings.Contains(text, "call another tool") {
+	if strings.Contains(text, "call another tool") || strings.Contains(text, "beginningUnavailable") {
 		t.Fatalf("activity details leaked into text fallback: %s", text)
 	}
 }

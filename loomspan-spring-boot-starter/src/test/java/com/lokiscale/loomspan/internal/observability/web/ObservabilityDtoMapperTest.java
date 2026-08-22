@@ -42,6 +42,30 @@ class ObservabilityDtoMapperTest
     }
 
     @Test
+    void activeRestUsageIncludesProviderAttemptFactsAndDisabledLimit() throws Exception
+    {
+        Instant observedAt = Instant.parse("2026-08-21T12:00:00Z");
+        ActiveExecutionSnapshot snapshot = new ActiveExecutionSnapshot(
+                "session", "trace", 7, 9, observedAt, observedAt, "entry", "RUNNING", "sending",
+                List.of(), 0, false,
+                new SessionUsageSnapshot(0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0), null);
+        LoomspanProperties.Session.Quotas quotas = new LoomspanProperties.Session.Quotas();
+        quotas.setMaxProviderAttempts(0);
+
+        byte[] encoded = new ObservabilityJsonCodec().write(mapper.active(snapshot, observedAt, quotas));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> root = new ObservabilityJsonCodec().read(encoded, Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> usage = (Map<String, Object>) root.get("usage");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> configuredLimits = (Map<String, Object>) root.get("configuredLimits");
+
+        assertThat(usage).containsEntry("providerAttempts", 2);
+        assertThat(configuredLimits).containsEntry("maxProviderAttempts", 0);
+        assertThat(root).doesNotContainKeys("health", "diagnosis", "availability");
+    }
+
+    @Test
     @DisplayName("WF-SP-R7 WF-SP-R8 WF-SP-R9: skill link and unchanged YAML stay path-safe")
     void skillProjectionUsesApiRootRelativeLinkAndUnchangedYaml()
     {

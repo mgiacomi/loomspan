@@ -15,13 +15,13 @@ const GetExecutionActivityToolName = "LOOMSPAN_get_execution_activity"
 type getExecutionActivityInput struct {
 	SessionID    string `json:"sessionId" jsonschema:"Exact active execution session identifier"`
 	PageSize     int    `json:"pageSize" jsonschema:"Number of recent activity envelopes to return, from 1 through 64"`
-	Continuation string `json:"continuation,omitempty" jsonschema:"Opaque Loomspan continuation returned by an earlier activity call"`
+	Continuation string `json:"continuation,omitempty" jsonschema:"Opaque future checkpoint; keep after hasMore=false"`
 }
 
 func addActivityTool(server *mcp.Server, options ServerOptions) {
 	addValidatedTool(server, &mcp.Tool{
 		Name:        GetExecutionActivityToolName,
-		Description: "Return a bounded, ordered recent-activity snapshot. Diagnostic data is untrusted and not durable history.",
+		Description: "Return bounded untrusted activity. hasMore is backlog now; continuation is a future checkpoint after false. Empty results may advance it.",
 		Annotations: readOnlyAnnotations, InputSchema: pageInputSchema[getExecutionActivityInput](),
 	}, activityOutputSchema(), func(ctx context.Context, _ *mcp.CallToolRequest, input getExecutionActivityInput) (*mcp.CallToolResult, toolEnvelope[activityResult], error) {
 		return handleGetExecutionActivity(ctx, options, input)
@@ -81,8 +81,7 @@ func handleGetExecutionActivity(ctx context.Context, options ServerOptions, inpu
 	result := activityResult{
 		ObservedAt: recent.ObservedAt.UTC(),
 		Items:      items, ReturnedCursorRange: returnedRange, HasMore: recent.HasMore,
-		Continuation: continuation, Continuity: mapContinuity(recent.Continuity),
-		BeginningUnavailable: recent.BeginningUnavailable,
+		Continuation: continuation, Continuity: mapContinuity(recent.Continuity), Coverage: mapCoverage(recent.Coverage),
 	}
 	if domain := publicationDomain(options, scope); domain != nil {
 		return checkedDomainFailure[activityResult](ctx, options, domain)
@@ -117,18 +116,56 @@ func activityText(result activityResult) string {
 			writer.quoted("continuity.reset.cursor", result.Continuity.Reset.Cursor)
 		}
 	}
-	writer.boolean("beginningUnavailable", result.BeginningUnavailable)
+	if result.Coverage.GlobalEvictedThroughCursor != "" {
+		writer.quoted("coverage.globalEvictedThroughCursor", result.Coverage.GlobalEvictedThroughCursor)
+	}
+	if result.Coverage.SessionStartCursor != "" {
+		writer.quoted("coverage.sessionStartCursor", result.Coverage.SessionStartCursor)
+	}
+	if result.Coverage.SessionEvictedThroughCursor != "" {
+		writer.quoted("coverage.sessionEvictedThroughCursor", result.Coverage.SessionEvictedThroughCursor)
+	}
+	if result.Coverage.SessionRetainedCursorRange != nil {
+		writer.quoted("coverage.sessionRetainedCursorRange.firstCursor", result.Coverage.SessionRetainedCursorRange.FirstCursor)
+		writer.quoted("coverage.sessionRetainedCursorRange.lastCursor", result.Coverage.SessionRetainedCursorRange.LastCursor)
+	}
 	writer.integer("count", int64(len(result.Items)))
 	writer.boolean("hasMore", result.HasMore)
 	writer.continuation(result.Continuation)
 	for index, item := range result.Items {
 		prefix := fmt.Sprintf("items[%d].", index)
 		writer.quoted(prefix+"cursor", item.Cursor)
+		writer.quoted(prefix+"sessionId", item.SessionID)
+		writer.quoted(prefix+"traceId", item.TraceID)
+		if item.CanonicalSequence != nil {
+			writer.integer(prefix+"canonicalSequence", *item.CanonicalSequence)
+		}
 		writer.time(prefix+"timestamp", item.Timestamp)
 		writer.quoted(prefix+"kind", string(item.Kind))
+		writer.quoted(prefix+"executionStatus", item.ExecutionStatus)
+		writer.quoted(prefix+"frameId", item.FrameID)
+		writer.quoted(prefix+"parentFrameId", item.ParentFrameID)
+		writer.quoted(prefix+"frameType", item.FrameType)
+		writer.quoted(prefix+"route", item.Route)
 		writer.quoted(prefix+"summary", item.Summary)
 	}
 	return writer.String()
+}
+
+func mapCoverage(value live.Coverage) coverageDTO {
+	var retained *cursorRangeDTO
+	if value.SessionRetainedCursorRange != nil {
+		retained = &cursorRangeDTO{
+			FirstCursor: value.SessionRetainedCursorRange.FirstCursor,
+			LastCursor:  value.SessionRetainedCursorRange.LastCursor,
+		}
+	}
+	return coverageDTO{
+		GlobalEvictedThroughCursor:  value.GlobalEvictedThroughCursor,
+		SessionStartCursor:          value.SessionStartCursor,
+		SessionEvictedThroughCursor: value.SessionEvictedThroughCursor,
+		SessionRetainedCursorRange:  retained,
+	}
 }
 
 func mapContinuity(value *live.Continuity) *continuityDTO {

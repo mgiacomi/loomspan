@@ -54,8 +54,9 @@ The release names are
 `loomspan-console-VERSION-macos-arm64.tar.gz`. Each has one top-level directory
 containing the executable, `LICENSE`, the runtime `README.md`, and the exact
 six-file portable Agent Skill at `skills/loomspan/`
-(`SKILL.md` plus five files in `references/`). The skill's `1.0.1` metadata is
-versioned independently from Console and is not target negotiation.
+(`SKILL.md` plus five files in `references/`). The canonical skill remains
+unversioned while Loomspan is unreleased; its contents are packaged and tested
+atomically with the Console and are not target negotiation.
 Check `SHA256SUMS` with `sha256sum -c SHA256SUMS` on POSIX systems; in
 PowerShell compare `(Get-FileHash -Algorithm SHA256 .\\ARCHIVE).Hash` with the
 matching entry. `.github/workflows/console-ci.yml` runs Java fixture/adapter,
@@ -349,7 +350,14 @@ offsets or total length.
 
 Top-level activity `observedAt` is the time the shared window was queried;
 `continuity.observedAt` is the upstream interval observation fact. A reset or
-`beginningUnavailable` explicitly limits the returned interval. When live
+coverage cursors record separate mechanical facts: global eviction through a
+cursor, an admitted selected-session start, selected-session eviction, and the
+selected-session range still retained. Missing optional facts stay missing and
+Console does not turn them into complete/incomplete/unknown, progress, health,
+or stuck states. `hasMore` means matching retained backlog exists now. The
+opaque continuation remains a reusable future checkpoint after `hasMore` is
+false, and an empty filtered call may advance it to the continuity boundary.
+When live
 monitoring is unavailable, active-execution application operations and recent
 activity return `LIVE_MONITORING_UNAVAILABLE`; retained activity is not exposed
 as current. Finalized trace discovery and analysis use the trace-inspection
@@ -443,8 +451,24 @@ bounds do not cap the lifetime throughput of a healthy tab.
 A POST recent-activity query at `/api/console/v1/activity/recent` returns a
 bounded suffix of the ring buffer filtered by optional session ID and
 cursor. The response includes a continuity fact with the current interval
-identity and any reset cause, plus a `beginningUnavailable` flag when
-earlier activity was evicted.
+identity and any reset cause, plus exact global-eviction, selected-session
+start/eviction, and selected-session retained-range cursor facts when observed.
+Session bookkeeping exists only while that session has a retained ring item.
+
+The MCP execution list and detail use the same complete orientation shape;
+detail is a later freshness/existence observation, not a richer projection.
+List and deterministic text include identities, canonical sequence, timestamps
+and elapsed time, entry skill, status/phase/summary, bounded path/depth,
+truncation, usage, and configured limits. Provider attempts accrue on physical
+sends, so an in-flight snapshot may show positive attempts while response-only
+model/unit counters remain zero. A present usage zero is observed zero; a
+configured-limit zero means disabled or unlimited enforcement.
+
+If an execution disappears between live calls, retained activity remains
+queryable by the already returned `sessionId`. A client may try finalized trace
+resolution once by the already returned `traceId`; `TRACE_UNAVAILABLE` remains
+an honest outcome, and active disappearance neither proves finalization nor
+justifies scanning unrelated trace inventory.
 
 The coordinator periodically refreshes the active-execution baseline (every
 30 seconds) and signals adapters to reload authoritative snapshots. If the

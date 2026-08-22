@@ -131,7 +131,7 @@ describe("ActivityProvider", () => {
       hasMore: false,
       nextCursor: "",
       continuity: undefined,
-      beginningUnavailable: false,
+      coverage: {},
     } as RecentActivityResponse);
   });
 
@@ -214,7 +214,7 @@ describe("ActivityProvider", () => {
       hasMore: false,
       nextCursor: "1",
       continuity: undefined,
-      beginningUnavailable: false,
+      coverage: {},
     } as RecentActivityResponse);
 
     withProvider(<Consumer />);
@@ -345,7 +345,7 @@ describe("ActivityProvider", () => {
       hasMore: false,
       nextCursor: "",
       continuity,
-      beginningUnavailable: true,
+      coverage: { globalEvictedThroughCursor: "8" },
     } as RecentActivityResponse);
 
     withProvider(<Consumer />);

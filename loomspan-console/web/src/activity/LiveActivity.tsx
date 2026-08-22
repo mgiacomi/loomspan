@@ -30,7 +30,7 @@ export function LiveActivity() {
     connectionFact,
     error,
     loading,
-    beginningUnavailable,
+    coverage,
     continuity,
     loadRecent,
   } = useActivity();
@@ -129,9 +129,23 @@ export function LiveActivity() {
         </div>
       )}
 
-      {beginningUnavailable && (
+      {(coverage.globalEvictedThroughCursor || coverage.sessionStartCursor ||
+        coverage.sessionEvictedThroughCursor || coverage.sessionRetainedCursorRange) && (
         <div className="activity-notice" role="status">
-          Earlier activity is no longer available. Showing the most recent window.
+          {coverage.globalEvictedThroughCursor && (
+            <div>Global ring evicted through cursor {coverage.globalEvictedThroughCursor}.</div>
+          )}
+          {coverage.sessionStartCursor && (
+            <div>Selected session start cursor {coverage.sessionStartCursor}.</div>
+          )}
+          {coverage.sessionEvictedThroughCursor && (
+            <div>Selected session evicted through cursor {coverage.sessionEvictedThroughCursor}.</div>
+          )}
+          {coverage.sessionRetainedCursorRange && (
+            <div>
+              Selected session retained cursor range {coverage.sessionRetainedCursorRange.firstCursor}–{coverage.sessionRetainedCursorRange.lastCursor}.
+            </div>
+          )}
         </div>
       )}
 

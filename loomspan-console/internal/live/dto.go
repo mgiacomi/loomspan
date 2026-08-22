@@ -179,11 +179,23 @@ type RecentRequest struct {
 	Limit     int    `json:"limit,omitempty"`
 }
 
+type CursorRange struct {
+	FirstCursor string `json:"firstCursor"`
+	LastCursor  string `json:"lastCursor"`
+}
+
+type Coverage struct {
+	GlobalEvictedThroughCursor  string       `json:"globalEvictedThroughCursor,omitempty"`
+	SessionStartCursor          string       `json:"sessionStartCursor,omitempty"`
+	SessionEvictedThroughCursor string       `json:"sessionEvictedThroughCursor,omitempty"`
+	SessionRetainedCursorRange  *CursorRange `json:"sessionRetainedCursorRange,omitempty"`
+}
+
 type RecentResponse struct {
-	ObservedAt           time.Time   `json:"observedAt"`
-	Items                []Activity  `json:"items"`
-	HasMore              bool        `json:"hasMore"`
-	NextCursor           string      `json:"nextCursor"`
-	Continuity           *Continuity `json:"continuity,omitempty"`
-	BeginningUnavailable bool        `json:"beginningUnavailable"`
+	ObservedAt time.Time   `json:"observedAt"`
+	Items      []Activity  `json:"items"`
+	HasMore    bool        `json:"hasMore"`
+	NextCursor string      `json:"nextCursor"`
+	Continuity *Continuity `json:"continuity,omitempty"`
+	Coverage   Coverage    `json:"coverage"`
 }

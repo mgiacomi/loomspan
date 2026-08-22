@@ -58,6 +58,10 @@ var ReleaseMatrix = []MatrixRequirement{
 	{"Codex CLI", "missing-optional-raw", 2}, {"Codex CLI", "skill-without-mcp", 2},
 	{"Claude Code", "failed-execution", 2}, {"Claude Code", "slow-execution", 2},
 	{"Claude Code", "unfamiliar-skill-path", 2}, {"Claude Code", "composite-adversarial", 2},
+	{"Codex CLI", "pr34-tools-only-active-execution-review", 3},
+	{"Codex CLI", "pr34-skill-assisted-active-execution-review", 3},
+	{"Claude Code", "pr34-tools-only-active-execution-review", 2},
+	{"Claude Code", "pr34-skill-assisted-active-execution-review", 2},
 }
 
 func ValidateSummary(records []EvaluationRecord, cases map[string]Case) error {

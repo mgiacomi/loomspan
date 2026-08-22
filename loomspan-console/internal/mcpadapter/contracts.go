@@ -127,14 +127,21 @@ type continuityDTO struct {
 	Reset       *live.ResetFact `json:"reset,omitempty"`
 }
 
+type coverageDTO struct {
+	GlobalEvictedThroughCursor  string          `json:"globalEvictedThroughCursor,omitempty"`
+	SessionStartCursor          string          `json:"sessionStartCursor,omitempty"`
+	SessionEvictedThroughCursor string          `json:"sessionEvictedThroughCursor,omitempty"`
+	SessionRetainedCursorRange  *cursorRangeDTO `json:"sessionRetainedCursorRange,omitempty"`
+}
+
 type activityResult struct {
-	ObservedAt           time.Time       `json:"observedAt"`
-	Items                []activityDTO   `json:"items"`
-	ReturnedCursorRange  *cursorRangeDTO `json:"returnedCursorRange,omitempty"`
-	HasMore              bool            `json:"hasMore"`
-	Continuation         string          `json:"continuation,omitempty"`
-	Continuity           *continuityDTO  `json:"continuity,omitempty"`
-	BeginningUnavailable bool            `json:"beginningUnavailable"`
+	ObservedAt          time.Time       `json:"observedAt"`
+	Items               []activityDTO   `json:"items"`
+	ReturnedCursorRange *cursorRangeDTO `json:"returnedCursorRange,omitempty"`
+	HasMore             bool            `json:"hasMore"`
+	Continuation        string          `json:"continuation,omitempty"`
+	Continuity          *continuityDTO  `json:"continuity,omitempty"`
+	Coverage            coverageDTO     `json:"coverage"`
 }
 
 var readOnlyAnnotations = func() *mcp.ToolAnnotations {

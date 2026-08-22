@@ -66,8 +66,8 @@ class ConsoleRestFixtureCorpusTest
         Map<String, Object> result = new LinkedHashMap<>();
         var skill = new ObservabilityDtos.SkillSummary(
                 "CheckDns", "classpath:/skills/check-dns.yaml", "skills/CheckDns");
-        var usage = new ObservabilityDtos.Usage(1, 0, 0, 1, 10, 5, 15, 1, 0, 0);
-        var limits = new ObservabilityDtos.QuotaLimits(64, 128, 32, 64, 200000);
+        var usage = new ObservabilityDtos.Usage(1, 0, 0, 1, 2, 10, 5, 15, 1, 0, 0);
+        var limits = new ObservabilityDtos.QuotaLimits(64, 128, 32, 64, 192, 200000);
         var active = new ObservabilityDtos.ActiveExecution(
                 "session-1", "trace-1", 7, Instant.parse("2026-07-25T11:59:55Z"),
                 Instant.parse("2026-07-25T11:59:59Z"), 5000, "CheckDns", "ACTIVE",

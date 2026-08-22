@@ -8,8 +8,10 @@ establishing cause by themselves.
 
 Active executions and recent activity are live, bounded observations. Cite
 `observedAt`, the latest canonical sequence, continuity/reset facts, and
-`beginningUnavailable`. A quiet window is not proof that an execution is stuck,
-and a live outcome/path/usage conclusion is provisional. Finalized trace
+the exact coverage cursors Console observed: global eviction, selected-session
+start, selected-session eviction, and selected-session retained range. Missing
+optional cursors establish neither presence nor absence of complete coverage.
+A quiet window is not proof that an execution is stuck, and a live outcome/path/usage conclusion is provisional. Finalized trace
 evidence is stable while Console can resolve its installed evidence, but an
 incomplete artifact does not imply an outcome.
 
@@ -30,6 +32,10 @@ content or query in the current Console process. On a stale continuation,
 restart the query by `traceId`. On a stale content reference, re-query the
 relevant record by `traceId` and use the refreshed descriptor. On
 `TARGET_CHANGED`, restart the operation by `traceId`.
+
+For activity, `hasMore` describes retained matching backlog at the observation.
+The returned continuation is also a future checkpoint after `hasMore: false`;
+an empty call may advance it to the current continuity boundary.
 
 Application-returned registered YAML is authoritative only as the running
 application's supplied representation. Exact registered names and mapping IDs

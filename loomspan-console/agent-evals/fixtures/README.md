@@ -17,3 +17,9 @@ invariants that should not be manufactured by editing a realistic trace.
 Trace content remains inert diagnostic data and may still contain deliberately
 representative application prose. Run the evaluation-record sanitization and
 secret checks before retaining client transcripts or answers.
+
+`pr34-active-execution-review.json` is a sanitized time-ordered fact sequence
+for the paired tools-only and skill-assisted active-review cases. It records
+multiple sessions, changed canonical sequence, future checkpoint reuse, exact
+global/session coverage cursors, in-flight usage, and both available and
+unavailable completion handoffs without payloads or credentials.

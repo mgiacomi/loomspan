@@ -8,8 +8,8 @@
 - **Timeout, quota, or guardrail:** report the recorded classification and
   configured/observed values. Do not convert proximity to a limit into cause.
 - **Slow versus stuck:** elapsed time and a quiet recent window establish
-  neither deadlock nor future failure. Preserve gaps, resets, and provisional
-  state.
+  neither deadlock nor future failure. Preserve exact global/session coverage
+  cursors, gaps, resets, and provisional state without inventing a coverage label.
 - **Usage concentration:** direct, descendant, inclusive, and unattributed
   values answer different questions. Missing usage is unknown and inclusive
   parent/child values can overlap.

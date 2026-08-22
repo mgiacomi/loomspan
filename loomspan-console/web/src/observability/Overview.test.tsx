@@ -50,7 +50,7 @@ const activityView = vi.hoisted(() => ({
     connectionFact: null,
     error: null,
     loading: false,
-    beginningUnavailable: false,
+    coverage: {},
     continuity: null,
     loadRecent: vi.fn(),
   },

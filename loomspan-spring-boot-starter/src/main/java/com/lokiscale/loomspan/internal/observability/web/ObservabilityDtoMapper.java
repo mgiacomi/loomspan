@@ -43,13 +43,14 @@ public final class ObservabilityDtoMapper
                 source.totalFrameDepth(), source.activePathTruncated(),
                 new ObservabilityDtos.Usage(
                         source.usage().skillInvocations(), source.usage().toolInvocations(),
-                        source.usage().linterRetries(), source.usage().modelCalls(),
+                        source.usage().linterRetries(), source.usage().modelCalls(), source.usage().providerAttempts(),
                         source.usage().promptUnits(), source.usage().completionUnits(),
                         source.usage().usageUnits(), source.usage().exactModelResponses(),
                         source.usage().heuristicModelResponses(), source.usage().unavailableModelResponses()),
                 new ObservabilityDtos.QuotaLimits(
                         quotas.getMaxSkillInvocations(), quotas.getMaxToolInvocations(),
-                        quotas.getMaxLinterRetries(), quotas.getMaxModelCalls(), quotas.getMaxUsageUnits()));
+                        quotas.getMaxLinterRetries(), quotas.getMaxModelCalls(), quotas.getMaxProviderAttempts(),
+                        quotas.getMaxUsageUnits()));
     }
 
     public ObservabilityDtos.Trace trace(FinalizedTraceCatalogEntry source)

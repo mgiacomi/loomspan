@@ -49,7 +49,7 @@ go run ./internal/buildtool agent-eval summarize --results agent-evals/results/D
 `record` fails closed on incomplete headless event visibility or sensitive
 content. `score` checks fixture facts, forbidden claims/actions, and every human
 rubric threshold without requiring exact prose or call order. `summarize`
-requires and preserves the selected 28-run Codex CLI/Claude Code matrix; a
+requires and preserves the selected 38-run Codex CLI/Claude Code matrix; a
 completed unfavorable run cannot be dropped or replaced. Infrastructure
 failures are retained separately and rerun, while completed model failures
 remain release failures.

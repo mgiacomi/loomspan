@@ -20,7 +20,7 @@ structured content, and the deterministic text fallback:
 
 | Response class | Post-change bytes | Committed ceiling |
 | --- | ---: | ---: |
-| `tools/list` | 23,390 | 23,552 |
+| `tools/list` | 25,588 | 25,600 |
 | Inventory page (byte-stopped) | 12,012 | 32,768 |
 | COMPACT frame page (byte-stopped) | 21,241 | 32,768 |
 | DETAILED frame page (byte-stopped) | 20,751 | 32,768 |
@@ -29,6 +29,11 @@ structured content, and the deterministic text fallback:
 | Literal-search page (byte-stopped) | 20,624 | 32,768 |
 | Default adversarial TEXT semantic range | 29,225 | 49,152 |
 | Default adversarial BASE64 raw range | 26,177 | 49,152 |
+
+The twelve-tool discovery snapshot therefore has 12 bytes of deliberate
+headroom under the 25 KiB ceiling. Compact schemas name the complete active
+orientation and activity coverage facts while full typed-result validation
+continues to enforce the concrete Go result shapes.
 
 The pre-change repository recorded only the complete 20,304-byte `tools/list`;
 the other baseline classes were not measured before implementation and are not
@@ -40,9 +45,10 @@ run`; the committed ceilings are implementation safety bounds, not claims of
 The release also carries the byte-identical, client-neutral
 `skills/loomspan/` package. Installation is a user-selected
 copy or filesystem link into a local client's user/global skill location; it
-does not auto-install or contain an endpoint or key. Skill package version
-1.0.1 is independent of the Console version. Live use requires the existing
-protected MCP configuration. Five named capabilities are required and raw
+does not auto-install or contain an endpoint or key. The canonical skill is
+unversioned during unreleased development and does not negotiate a version with
+the MCP server. Live use requires the existing protected MCP configuration.
+Five named capabilities are required and raw
 artifact inspection is optional. Skill-only, MCP-only, missing-required, and
 missing-optional behavior is evaluated separately so protocol, capability,
 target, authentication, evidence, and target-scope failures are not collapsed.
@@ -63,7 +69,7 @@ As post-implementation checks are performed, record the client version,
 operating system, configuration scope, protocol observed when available, and
 results. Never record the live key or an Authorization header.
 
-Validation date for this change: **2026-08-19**. Platform for unexecuted rows:
+Validation date for this change: **2026-08-21**. Platform for unexecuted rows:
 Windows x86_64 development workstation. Replace “not run” entries when the
 corresponding client becomes available, recording product/build version,
 protocol observed, configuration mechanism, and concise results. Incomplete

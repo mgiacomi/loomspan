@@ -80,7 +80,7 @@ func (*fixtureObservabilityClient) OpenArtifact(context.Context, string, string,
 func (*fixtureObservabilityClient) Close() {}
 
 func activeExecutionFixture() string {
-	return `{"sessionId":"session-1","traceId":"trace-1","lastCanonicalSequence":7,"startedAt":"2026-07-27T00:00:00Z","updatedAt":"2026-07-27T00:00:01Z","elapsedMillis":1000,"entrySkill":"CheckDns","status":"ACTIVE","phase":"RUNNING","summary":"Checking DNS","activePath":[{"frameId":"frame-1","frameType":"SKILL_EXECUTION","route":"CheckDns"}],"totalFrameDepth":1,"activePathTruncated":false,"usage":{"skillInvocations":1,"toolInvocations":0,"linterRetries":0,"modelCalls":1,"promptUnits":10,"completionUnits":5,"usageUnits":15,"exactModelResponses":1,"heuristicModelResponses":0,"unavailableModelResponses":0},"configuredLimits":{"maxSkillInvocations":64,"maxToolInvocations":128,"maxLinterRetries":32,"maxModelCalls":64,"maxUsageUnits":200000}}`
+	return `{"sessionId":"session-1","traceId":"trace-1","lastCanonicalSequence":7,"startedAt":"2026-07-27T00:00:00Z","updatedAt":"2026-07-27T00:00:01Z","elapsedMillis":1000,"entrySkill":"CheckDns","status":"ACTIVE","phase":"RUNNING","summary":"Checking DNS","activePath":[{"frameId":"frame-1","frameType":"SKILL_EXECUTION","route":"CheckDns"}],"totalFrameDepth":1,"activePathTruncated":false,"usage":{"skillInvocations":1,"toolInvocations":0,"linterRetries":0,"modelCalls":1,"providerAttempts":1,"promptUnits":10,"completionUnits":5,"usageUnits":15,"exactModelResponses":1,"heuristicModelResponses":0,"unavailableModelResponses":0},"configuredLimits":{"maxSkillInvocations":64,"maxToolInvocations":128,"maxLinterRetries":32,"maxModelCalls":64,"maxProviderAttempts":192,"maxUsageUnits":200000}}`
 }
 
 func traceFixture() string {

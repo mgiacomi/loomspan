@@ -3,14 +3,12 @@ name: loomspan
 description: Investigate Loomspan runtime status, plans, model and tool content, structured output, failures, usage, retries, searches, and nested skill paths through the read-only Loomspan Console MCP tools.
 license: MPL-2.0
 compatibility: Requires a local client that can use Agent Skills and an already configured Loomspan Console MCP connection for live inspection.
-metadata:
-  lokiscale.loomspan.skill-version: "1.0.1"
 ---
 
 # Loomspan runtime debugging
 
-Use this skill when a developer asks about Loomspan runtime status, a failed or
-slow execution, retries or validation, unexpectedly high usage, or an
+Use this skill when a developer asks about Loomspan runtime status, all active
+executions, a failed or slow execution, retries or validation, unexpectedly high usage, or an
 unfamiliar nested skill path. The Loomspan Console MCP surface is read-only.
 This procedure explains evidence; it does not operate the target or prove a
 root cause.

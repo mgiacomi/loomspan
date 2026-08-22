@@ -2,7 +2,7 @@
 
 ## Status
 
-Active roadmap, last updated 2026-08-20. This is the only active phase document
+Active roadmap, last updated 2026-08-21. This is the only active phase document
 for Loomspan Console, MCP, and the portable runtime-debugging skill.
 
 Completed design and implementation history has been removed from the active
@@ -68,6 +68,13 @@ Completion evidence:
 
 ## 2. Settle trace identification and lifecycle handoffs
 
+PR 34 completed the bounded active-execution review and completion-race path:
+one complete active page, one bounded activity call per selected session,
+reusable future checkpoints, and one trace-resolution attempt by the already
+returned `traceId`. Active disappearance does not prove finalized evidence,
+and `TRACE_UNAVAILABLE` does not trigger unrelated inventory scanning. Durable
+monitoring, history, and cross-run comparison remain outside this roadmap item.
+
 The remaining interface-design question is how the identifiers developers
 actually possess lead to one selected `traceId`. Do not add another method or
 field unless measured workflow friction shows that existing inventory filters,
@@ -77,22 +84,20 @@ Decisions still required:
 
 1. Define the supported `sessionId` to `traceId` cardinality and handoff.
    Determine whether one session can ever identify multiple finalized traces.
-2. Define how a selected active execution transitions to its finalized trace
-   without polling unrelated inventory or implying durable execution history.
-3. Define “most recent skill run,” including whether it means entry skill by
+2. Define “most recent skill run,” including whether it means entry skill by
    default, how active and finalized runs participate, and when ambiguity must
    be shown to the developer.
-4. Set a bounded inventory-traversal and clarification rule for approximate
+3. Set a bounded inventory-traversal and clarification rule for approximate
    time, outcome, skill name, or “the run I just performed.”
-5. Decide whether browser-selected or manually imported evidence is visible to
+4. Decide whether browser-selected or manually imported evidence is visible to
    MCP. Any solution must define client/session ownership and avoid a
    process-global mutable current-trace race.
-6. Decide whether local NDJSON import belongs to portable MCP, remains a
+5. Decide whether local NDJSON import belongs to portable MCP, remains a
    browser or separately authorized client action, or is deliberately outside
    v1.
-7. Decide which application correlation identifiers, if any, are common and
+6. Decide which application correlation identifiers, if any, are common and
    stable enough to expose structurally.
-8. Decide whether v1 requires bounded cross-trace semantic search. Prefer
+7. Decide whether v1 requires bounded cross-trace semantic search. Prefer
    selecting candidate traces before within-trace content search unless
    concrete evidence proves that insufficient.
 

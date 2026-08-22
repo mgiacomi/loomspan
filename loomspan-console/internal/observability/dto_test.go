@@ -93,6 +93,60 @@ func TestActiveExecutionDetailDecodesFromFixture(t *testing.T) {
 	}
 }
 
+func TestActiveExecutionRequiresEveryUsageAndConfiguredLimitMember(t *testing.T) {
+	body := readFixture(t, "active-execution-detail.json")
+	for objectName, names := range map[string][]string{
+		"usage":            requiredUsageMembers,
+		"configuredLimits": requiredLimitMembers,
+	} {
+		for _, name := range names {
+			t.Run(objectName+"/"+name, func(t *testing.T) {
+				var execution map[string]json.RawMessage
+				if err := json.Unmarshal(body, &execution); err != nil {
+					t.Fatal(err)
+				}
+				var members map[string]json.RawMessage
+				if err := json.Unmarshal(execution[objectName], &members); err != nil {
+					t.Fatal(err)
+				}
+				delete(members, name)
+				execution[objectName], _ = json.Marshal(members)
+				mutated, _ := json.Marshal(execution)
+				if err := validateActiveExecutionJSON(mutated); err == nil || !strings.Contains(err.Error(), objectName+"."+name+" is missing") {
+					t.Fatalf("missing member error = %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestActiveExecutionPreservesObservedProviderZeroAndDisabledLimit(t *testing.T) {
+	body := readFixture(t, "active-execution-detail.json")
+	var execution map[string]json.RawMessage
+	if err := json.Unmarshal(body, &execution); err != nil {
+		t.Fatal(err)
+	}
+	for objectName, memberName := range map[string]string{"usage": "providerAttempts", "configuredLimits": "maxProviderAttempts"} {
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(execution[objectName], &members); err != nil {
+			t.Fatal(err)
+		}
+		members[memberName] = json.RawMessage("0")
+		execution[objectName], _ = json.Marshal(members)
+	}
+	mutated, _ := json.Marshal(execution)
+	if err := validateActiveExecutionJSON(mutated); err != nil {
+		t.Fatal(err)
+	}
+	var decoded ActiveExecution
+	if err := json.Unmarshal(mutated, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Usage.ProviderAttempts != 0 || decoded.ConfiguredLimits.MaxProviderAttempts != 0 {
+		t.Fatalf("explicit zeros changed: usage=%d limit=%d", decoded.Usage.ProviderAttempts, decoded.ConfiguredLimits.MaxProviderAttempts)
+	}
+}
+
 func TestActiveExecutionDecodesCanonicalFramePathFields(t *testing.T) {
 	body := []byte(`{
 		"sessionId":"session-1",

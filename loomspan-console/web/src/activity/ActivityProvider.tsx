@@ -171,7 +171,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
                 nextCursor: response.nextCursor,
                 append: false,
                 continuity: response.continuity,
-                beginningUnavailable: true,
+                coverage: response.coverage,
               });
               queueAuthoritativeRefresh({
                 instance: true,
@@ -267,7 +267,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         nextCursor: response.nextCursor,
         append: cursor != null,
         continuity: response.continuity,
-        beginningUnavailable: response.beginningUnavailable,
+        coverage: response.coverage,
       });
     } catch (error) {
       if (gen !== generationRef.current) return;

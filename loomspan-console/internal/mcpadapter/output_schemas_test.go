@@ -162,8 +162,8 @@ func TestCompactSchemasRetainDecisionAndNavigationFields(t *testing.T) {
 		{"skills-list", skillListOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"registeredName": "skill", "sourcePath": "skill.yaml"}}, "hasMore": false}}},
 		{"skill-detail", skillDetailOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "skill": map[string]any{"registeredName": "skill", "sourcePath": "skill.yaml", "yaml": "name: skill"}}}},
 		{"executions-list", executionListOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"sessionId": "s", "traceId": "t", "entrySkill": "skill", "status": "RUNNING", "phase": "STEP"}}, "hasMore": false}}},
-		{"execution-detail", executionDetailOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "execution": map[string]any{"sessionId": "s", "traceId": "t", "status": "RUNNING", "phase": "STEP", "activePath": []any{}, "usage": map[string]any{}, "configuredLimits": map[string]any{}}}}},
-		{"activity", activityOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"cursor": "c", "sessionId": "s", "traceId": "t", "timestamp": "2026-08-19T00:00:00Z", "kind": "STEP_COMPLETED", "summary": "done", "details": map[string]any{}}}, "hasMore": false, "beginningUnavailable": false}}},
+		{"execution-detail", executionDetailOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "execution": map[string]any{"sessionId": "s", "traceId": "t", "entrySkill": "skill", "status": "RUNNING", "phase": "STEP", "activePath": []any{}, "usage": map[string]any{}, "configuredLimits": map[string]any{}}}}},
+		{"activity", activityOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"cursor": "c", "sessionId": "s", "traceId": "t", "timestamp": "2026-08-19T00:00:00Z", "kind": "STEP_COMPLETED", "summary": "done", "details": map[string]any{}}}, "hasMore": false, "coverage": map[string]any{}}}},
 		{"traces-list", traceListOutputSchema(), map[string]any{"result": map[string]any{"observedAt": "2026-08-19T00:00:00Z", "items": []any{map[string]any{"traceId": "t", "evidenceSources": []any{"TARGET"}}}, "complete": true, "hasMore": false}}},
 		{"trace-summary", traceSummaryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "summary": map[string]any{"outcome": "FAILED", "terminalFailureId": "failure-terminal", "recordCount": 1, "recordCountsByType": map[string]any{"TRACE_COMPLETED": 1}, "frameCount": 1, "attemptCount": 1, "retryCount": 0, "failureCount": 1, "rootFrameIds": []any{"root"}, "usageComplete": true}}}},
 		{"frames", frameQueryOutputSchema(), map[string]any{"result": map[string]any{"evidence": compactEvidenceInstance(), "projection": "COMPACT", "items": []any{map[string]any{"frameId": "f", "childFrameIds": []any{}, "frameType": "ROOT_MISSION", "openedTimestampMillis": 1, "inclusiveDurationMillis": 42, "outcome": "failed"}}, "hasMore": false}}},
@@ -194,6 +194,42 @@ func TestCompactSchemasRetainDecisionAndNavigationFields(t *testing.T) {
 	} {
 		if err := validateCompactInstance(t, recordQueryOutputSchema(), instance); err == nil {
 			t.Fatalf("%s was accepted", name)
+		}
+	}
+}
+
+func TestActiveCompactSchemasExposeFactsAndNoDerivedDiagnosticStates(t *testing.T) {
+	execution := compactExecutionSchema()
+	for _, name := range []string{"sessionId", "traceId", "lastCanonicalSequence", "startedAt", "updatedAt", "elapsedMillis", "entrySkill", "status", "phase", "summary", "activePath", "totalFrameDepth", "activePathTruncated", "usage", "configuredLimits"} {
+		if execution.Properties[name] == nil {
+			t.Errorf("execution schema does not advertise %q", name)
+		}
+	}
+	for _, name := range []string{"skillInvocations", "toolInvocations", "linterRetries", "modelCalls", "providerAttempts", "promptUnits", "completionUnits", "usageUnits", "exactModelResponses", "heuristicModelResponses", "unavailableModelResponses"} {
+		if execution.Properties["usage"].Properties[name] == nil {
+			t.Errorf("usage schema does not advertise %q", name)
+		}
+	}
+	for _, name := range []string{"maxSkillInvocations", "maxToolInvocations", "maxLinterRetries", "maxModelCalls", "maxProviderAttempts", "maxUsageUnits"} {
+		if execution.Properties["configuredLimits"].Properties[name] == nil {
+			t.Errorf("configured-limits schema does not advertise %q", name)
+		}
+	}
+	activity := activityOutputSchema().Properties["result"]
+	for _, name := range []string{"returnedCursorRange", "continuity", "coverage"} {
+		if activity.Properties[name] == nil {
+			t.Errorf("activity schema does not advertise %q", name)
+		}
+	}
+	coverage := activity.Properties["coverage"]
+	for _, name := range []string{"globalEvictedThroughCursor", "sessionStartCursor", "sessionEvictedThroughCursor", "sessionRetainedCursorRange"} {
+		if coverage.Properties[name] == nil {
+			t.Errorf("coverage schema does not advertise %q", name)
+		}
+	}
+	for _, forbidden := range []string{"beginningUnavailable", "complete", "incomplete", "unknown", "progress", "health", "stuck", "diagnosis", "recommendation"} {
+		if activity.Properties[forbidden] != nil || coverage.Properties[forbidden] != nil {
+			t.Errorf("active discovery advertises derived field %q", forbidden)
 		}
 	}
 }

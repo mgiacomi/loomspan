@@ -18,6 +18,25 @@ Compare with finalized trace duration only after completion. Do not label a
 quiet or gapped window as stuck. Stop when there is a useful provisional state
 and next observation, or when live monitoring is unavailable.
 
+## WF-ACTIVE-EXECUTION-REVIEW
+
+After runtime discovery, list at most one requested execution page, up to 64
+items. Orient from that complete list shape; do not call detail merely to probe
+fields. Make one bounded activity call per returned session and retain every
+continuation even when `hasMore` is false. If the developer asks for a second
+observation, reuse each checkpoint once and compare recorded sequences,
+cursors, timestamps, usage, and activity facts. Do not continue to another
+execution page or keep polling unless the developer requests broader review or
+monitoring.
+
+Treat global eviction, selected-session start, selected-session eviction, and
+selected-session retained range as separate cursor facts. Missing facts stay
+missing; never turn them into complete, incomplete, unknown, healthy, stuck, or
+progress states. If an execution disappears, query retained activity by its
+already returned `sessionId`, then try trace resolution once by its already
+returned `traceId`. Preserve `TRACE_UNAVAILABLE`; disappearance does not prove
+finalized evidence and never justifies scanning unrelated trace inventory.
+
 ## WF-EXPENSIVE-EXECUTION
 
 Inspect finalized usage by attempt and frame. Keep direct, descendant,

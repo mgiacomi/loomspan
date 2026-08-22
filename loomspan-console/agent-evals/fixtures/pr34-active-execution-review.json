@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "observations": [
+    {
+      "id": "initial",
+      "executions": [
+        {"sessionId":"session-baseline","traceId":"trace-unavailable","lastCanonicalSequence":2048,"providerAttempts":3,"modelCalls":2},
+        {"sessionId":"session-observed-start","traceId":"trace-observed","lastCanonicalSequence":2049,"providerAttempts":2,"modelCalls":1},
+        {"sessionId":"session-inflight","traceId":"trace-inflight","lastCanonicalSequence":2051,"providerAttempts":1,"modelCalls":0},
+        {"sessionId":"session-unobserved","traceId":"trace-unobserved","lastCanonicalSequence":2052,"providerAttempts":1,"modelCalls":0},
+        {"sessionId":"session-single-attempt-success","traceId":"trace-single-attempt-success","lastCanonicalSequence":2053,"providerAttempts":1,"modelCalls":1}
+      ],
+      "replay": {
+        "fillerFromCursor": 2,
+        "fillerThroughCursor": 2047,
+        "fillerSessionId": "session-other",
+        "fillerTraceId": "trace-other",
+        "activities": [
+          {"cursor":1,"sessionId":"session-baseline","traceId":"trace-unavailable","kind":"TRACE_STARTED"},
+          {"cursor":2048,"sessionId":"session-baseline","traceId":"trace-unavailable","kind":"STEP_COMPLETED"},
+          {"cursor":2049,"sessionId":"session-observed-start","traceId":"trace-observed","kind":"TRACE_STARTED"},
+          {"cursor":2050,"sessionId":"session-inflight","traceId":"trace-inflight","kind":"MODEL_REQUEST_SENT"},
+          {"cursor":2051,"sessionId":"session-inflight","traceId":"trace-inflight","kind":"STEP_STARTED"},
+          {"cursor":2052,"sessionId":"session-unobserved","traceId":"trace-unobserved","kind":"STEP_STARTED"},
+          {"cursor":2053,"sessionId":"session-single-attempt-success","traceId":"trace-single-attempt-success","kind":"TRACE_COMPLETED"}
+        ]
+      },
+      "coverage": {
+        "session-observed-start": {"globalEvictedThroughCursor":"5","sessionStartCursor":"2049","sessionRetainedCursorRange":{"firstCursor":"2049","lastCursor":"2049"}},
+        "session-baseline": {"globalEvictedThroughCursor":"5","sessionStartCursor":"1","sessionEvictedThroughCursor":"1","sessionRetainedCursorRange":{"firstCursor":"2048","lastCursor":"2048"}},
+        "session-unobserved": {"globalEvictedThroughCursor":"5","sessionRetainedCursorRange":{"firstCursor":"2052","lastCursor":"2052"}}
+      },
+      "hasMore": false,
+      "futureCheckpoint": true
+    },
+    {
+      "id": "later",
+      "executions": [
+        {"sessionId":"session-observed-start","traceId":"trace-observed","lastCanonicalSequence":2049,"providerAttempts":2,"modelCalls":1},
+        {"sessionId":"session-inflight","traceId":"trace-inflight","lastCanonicalSequence":2054,"providerAttempts":1,"modelCalls":0},
+        {"sessionId":"session-unobserved","traceId":"trace-unobserved","lastCanonicalSequence":2052,"providerAttempts":1,"modelCalls":0}
+      ],
+      "activities": [
+        {"cursor":2054,"sessionId":"session-inflight","traceId":"trace-inflight","kind":"STEP_COMPLETED"}
+      ],
+      "completedSessionIds":["session-baseline","session-single-attempt-success"],
+      "changedSequence": {"sessionId":"session-inflight","from":2051,"to":2054},
+      "traceResolution":{"trace-single-attempt-success":"AVAILABLE","trace-unavailable":"TRACE_UNAVAILABLE"}
+    }
+  ]
+}

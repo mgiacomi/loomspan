@@ -105,6 +105,9 @@ func (service *Service) ListActiveExecutions(ctx context.Context, scope target.S
 	if domain != nil {
 		return ActivePage{}, domain
 	}
+	if err := validateActivePageJSON(body); err != nil {
+		return ActivePage{}, invalidUpstreamResponse(scope, "active executions", err)
+	}
 	var page ActivePage
 	if err := json.Unmarshal(body, &page); err != nil {
 		return ActivePage{}, consolecore.NewError(consolecore.CodeConsoleError, "The active executions response could not be read.", string(scope.ID), consolecore.Details{}, err)
@@ -130,6 +133,9 @@ func (service *Service) GetActiveExecution(ctx context.Context, scope target.Sco
 	body, domain := scope.Upstream(ctx, endpoint, activeExecutionDetailMaxBytes)
 	if domain != nil {
 		return ActiveExecution{}, domain
+	}
+	if err := validateActiveExecutionJSON(body); err != nil {
+		return ActiveExecution{}, invalidUpstreamResponse(scope, "active execution detail", err)
 	}
 	var execution ActiveExecution
 	if err := json.Unmarshal(body, &execution); err != nil {
@@ -306,6 +312,76 @@ func validateActiveExecution(execution ActiveExecution) error {
 		execution.TotalFrameDepth < 0 || execution.Status == "" || execution.Phase == "" ||
 		execution.ActivePath == nil {
 		return errors.New("execution state is incomplete or invalid")
+	}
+	usage := execution.Usage
+	if usage.SkillInvocations < 0 || usage.ToolInvocations < 0 || usage.LinterRetries < 0 ||
+		usage.ModelCalls < 0 || usage.ProviderAttempts < 0 || usage.PromptUnits < 0 ||
+		usage.CompletionUnits < 0 || usage.UsageUnits < 0 || usage.ExactModelResponses < 0 ||
+		usage.HeuristicModelResponses < 0 || usage.UnavailableModelResponses < 0 {
+		return errors.New("execution usage must not be negative")
+	}
+	limits := execution.ConfiguredLimits
+	if limits.MaxSkillInvocations < 0 || limits.MaxToolInvocations < 0 || limits.MaxLinterRetries < 0 ||
+		limits.MaxModelCalls < 0 || limits.MaxProviderAttempts < 0 || limits.MaxUsageUnits < 0 {
+		return errors.New("execution configured limits must not be negative")
+	}
+	return nil
+}
+
+var requiredUsageMembers = []string{
+	"skillInvocations", "toolInvocations", "linterRetries", "modelCalls", "providerAttempts",
+	"promptUnits", "completionUnits", "usageUnits", "exactModelResponses", "heuristicModelResponses",
+	"unavailableModelResponses",
+}
+
+var requiredLimitMembers = []string{
+	"maxSkillInvocations", "maxToolInvocations", "maxLinterRetries", "maxModelCalls",
+	"maxProviderAttempts", "maxUsageUnits",
+}
+
+func validateActivePageJSON(body []byte) error {
+	var page struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil {
+		return err
+	}
+	for index, item := range page.Items {
+		if err := validateActiveExecutionJSON(item); err != nil {
+			return fmt.Errorf("item %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func validateActiveExecutionJSON(body []byte) error {
+	var execution map[string]json.RawMessage
+	if err := json.Unmarshal(body, &execution); err != nil {
+		return err
+	}
+	if err := requireNonnegativeIntegerMembers(execution["usage"], "usage", requiredUsageMembers); err != nil {
+		return err
+	}
+	return requireNonnegativeIntegerMembers(execution["configuredLimits"], "configuredLimits", requiredLimitMembers)
+}
+
+func requireNonnegativeIntegerMembers(raw json.RawMessage, objectName string, names []string) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return fmt.Errorf("%s is missing", objectName)
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return fmt.Errorf("%s is invalid: %w", objectName, err)
+	}
+	for _, name := range names {
+		valueRaw, ok := members[name]
+		if !ok || string(valueRaw) == "null" {
+			return fmt.Errorf("%s.%s is missing", objectName, name)
+		}
+		var value int
+		if err := json.Unmarshal(valueRaw, &value); err != nil || value < 0 {
+			return fmt.Errorf("%s.%s must be a nonnegative integer", objectName, name)
+		}
 	}
 	return nil
 }

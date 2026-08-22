@@ -115,6 +115,164 @@ func TestPR31EvaluationFixtureExercisesRetryHistogramAndPaginationFacts(t *testi
 	}
 }
 
+func TestPR34EvaluationFixtureExercisesActiveInspectionFactSequence(t *testing.T) {
+	cases, err := LoadCases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolsOnly := cases["pr34-tools-only-active-execution-review"]
+	skillAssisted := cases["pr34-skill-assisted-active-execution-review"]
+	if len(toolsOnly.FixtureSources) != len(skillAssisted.FixtureSources) || toolsOnly.FixtureSources[0] != skillAssisted.FixtureSources[0] {
+		t.Fatal("PR 34 cases must share the same state sequence")
+	}
+	server, err := StartServer(t.TempDir(), toolsOnly, "0.1.0-SNAPSHOT", "0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Close(ctx)
+	}()
+	post := evaluationMCPPoster(t, server)
+	post(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"pr34-eval-test","version":"1"}}}`)
+
+	initial := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"LOOMSPAN_list_executions","arguments":{"pageSize":64}}}`))
+	initialItems := initial["items"].([]any)
+	if len(initialItems) != 5 {
+		t.Fatalf("initial active page = %#v", initialItems)
+	}
+	inFlight := findExecution(t, initialItems, "session-inflight")
+	usage := inFlight["usage"].(map[string]any)
+	if usage["providerAttempts"] != float64(1) || usage["modelCalls"] != float64(0) || inFlight["lastCanonicalSequence"] != float64(2051) {
+		t.Fatalf("initial in-flight execution = %#v", inFlight)
+	}
+
+	firstActivity := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution_activity","arguments":{"sessionId":"session-inflight","pageSize":64}}}`))
+	checkpoint, _ := firstActivity["continuation"].(string)
+	if firstActivity["hasMore"] != false || checkpoint == "" {
+		t.Fatalf("initial checkpoint result = %#v", firstActivity)
+	}
+	baseline := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution_activity","arguments":{"sessionId":"session-baseline","pageSize":64}}}`))
+	baselineCoverage := baseline["coverage"].(map[string]any)
+	if baselineCoverage["globalEvictedThroughCursor"] != "5" || baselineCoverage["sessionStartCursor"] != "1" || baselineCoverage["sessionEvictedThroughCursor"] != "1" {
+		t.Fatalf("baseline coverage = %#v", baselineCoverage)
+	}
+	observed := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution_activity","arguments":{"sessionId":"session-observed-start","pageSize":64}}}`))
+	if coverage := observed["coverage"].(map[string]any); coverage["sessionStartCursor"] != "2049" {
+		t.Fatalf("observed-start coverage = %#v", coverage)
+	}
+	unobserved := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution_activity","arguments":{"sessionId":"session-unobserved","pageSize":64}}}`))
+	if coverage := unobserved["coverage"].(map[string]any); coverage["sessionStartCursor"] != nil || coverage["sessionRetainedCursorRange"] == nil {
+		t.Fatalf("unobserved-start coverage = %#v", coverage)
+	}
+
+	later := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"LOOMSPAN_list_executions","arguments":{"pageSize":64}}}`))
+	laterItems := later["items"].([]any)
+	if len(laterItems) != 3 || findExecution(t, laterItems, "session-inflight")["lastCanonicalSequence"] != float64(2054) {
+		t.Fatalf("later active page = %#v", laterItems)
+	}
+	for _, completed := range []string{"session-baseline", "session-single-attempt-success"} {
+		if executionByID(laterItems, completed) != nil {
+			t.Fatalf("completed session %q remained active", completed)
+		}
+	}
+	if _, domain := server.target.Capture(); domain != nil {
+		t.Fatalf("target changed after later observation: %v snapshot=%+v", domain, server.target.Snapshot())
+	}
+
+	var resumed map[string]any
+	for attempt := 0; attempt < 100; attempt++ {
+		resumed = successfulToolResult(t, post(fmt.Sprintf(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution_activity","arguments":{"sessionId":"session-inflight","pageSize":64,"continuation":%q}}}`, checkpoint)))
+		if len(resumed["items"].([]any)) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	resumedItems := resumed["items"].([]any)
+	if len(resumedItems) != 1 || resumedItems[0].(map[string]any)["cursor"] != "2054" {
+		t.Fatalf("future checkpoint result = %#v", resumed)
+	}
+	successTrace := successfulToolResult(t, post(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"LOOMSPAN_get_trace","arguments":{"traceId":"trace-single-attempt-success"}}}`))
+	if successTrace["evidence"].(map[string]any)["traceId"] != "trace-single-attempt-success" {
+		t.Fatalf("available trace handoff = %#v", successTrace)
+	}
+	assertToolErrorCode(t, post(`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"LOOMSPAN_get_trace","arguments":{"traceId":"trace-unavailable"}}}`), "TRACE_UNAVAILABLE")
+	assertToolErrorCode(t, post(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution","arguments":{"sessionId":"session-single-attempt-success"}}}`), "NOT_FOUND")
+	assertToolErrorCode(t, post(`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"LOOMSPAN_get_execution","arguments":{"sessionId":"session-baseline"}}}`), "NOT_FOUND")
+}
+
+func evaluationMCPPoster(t *testing.T, server *RunningServer) func(string) map[string]any {
+	t.Helper()
+	return func(payload string) map[string]any {
+		t.Helper()
+		request, err := http.NewRequest(http.MethodPost, server.Session.Endpoint, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+server.Session.Key)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Accept", "application/json, text/event-stream")
+		request.Header.Set("MCP-Protocol-Version", "2025-11-25")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("MCP status=%d body=%s err=%v", response.StatusCode, body, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("decode MCP response %s: %v", body, err)
+		}
+		return decoded
+	}
+}
+
+func successfulToolResult(t *testing.T, response map[string]any) map[string]any {
+	t.Helper()
+	call := response["result"].(map[string]any)
+	if call["isError"] == true {
+		t.Fatalf("tool call failed: %#v", response)
+	}
+	envelope := call["structuredContent"].(map[string]any)
+	return envelope["result"].(map[string]any)
+}
+
+func assertToolErrorCode(t *testing.T, response map[string]any, code string) {
+	t.Helper()
+	call := response["result"].(map[string]any)
+	if call["isError"] != true {
+		t.Fatalf("tool call unexpectedly succeeded: %#v", response)
+	}
+	envelope := call["structuredContent"].(map[string]any)
+	errorValue := envelope["error"].(map[string]any)
+	if errorValue["code"] != code {
+		t.Fatalf("tool error code = %#v, want %s", errorValue, code)
+	}
+}
+
+func findExecution(t *testing.T, items []any, sessionID string) map[string]any {
+	t.Helper()
+	if found := executionByID(items, sessionID); found != nil {
+		return found
+	}
+	t.Fatalf("execution %q not found in %#v", sessionID, items)
+	return nil
+}
+
+func executionByID(items []any, sessionID string) map[string]any {
+	for _, item := range items {
+		execution := item.(map[string]any)
+		if execution["sessionId"] == sessionID {
+			return execution
+		}
+	}
+	return nil
+}
+
 func TestSlowEvaluationServerReusesAuthoritativeActiveAndActivityFixtures(t *testing.T) {
 	cases, _ := LoadCases()
 	server, err := StartServer(t.TempDir(), cases["slow-execution"], "0.1.0-SNAPSHOT", "0123456789abcdef")

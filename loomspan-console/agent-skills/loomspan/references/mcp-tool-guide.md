@@ -9,10 +9,22 @@ Target skill evidence:
 
 Live execution evidence:
 
-- `LOOMSPAN_list_executions` lists bounded provisional execution summaries.
+- `LOOMSPAN_list_executions` lists complete bounded provisional orientation
+  facts; detail is a later observation, not a richer shape.
 - `LOOMSPAN_get_execution` returns one provisional active execution.
 - `LOOMSPAN_get_execution_activity` returns bounded ordered recent activity
-  with observation and continuity facts.
+  with observation, continuity, returned range, and exact coverage cursor
+  facts. `hasMore` means retained matching backlog now. Keep every returned
+  continuation as a future checkpoint even after `hasMore: false`; an empty
+  filtered call may advance it to the current continuity boundary.
+
+Live usage counts provider attempts on physical sends. Response-only model and
+unit counters may still be zero during an in-flight send. A present usage zero
+is observed zero; a configured-limit zero means disabled or unlimited
+enforcement. Missing coverage cursors must not be converted into a coverage
+state. If a listed execution disappears, use its returned `sessionId` for one
+retained-activity query and its returned `traceId` for one trace-resolution
+attempt. Preserve `TRACE_UNAVAILABLE` and do not scan unrelated inventory.
 
 Finalized trace evidence follows one workflow:
 

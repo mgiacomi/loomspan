@@ -31,7 +31,7 @@ type authTransport struct {
 func TestCompatible2025ProtocolInitializesListsAndCallsRealRuntimeTool(t *testing.T) {
 	const (
 		prePR28ToolsListResponseBytes  = 34371
-		expectedToolsListResponseBytes = 23495
+		expectedToolsListResponseBytes = 25588
 	)
 	credentials := fakeCredentials{state: mcpcredential.Snapshot{State: mcpcredential.Enabled, Generation: 4}, key: "secret"}
 	options := newMCPTestOptions(t, func(endpoint string) ([]byte, error) {

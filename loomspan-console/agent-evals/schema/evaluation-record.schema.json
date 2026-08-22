@@ -4,7 +4,7 @@
   "title": "Loomspan agent evaluation record v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "runId", "conversationId", "caseId", "recordedAt", "os", "clientProduct", "clientBuild", "model", "skillVersion", "consoleVersion", "consoleCommit", "runOrdinal", "mcpProtocol", "capabilities", "operations", "identifiers", "supportedFacts", "limitations", "finalAnswer", "eventStreamKind", "eventStreamComplete", "clientEvents", "rubric", "hardGateFailures", "passed"],
+  "required": ["schemaVersion", "runId", "conversationId", "caseId", "recordedAt", "os", "clientProduct", "clientBuild", "model", "consoleVersion", "consoleCommit", "runOrdinal", "mcpProtocol", "capabilities", "operations", "identifiers", "supportedFacts", "limitations", "finalAnswer", "eventStreamKind", "eventStreamComplete", "clientEvents", "rubric", "hardGateFailures", "passed"],
   "properties": {
     "schemaVersion": {"const": 1},
     "runId": {"type": "string", "minLength": 1},
@@ -16,7 +16,6 @@
     "clientProduct": {"type": "string", "minLength": 1},
     "clientBuild": {"type": "string", "minLength": 1},
     "model": {"type": "string", "minLength": 1},
-    "skillVersion": {"type": "string", "minLength": 1},
     "consoleVersion": {"type": "string", "minLength": 1},
     "consoleCommit": {"type": "string", "minLength": 1},
     "runOrdinal": {"type": "integer", "minimum": 1},

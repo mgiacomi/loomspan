@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const maxToolsListResponseBytes = 23 << 10
+const maxToolsListResponseBytes = 25 << 10
 
 func compactFalseSchema() *jsonschema.Schema { return &jsonschema.Schema{Not: &jsonschema.Schema{}} }
 
@@ -163,26 +163,58 @@ func skillDetailOutputSchema() *jsonschema.Schema {
 	return compactEnvelopeSchema(compactObject([]string{"observedAt", "skill"}, map[string]*jsonschema.Schema{"observedAt": compactString(), "skill": skill}, true))
 }
 func executionListOutputSchema() *jsonschema.Schema {
-	item := compactObject([]string{"sessionId", "traceId", "entrySkill", "status", "phase"}, map[string]*jsonschema.Schema{
-		"sessionId": compactString(), "traceId": compactString(), "entrySkill": compactString(), "status": compactString(), "phase": compactString(),
-	}, true)
-	return compactEnvelopeSchema(compactPageResult(item, "observedAt"))
+	return compactEnvelopeSchema(compactPageResult(compactExecutionSchema(), "observedAt"))
 }
 func executionDetailOutputSchema() *jsonschema.Schema {
-	execution := compactObject([]string{"sessionId", "traceId", "status", "phase", "activePath", "usage", "configuredLimits"}, map[string]*jsonschema.Schema{
-		"sessionId": compactString(), "traceId": compactString(), "status": compactString(), "phase": compactString(),
-		"activePath": compactArray(compactOpenObject()), "usage": compactOpenObject(), "configuredLimits": compactOpenObject(),
-	}, true)
-	return compactEnvelopeSchema(compactObject([]string{"observedAt", "execution"}, map[string]*jsonschema.Schema{"observedAt": compactString(), "execution": execution}, true))
+	return compactEnvelopeSchema(compactObject([]string{"observedAt", "execution"}, map[string]*jsonschema.Schema{"observedAt": compactString(), "execution": compactExecutionSchema()}, true))
 }
 func activityOutputSchema() *jsonschema.Schema {
+	unspecified := func() *jsonschema.Schema { return &jsonschema.Schema{} }
 	item := compactObject([]string{"cursor", "sessionId", "traceId", "timestamp", "kind", "summary", "details"}, map[string]*jsonschema.Schema{
-		"cursor": compactString(), "sessionId": compactString(), "traceId": compactString(), "timestamp": compactString(), "kind": compactString(), "summary": compactString(), "details": &jsonschema.Schema{},
-	}, true)
+		"cursor": unspecified(), "sessionId": unspecified(), "traceId": unspecified(), "canonicalSequence": unspecified(),
+		"timestamp": unspecified(), "kind": unspecified(), "executionStatus": unspecified(), "frameId": unspecified(),
+		"parentFrameId": unspecified(), "frameType": unspecified(), "route": unspecified(), "summary": unspecified(), "details": unspecified(),
+	}, false)
 	result := compactPageResult(item, "observedAt")
-	result.Required = append(result.Required, "beginningUnavailable")
-	result.Properties["beginningUnavailable"] = compactBoolean()
+	rangeSchema := func() *jsonschema.Schema {
+		return compactObject([]string{"firstCursor", "lastCursor"}, map[string]*jsonschema.Schema{"firstCursor": unspecified(), "lastCursor": unspecified()}, false)
+	}
+	reset := compactObject([]string{"cause", "timestamp"}, map[string]*jsonschema.Schema{"cause": unspecified(), "timestamp": unspecified(), "cursor": unspecified()}, false)
+	result.Properties["returnedCursorRange"] = rangeSchema()
+	result.Properties["continuity"] = compactObject([]string{"intervalId"}, map[string]*jsonschema.Schema{
+		"intervalId": unspecified(), "firstCursor": unspecified(), "lastCursor": unspecified(), "observedAt": unspecified(), "reset": reset,
+	}, false)
+	result.Required = append(result.Required, "coverage")
+	result.Properties["coverage"] = compactObject(nil, map[string]*jsonschema.Schema{
+		"globalEvictedThroughCursor": unspecified(), "sessionStartCursor": unspecified(),
+		"sessionEvictedThroughCursor": unspecified(), "sessionRetainedCursorRange": rangeSchema(),
+	}, false)
 	return compactEnvelopeSchema(result)
+}
+
+func compactExecutionSchema() *jsonschema.Schema {
+	unspecified := func() *jsonschema.Schema { return &jsonschema.Schema{} }
+	path := compactObject(nil, map[string]*jsonschema.Schema{
+		"frameId": unspecified(), "frameType": unspecified(), "route": unspecified(),
+	}, false)
+	usageNames := []string{"skillInvocations", "toolInvocations", "linterRetries", "modelCalls", "providerAttempts", "promptUnits", "completionUnits", "usageUnits", "exactModelResponses", "heuristicModelResponses", "unavailableModelResponses"}
+	usageProperties := make(map[string]*jsonschema.Schema, len(usageNames))
+	for _, name := range usageNames {
+		usageProperties[name] = unspecified()
+	}
+	limitNames := []string{"maxSkillInvocations", "maxToolInvocations", "maxLinterRetries", "maxModelCalls", "maxProviderAttempts", "maxUsageUnits"}
+	limitProperties := make(map[string]*jsonschema.Schema, len(limitNames))
+	for _, name := range limitNames {
+		limitProperties[name] = unspecified()
+	}
+	required := []string{"sessionId", "traceId"}
+	return compactObject(required, map[string]*jsonschema.Schema{
+		"sessionId": unspecified(), "traceId": unspecified(), "lastCanonicalSequence": unspecified(),
+		"startedAt": unspecified(), "updatedAt": unspecified(), "elapsedMillis": unspecified(), "entrySkill": unspecified(),
+		"status": unspecified(), "phase": unspecified(), "summary": unspecified(), "activePath": compactArray(path),
+		"totalFrameDepth": unspecified(), "activePathTruncated": unspecified(),
+		"usage": compactObject(nil, usageProperties, false), "configuredLimits": compactObject(nil, limitProperties, false),
+	}, false)
 }
 func traceListOutputSchema() *jsonschema.Schema {
 	item := compactObject([]string{"traceId", "evidenceSources"}, map[string]*jsonschema.Schema{"traceId": compactString(), "evidenceSources": compactArray(compactString())}, true)

@@ -54,7 +54,6 @@ type EvaluationRecord struct {
 	ClientProduct       string                  `json:"clientProduct"`
 	ClientBuild         string                  `json:"clientBuild"`
 	Model               string                  `json:"model"`
-	SkillVersion        string                  `json:"skillVersion"`
 	ConsoleVersion      string                  `json:"consoleVersion"`
 	ConsoleCommit       string                  `json:"consoleCommit"`
 	RunOrdinal          int                     `json:"runOrdinal"`
@@ -80,7 +79,6 @@ type ClientTranscript struct {
 	ClientProduct       string                  `json:"clientProduct"`
 	ClientBuild         string                  `json:"clientBuild"`
 	Model               string                  `json:"model"`
-	SkillVersion        string                  `json:"skillVersion"`
 	RunOrdinal          int                     `json:"runOrdinal"`
 	MCPProtocol         string                  `json:"mcpProtocol"`
 	Capabilities        []string                `json:"capabilities"`
@@ -115,7 +113,7 @@ func ValidateRecord(record EvaluationRecord, cases map[string]Case) error {
 		return fmt.Errorf("recordedAt must be UTC")
 	}
 	for name, value := range map[string]string{"os": record.OS, "clientProduct": record.ClientProduct, "clientBuild": record.ClientBuild,
-		"model": record.Model, "skillVersion": record.SkillVersion, "consoleVersion": record.ConsoleVersion, "consoleCommit": record.ConsoleCommit,
+		"model": record.Model, "consoleVersion": record.ConsoleVersion, "consoleCommit": record.ConsoleCommit,
 		"mcpProtocol": record.MCPProtocol, "eventStreamKind": record.EventStreamKind} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
@@ -123,9 +121,6 @@ func ValidateRecord(record EvaluationRecord, cases map[string]Case) error {
 	}
 	if record.RunOrdinal < 1 || strings.TrimSpace(record.FinalAnswer) == "" || len(record.FinalAnswer) > 64*1024 {
 		return fmt.Errorf("run ordinal and final answer are required")
-	}
-	if record.SkillVersion != "1.0.1" && caseValue.SkillAvailable == nil {
-		return fmt.Errorf("unexpected skill version %q", record.SkillVersion)
 	}
 	if !sameStrings(record.WorkflowIDs, caseValue.WorkflowIDs) {
 		return fmt.Errorf("record workflow IDs must match the evaluation case")
@@ -272,7 +267,7 @@ func ImportRecord(session Session, transcriptFile, answerFile string, cases map[
 		SchemaVersion: RecordSchemaVersion, RunID: transcript.RunID, ConversationID: transcript.ConversationID,
 		CaseID: session.CaseID, WorkflowIDs: caseValue.WorkflowIDs, RecordedAt: time.Now().UTC(), OS: currentOS(),
 		ClientProduct: transcript.ClientProduct, ClientBuild: transcript.ClientBuild, Model: transcript.Model,
-		SkillVersion: transcript.SkillVersion, ConsoleVersion: session.ConsoleVersion, ConsoleCommit: session.ConsoleCommit,
+		ConsoleVersion: session.ConsoleVersion, ConsoleCommit: session.ConsoleCommit,
 		RunOrdinal: transcript.RunOrdinal, MCPProtocol: transcript.MCPProtocol, Capabilities: transcript.Capabilities,
 		Operations: transcript.Operations, Identifiers: transcript.Identifiers, FinalAnswer: strings.TrimSpace(string(answer)), EventStreamKind: transcript.EventStreamKind,
 		SupportedFacts: transcript.SupportedFacts, Limitations: transcript.Limitations,

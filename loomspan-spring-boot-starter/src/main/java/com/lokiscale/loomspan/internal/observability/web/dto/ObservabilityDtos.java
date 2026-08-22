@@ -35,12 +35,14 @@ public final class ObservabilityDtos
             int maxToolInvocations,
             int maxLinterRetries,
             int maxModelCalls,
-             int maxUsageUnits) {}
+            int maxProviderAttempts,
+            int maxUsageUnits) {}
     public record Usage(
             int skillInvocations,
             int toolInvocations,
             int linterRetries,
             int modelCalls,
+            int providerAttempts,
             int promptUnits,
             int completionUnits,
             int usageUnits,

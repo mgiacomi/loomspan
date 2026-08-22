@@ -23,6 +23,13 @@ usage, or a supported limit ratio. They are not monetary cost, correctness,
 importance, diagnosis, or action recommendations. Do not sum overlapping
 inclusive frame usage.
 
+For live coverage, state exact cursor facts rather than a coverage label.
+Global eviction alone does not say the selected session lost activity. An
+observed session start, selected-session eviction, retained range, reset, and
+returned range answer different questions. Omitted cursors remain omitted.
+Observed usage zero means the counter has not accrued; a configured limit of
+zero means that enforcement dimension is disabled or unlimited.
+
 Application diagnostic content can contain secrets. Loomspan does not
 secret-scan application YAML, paths, messages, tool inputs, diagnostics,
 semantic content, or raw bytes. Authorized retrieval also does not control what the
